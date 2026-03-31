@@ -1,0 +1,69 @@
+## PR-4：测试与端到端验证（黑盒优先，不改生产逻辑）
+
+隔离强调（必须遵守）：
+- 本 PR 必须与其他 Agent 的改动范围互斥：**不允许多个 Agent 同时修改同一份代码/同一模块**。
+- 允许修改范围（仅限）：各模块的测试目录与测试夹具（例如 `**/src/test/**`、`**/test/**`、`**/__tests__/**`、`docs/**` 中的测试说明文档）
+- 禁止修改范围：任何生产代码目录（例如 `**/src/main/**`、Runner 的生产代码目录等）；如确需可测性开关，只允许在 test/ 或 profile 下增加最小开关与夹具，且不得改变默认生产行为
+
+当前进度（已落地）：
+- 已新增：`shared-protocol` 的最小 serde 单测（当前仅覆盖 CreateTaskRequest）
+- 已新增/更新：`control-plane-spring` 的 `ArtifactsIntegrationTest`，覆盖 artifacts 上传/列表/下载、鉴权失败、非成员 404、审计导出链校验
+
+待补齐（仍在 PR-4 范围内）：
+- shared-protocol：事件 payload 的 (de)serialization + 必填字段校验 + eventVersion 兼容（目前未覆盖）
+- runner：policy 单测 + runner 冒烟（mock claudecode）与端到端（目前未开始）
+- CI 命令说明与覆盖矩阵文档（目前未写）
+
+Review 风险提示（用于规划测试策略）：
+- 在 PR-1 的 Event/Artifacts DTO 与 schema 校验补齐前，PR-2 的 artifacts API 会继续以 `GatewayResponse + Map` 形式存在；测试断言需避免“强类型字段必然存在”的假设，优先验证 HTTP 状态码/鉴权/审计链/下载字节等黑盒行为，待 PR-1 完成后再收敛为强契约断言。
+
+定位：
+- 用“外部视角”验证：移动端目标产品的契约一致性、端到端链路、以及执行面安全策略 default-deny。
+- 断言基于：协议字段/HTTP 状态/审计链/产物内容；尽量不依赖内部实现类。
+
+最小覆盖矩阵：
+- shared-protocol：
+  - 新增事件 payload 的 (de)serialization 与 schema 必填校验
+  - eventVersion 兼容策略（新字段可选、旧 payload 不破）
+- control-plane（黑盒）：
+  - artifacts：登记/上传→列表→下载
+  - 下载鉴权：无权限拒绝；成功下载写审计链；prevHash 链接正确
+- python runner（灰盒/黑盒）：
+  - policy：workspace 越界/禁网/非白名单命令必须拒绝
+  - 事件序列：TASK_STARTED → (SPEC/BUILD/ARTIFACT_READY) → TASK_DONE/FAILED
+- 端到端：
+  - CreateTask → Runner 执行 → 事件订阅可读（seq）→ 下载 zip 可解压且包含必要产物
+
+范围（必须做）：
+- shared-protocol 单测：新增事件 payload 的 (de)serialization + 必填字段校验 + eventVersion 兼容
+- control-plane 集成测试：artifacts 登记/上传→列表→下载 + 鉴权失败用例 + 审计链 prevHash 验证
+- runner 测试：policy 单测（越界/禁网/白名单）+ runner 冒烟（mock claudecode，验证事件序列与产物落盘）
+- （强烈建议）端到端：启动 control plane + runner，创建任务，等到 ARTIFACT_READY，下载 zip 校验可解压与关键文件存在
+
+不做：
+- 不允许为了测试改生产业务逻辑（允许在 test/ 或 profile 下增加最小可测试性开关与夹具）
+- 不新增/修改 shared-protocol 的字段与语义（缺口回 PR-1）
+
+验收标准：
+- 测试可重复运行、无顺序依赖、异步验证有超时与退避重试，避免 flakes
+- 覆盖矩阵可追溯：需求点 → 用例 → 断言依据（协议字段/HTTP 状态/审计链/zip 内容）
+- CI 可运行的测试命令说明（docs/ 或 README）
+
+Agent Prompt（PR-4 / 测试 Agent）：
+
+你是一个资深测试/质量工程师（后端/分布式/安全）。请新增或完善自动化测试，验证“移动端自然语言生成 Web/小程序应用平台（B：zip 导出）”的契约一致性与端到端正确性。坚持黑盒优先：断言基于 shared-protocol 与 Control Plane 对外 API 行为，而非内部实现细节。
+
+强约束：
+- 不允许为了测试改生产业务逻辑（允许在 test/ 或 profile 下增加最小可测试性开关与夹具）
+- 异步事件验证必须有超时、退避重试，避免 flakes
+- 测试必须可重复运行、无顺序依赖
+
+必须交付：
+1) shared-protocol 单测：新增事件 payload 的 (de)serialization + 必填字段校验 + eventVersion 兼容
+2) control-plane 集成测试：artifacts 登记/上传→列表→下载 + 鉴权失败用例 + 审计链 prevHash 验证
+3) runner 测试：policy 单测（越界/禁网/白名单）+ runner 冒烟（mock claudecode）
+4) 端到端（强烈建议）：启动 control plane + runner，创建任务，等到 ARTIFACT_READY，下载 zip 校验可解压与关键文件存在
+
+交付物：
+- CI 可运行的测试命令说明（docs/ 或 README）
+- 覆盖矩阵：需求点 → 用例 → 断言依据（协议字段/HTTP 状态/审计链/zip 内容）

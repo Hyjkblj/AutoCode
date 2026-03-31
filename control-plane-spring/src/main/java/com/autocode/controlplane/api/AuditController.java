@@ -10,6 +10,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.stream.Collectors;
 
@@ -23,19 +24,23 @@ public class AuditController {
     }
 
     @GetMapping("/export")
-    @PreAuthorize("@projectAuthz.canAccessTask(#taskId)")
+    // Use #p0 for SpEL stability without Java -parameters.
+    @PreAuthorize("hasAnyAuthority('ROLE_OPERATOR','ROLE_ADMIN') or @projectAuthz.canAccessTask(#p0)")
     public ResponseEntity<ApiResponse<Map<String, Object>>> exportByTask(@RequestParam("taskId") String taskId) {
         List<AuditLogEntity> logs = auditLogRepository.findByTaskIdOrderByCreatedAtAscAuditIdAsc(taskId);
-        List<Map<String, Object>> items = logs.stream().map(l -> Map.<String, Object>of(
-                "auditId", l.getAuditId(),
-                "taskId", l.getTaskId(),
-                "actor", l.getActor(),
-                "action", l.getAction(),
-                "createdAt", l.getCreatedAt(),
-                "prevHash", l.getPrevHash(),
-                "entryHash", l.getEntryHash(),
-                "detailsJson", l.getDetailsJson()
-        )).collect(Collectors.toList());
+        // Map.of(...) disallows null values, but prevHash/detailsJson can be null for the first entry.
+        List<Map<String, Object>> items = logs.stream().map(l -> {
+            Map<String, Object> m = new HashMap<>();
+            m.put("auditId", l.getAuditId());
+            m.put("taskId", l.getTaskId());
+            m.put("actor", l.getActor());
+            m.put("action", l.getAction());
+            m.put("createdAt", l.getCreatedAt());
+            m.put("prevHash", l.getPrevHash());
+            m.put("entryHash", l.getEntryHash());
+            m.put("detailsJson", l.getDetailsJson());
+            return m;
+        }).collect(Collectors.toList());
 
         boolean chainValid = true;
         String prev = null;

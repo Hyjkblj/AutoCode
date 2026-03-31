@@ -1,0 +1,66 @@
+## PR-3：真实 Python Runner（claudecode-runner）+ 最小权限策略（default-deny）
+
+隔离强调（必须遵守）：
+- 本 PR 必须与其他 Agent 的改动范围互斥：**不允许多个 Agent 同时修改同一份代码/同一模块**。
+- 允许修改范围（仅限）：Python Runner 工程目录（例如 `runner/**` 或 `python-runner/**` 或 `claudecode-runner/**`，以仓库实际为准）
+- 禁止修改范围：`shared-protocol/**`、`control-plane-spring/**`、以及其他非 Runner 目录
+
+当前进度：
+- 未开始（仓库当前变更集中在 PR-1/PR-2/PR-4；暂无 Runner 代码落地）
+
+前置依赖（建议先确认）：
+- Control Plane artifacts 上传接口已存在：`POST /api/v1/tasks/{taskId}/artifacts`（支持 agent token）
+- 下载鉴权目前为 shared-token（`artifacts.download.shared-token`），Runner 上传不依赖该 token
+- shared-protocol 的事件 payload DTO 仍不完整：Runner 侧应暂时按现有 control-plane 事件摄取 API 对齐；协议缺口回 PR-1
+
+目标：
+- 做出可在 Windows 上运行的“真实执行面”：领取任务→受控执行→结构化事件→产物上传→移动端可下载 zip。
+
+范围（必须做）：
+- runtime：
+  - poll/claim/lease 语义对齐（以现有 Control Plane API 为准）
+  - retry/backoff，runId 贯穿
+- policy（default-deny）：
+  - workspace allowlist（禁止越界读写）
+  - 禁网（默认禁止；放开必须显式策略+审批）
+  - 命令白名单/工具最小集（所有 subprocess 必须经过 policy 校验与审计）
+  - 触发审批：高风险动作发出 APPROVAL_REQUIRED，并等待 APPROVAL_RESULT
+- runner：
+  - claudecode 非交互调用封装（可替换接口）
+  - 输出解析为结构化 TaskEvent（eventVersion 完整）
+  - 产物生成：spec.json、build-report.json、export.zip（可选 diff.patch/README.generated.md）
+- client：
+  - Control Plane API client：PollNextTask / IngestEvent / artifacts 上传或登记
+
+不做：
+- 不改 Control Plane 业务规则与存储
+- 不扩展协议（缺口回 PR-1）
+
+验收标准：
+- 本地端到端可跑：创建任务→Runner 执行→事件可订阅→ARTIFACT_READY→下载 zip 可解压
+- policy 默认拒绝：路径越界/禁网/非白名单命令必须拒绝并上报可解释事件
+
+Agent Prompt（PR-3 / 真实 Python Runner Agent）：
+
+你是一个资深 Python Agent/Runner 工程师。请用 Python 实现“真实执行面 Runner”，让移动端自然语言生成 Web/小程序工程的任务能够在本地（Windows）受控执行并产出 zip。你只能通过 shared-protocol + Control Plane HTTP API 通信。禁止修改 shared-protocol 与 control-plane-spring。
+
+必须实现：
+- 目录分层（建议）：runtime/ policy/ runner/ client/ tool（或等价）
+- client：
+  - PollNextTask / IngestEvent / Artifacts 上传或登记（对齐 control plane API）
+- policy（default-deny）：
+  - workspace allowlist（所有路径必须归一化后校验）
+  - 禁网（默认禁止）
+  - subprocess 命令白名单（所有执行必须走统一的受控执行器）
+  - 高风险触发审批：发 APPROVAL_REQUIRED，等待 APPROVAL_RESULT
+- runner/claudecode-runner：
+  - claudecode 非交互调用封装（接口抽象，便于未来替换）
+  - 将输出/日志映射成结构化事件：SPEC_PROPOSED、FILE_PATCH_PREVIEW、BUILD_*、ARTIFACT_READY
+  - 生成产物：spec.json、build-report.json、export.zip（可选 diff.patch/README.generated.md）
+- tests：
+  - policy 单测（越界/禁网/非白名单）
+  - runner 冒烟（mock claudecode 输出，验证事件序列与产物落盘）
+
+工程化要求：
+- 选择一种依赖管理（poetry/uv/pip-tools 其一）并提供可复现安装方式
+- 日志结构化（至少含 taskId/runId），错误分类清晰

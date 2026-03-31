@@ -1,0 +1,72 @@
+## PR-1：协议与契约（shared-protocol）——“先把语言统一”
+
+隔离强调（必须遵守）：
+- 本 PR 必须与其他 Agent 的改动范围互斥：**不允许多个 Agent 同时修改同一份代码/同一模块**。
+- 允许修改范围（仅限）：`shared-protocol/**`
+- 禁止修改范围：`control-plane-spring/**`、任何 Python Runner 目录（如 `runner/**`、`python-runner/**`、`claudecode-runner/**`，以仓库实际为准）、以及其他非 `shared-protocol` 目录
+
+当前进度（已落地 / 已修复）：
+- 已新增：`CreateTaskRequest`（legacy + structured 字段并存，保持可选兼容）
+- 已新增：`ApprovalContext`、`ArtifactMetadata`
+- 已新增：最小 serde 单测（`shared-protocol/src/test/.../CreateTaskRequestSerdeTest.java`）
+- 已补充：`shared-protocol/pom.xml` 增加 jackson-databind/jsr310 与 JUnit5（用于测试）
+- 已修复：`CreateTaskRequest.java` 曾被重复拼接导致不可编译，现已收敛为单一定义
+
+待补齐（仍在 PR-1 范围内）：
+- Event payload DTO（SPEC_PROPOSED / FILE_PATCH_PREVIEW / BUILD_* / APPROVAL_* / ARTIFACT_READY）与 eventVersion 策略（目前协议覆盖不完整）
+- schema 校验（必填字段校验）与对应单测
+- 2 份示例 JSON（至少 SPEC_PROPOSED、ARTIFACT_READY）
+
+Review 标注缺口（暂不强行改动，但必须在 PR-1 内完成）：
+- 当前协议落地主要集中在 `CreateTaskRequest` / `ApprovalContext` / `ArtifactMetadata` 与最小 serde test；但 **Event payload DTO / eventVersion / schema 校验 / 示例 JSON** 仍缺，导致 PR-2/PR-3/PR-4 只能走“松散 Map 契约/临时断言”路径，后续需要回填并收敛。
+
+目标：
+- 定义移动端“自然语言生成应用”的稳定契约，支撑 B 阶段 zip 导出与审批/审计，且为 A 阶段演进留好版本空间。
+
+范围（必须做）：
+- Task 输入（CreateTaskRequest）建议字段（保持可选与向后兼容）：
+  - identity：projectId/tenantId、idempotencyKey
+  - intent：prompt、target(web|miniapp)、templateId、exportMode(zip|git)
+  - execution：workspaceRef（B：path；A：workspaceId）、agentProfile、sessionKey
+  - risk：riskPolicy(low|medium|high)
+- Event 事件类型与 payload（至少覆盖）：
+  - TASK_CREATED/TASK_STARTED/TASK_DONE/TASK_FAILED
+  - SPEC_PROPOSED（产出 spec.json 的结构化摘要/引用）
+  - FILE_PATCH_PREVIEW（变更预览：patch 或文件清单 + hash）
+  - BUILD_STARTED/BUILD_LOG/BUILD_DONE（构建过程与摘要）
+  - APPROVAL_REQUIRED/APPROVAL_RESULT（审批门禁）
+  - ARTIFACT_READY（artifactId/hash/size/mime/type）
+- ApprovalContext（强绑定）字段：
+  - action（app.generate/app.iterate/app.publish）
+  - tool（claudecode.run/build.run/publish.run）
+  - workspaceRef（path 或 id）
+  - inputsHash（规范化输入 hash，防漂移）
+- schema 校验与版本化：
+  - payload 必填字段
+  - eventVersion 版本管理
+  - 向后兼容策略（新增字段只增不改、默认值语义）
+
+不做：
+- Control Plane API/存储实现
+- Runner 实现
+
+验收标准：
+- 协议模块编译 + 单测通过
+- 新增 DTO 的序列化/反序列化 + schema 校验覆盖
+- 给出 2 份示例 JSON（至少 SPEC_PROPOSED、ARTIFACT_READY）
+
+Agent Prompt（PR-1 / 协议 Agent）：
+
+你是一个资深“契约工程师”。请仅修改 shared-protocol，补齐移动端自然语言生成 Web/小程序应用所需的稳定协议契约。保持高内聚低耦合、契约优先、向后兼容。禁止修改 control-plane-spring 与 runner。
+
+必须实现：
+- CreateTaskRequest（identity/intent/execution/risk）字段补齐（新增字段保持可选）
+- Event 类型与 payload DTO：SPEC_PROPOSED、FILE_PATCH_PREVIEW、BUILD_*、APPROVAL_*、ARTIFACT_READY 等
+- Artifacts 元数据 DTO（artifactId/hash/size/mime/type）
+- ApprovalContext（action/tool/workspaceRef/inputsHash）
+- schema 校验与 eventVersion 版本化策略，并补充 (de)serialization 单测
+
+质量门槛：
+- 不引入 Spring/JPA/Redis/WS 依赖
+- DTO 命名一致、避免循环依赖
+- 给出示例 payload 与兼容说明

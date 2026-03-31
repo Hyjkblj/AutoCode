@@ -8,10 +8,14 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
+import java.util.List;
 
 @Component
 public class TokenAuthFilter extends OncePerRequestFilter {
@@ -37,7 +41,42 @@ public class TokenAuthFilter extends OncePerRequestFilter {
                 response.getWriter().write("{\"ok\":false,\"error\":\"invalid agent token\"}");
                 return;
             }
+            // Best-effort identity wiring so method-security (@PreAuthorize) can work in token mode.
+            // The token mode is intentionally minimal; we only distinguish agent vs operator roles.
+            SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken(
+                    "agent",
+                    token,
+                    List.of(new SimpleGrantedAuthority("ROLE_AGENT"))
+            ));
             filterChain.doFilter(request, response);
+            return;
+        }
+
+        // B-stage artifact upload is performed by runner (agent) but lives under /api/v1/tasks/* per API plan.
+        // We allow either operator bearer token OR agent token for this endpoint only.
+        if (path.matches("^/api/v1/tasks/[^/]+/artifacts/?$") && "POST".equalsIgnoreCase(request.getMethod())) {
+            String authHeader = request.getHeader("Authorization");
+            if (isAllowedOperatorAuthHeader(authHeader)) {
+                SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken(
+                        "operator",
+                        authHeader,
+                        List.of(new SimpleGrantedAuthority("ROLE_OPERATOR"))
+                ));
+                filterChain.doFilter(request, response);
+                return;
+            }
+            String agentToken = request.getHeader("X-Agent-Token");
+            if (isAllowedAgentToken(agentToken)) {
+                SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken(
+                        "agent",
+                        agentToken,
+                        List.of(new SimpleGrantedAuthority("ROLE_AGENT"))
+                ));
+                filterChain.doFilter(request, response);
+                return;
+            }
+            response.setStatus(HttpStatus.UNAUTHORIZED.value());
+            response.getWriter().write("{\"ok\":false,\"error\":\"invalid token\"}");
             return;
         }
 
@@ -47,6 +86,11 @@ public class TokenAuthFilter extends OncePerRequestFilter {
             response.getWriter().write("{\"ok\":false,\"error\":\"invalid operator token\"}");
             return;
         }
+        SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken(
+                "operator",
+                authHeader,
+                List.of(new SimpleGrantedAuthority("ROLE_OPERATOR"))
+        ));
         filterChain.doFilter(request, response);
     }
 

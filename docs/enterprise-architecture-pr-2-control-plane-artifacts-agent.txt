@@ -1,0 +1,59 @@
+## PR-2：Control Plane 产物体系 + 下载鉴权 + 审计链（B 阶段关键交付）
+
+隔离强调（必须遵守）：
+- 本 PR 必须与其他 Agent 的改动范围互斥：**不允许多个 Agent 同时修改同一份代码/同一模块**。
+- 允许修改范围（仅限）：`control-plane-spring/**`
+- 禁止修改范围：`shared-protocol/**`、任何 Python Runner 目录（如 `runner/**`、`python-runner/**`、`claudecode-runner/**`，以仓库实际为准）、以及其他非 `control-plane-spring` 目录
+
+当前进度（已落地 / 已修复）：
+- 已新增 API：`ArtifactsController`（upload/list/download）
+- 已新增分层模块：`controlplane/artifacts/{domain,application,ports,adapters}`（本地存储 + 下载 token 鉴权 + 审计写入）
+- 已新增持久化：`ArtifactEntity`、`ArtifactEntityRepository`、迁移 `V11__add_artifacts_table.sql`
+- 已新增异常映射：`ArtifactsExceptionHandler`（对非成员访问返回 404，避免枚举）
+- 已更新安全：`TokenAuthFilter` 允许 agent 对 `/api/v1/tasks/{taskId}/artifacts` 进行 POST 上传（其余仍按 operator/agent 角色区分）
+- 已更新/新增集成测试：`ArtifactsIntegrationTest` 覆盖上传→列表→下载、缺失任务 404、非成员 404，以及审计导出链校验
+- 已修复：list 返回中 `Map.of(...)` 可能因 null 抛异常（改为允许 null 的 map 构造）
+
+待确认/待补齐（仍在 PR-2 范围内）：
+- “对外 DTO 使用 shared-protocol”目前 artifacts endpoints 使用 `GatewayResponse + Map`（已可用但契约仍偏松散）；如要严格契约化，需要补齐 shared-protocol 对应 DTO 并在这里替换
+- 下载鉴权目前是 `artifacts.download.shared-token`（shared token）策略；若要短期 token/签名 URL，需要新增 token 发行/验证或对象存储签名适配
+
+Review 标注缺口（暂不强行改动）：
+- PR-2 当前采取 `GatewayResponse + Map` 是“先跑通链路”的实现方式，契约约束偏弱；若要满足“对外 DTO 使用 shared-protocol”的严格要求，需要 **先由 PR-1 补齐 Artifacts/Event 的稳定 DTO**，再在本 PR 中将 controller/service 返回替换为强类型 DTO（保持向后兼容与最小破坏）。
+
+目标：
+- 让移动端能看到“产物列表/下载”，并对下载与审批写审计链（最小可用 hash chain），满足企业可控与可追溯。
+
+范围（必须做）：
+- Artifacts API（至少）：
+  - POST /api/v1/tasks/{taskId}/artifacts（Runner 上传或登记）
+  - GET  /api/v1/tasks/{taskId}/artifacts（移动端列表）
+  - GET  /api/v1/tasks/{taskId}/artifacts/{artifactId}/download（下载：短期 token 或签名 URL）
+- 存储适配器：
+  - 优先本地文件（B 阶段），接口预留可切 MinIO/对象存储
+- 下载鉴权：
+  - 默认拒绝，无权限返回明确错误
+  - 成功下载必须写审计（actor/taskId/artifactId）
+- 审计不可篡改最小落地：
+  - hash chain（prevHash -> hash），关键事件（审批/下载）必须入链
+
+隔离与分层约束：
+- domain/application/ports/adapters 分层清晰
+- controller 只做协议层与用例调用，不直连 JPA/SDK
+- 通过 ports 抽象：ArtifactsPort、AuditPort、AuthPort
+
+验收标准：
+- 上传/登记→列表→下载链路可用（本地存储即可）
+- 下载鉴权生效 + 审计链写入可验证（prevHash 链接正确）
+- 不破坏现有任务/事件闭环
+
+Agent Prompt（PR-2 / 控制面 Agent）：
+
+你是一个资深 Spring Boot 架构工程师。请仅在 control-plane-spring 中实现 B 阶段 Artifacts 体系（API + 存储适配器 + 下载鉴权 + 审计 hash chain）。必须高内聚低耦合，严格分层：domain/application/ports/adapters。禁止修改 shared-protocol 与 runner。
+
+必须实现：
+- 3 个 artifacts endpoint（上传/列表/下载），对外 DTO 使用 shared-protocol
+- ArtifactsPort + 本地文件 adapter（若已有 MinIO 则可选增加）
+- 下载鉴权（默认拒绝）
+- AuditPort + hash chain 最小实现（审批/下载必入链）
+- 集成测试覆盖：登记/上传→列表→下载；以及审计链 prevHash 验证

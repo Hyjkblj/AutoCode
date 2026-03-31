@@ -23,7 +23,7 @@
 - 隔离：只通过 shared-protocol + Control Plane API 通信；不直连 DB；不把服务端规则复制到客户端（只做执行策略与安全门禁）。
 
 
-## 三个 PR 规划（彼此可独立合并、独立交付）
+## 四个 PR 规划（彼此可独立合并、独立交付）
 
 ### PR-1：协议与契约（shared-protocol）——“先把语言统一”
 
@@ -181,7 +181,7 @@ Agent Prompt（PR-3 / 真实 Python Runner Agent）：
 - 契约变更只进 PR-1；API 行为变更需要对应集成测试更新
 
 
-## 测试 Agent（跨板块，但只做黑盒验证）
+## PR-4：测试与端到端验证（黑盒优先，不改生产逻辑）
 
 定位：
 - 用“外部视角”验证：移动端目标产品的契约一致性、端到端链路、以及执行面安全策略 default-deny。
@@ -200,7 +200,22 @@ Agent Prompt（PR-3 / 真实 Python Runner Agent）：
 - 端到端：
   - CreateTask → Runner 执行 → 事件订阅可读（seq）→ 下载 zip 可解压且包含必要产物
 
-Agent Prompt（测试 Agent）：
+范围（必须做）：
+- shared-protocol 单测：新增事件 payload 的 (de)serialization + 必填字段校验 + eventVersion 兼容
+- control-plane 集成测试：artifacts 登记/上传→列表→下载 + 鉴权失败用例 + 审计链 prevHash 验证
+- runner 测试：policy 单测（越界/禁网/白名单）+ runner 冒烟（mock claudecode，验证事件序列与产物落盘）
+- （强烈建议）端到端：启动 control plane + runner，创建任务，等到 ARTIFACT_READY，下载 zip 校验可解压与关键文件存在
+
+不做：
+- 不允许为了测试改生产业务逻辑（允许在 test/ 或 profile 下增加最小可测试性开关与夹具）
+- 不新增/修改 shared-protocol 的字段与语义（缺口回 PR-1）
+
+验收标准：
+- 测试可重复运行、无顺序依赖、异步验证有超时与退避重试，避免 flakes
+- 覆盖矩阵可追溯：需求点 → 用例 → 断言依据（协议字段/HTTP 状态/审计链/zip 内容）
+- CI 可运行的测试命令说明（docs/ 或 README）
+
+Agent Prompt（PR-4 / 测试 Agent）：
 
 你是一个资深测试/质量工程师（后端/分布式/安全）。请新增或完善自动化测试，验证“移动端自然语言生成 Web/小程序应用平台（B：zip 导出）”的契约一致性与端到端正确性。坚持黑盒优先：断言基于 shared-protocol 与 Control Plane 对外 API 行为，而非内部实现细节。
 

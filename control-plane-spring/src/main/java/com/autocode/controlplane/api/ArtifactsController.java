@@ -1,0 +1,119 @@
+/**
+ * Task artifacts API (B-stage): upload/list/download.
+ *
+ * Notes:
+ * - Upload/list are JSON endpoints using shared-protocol gateway envelope.
+ * - Download returns bytes, but still enforces default-deny authz and writes audit hash-chain on success.
+ */
+package com.autocode.controlplane.api;
+
+import com.autocode.controlplane.artifacts.application.ArtifactsService;
+import com.autocode.controlplane.artifacts.domain.ArtifactContent;
+import com.autocode.controlplane.artifacts.domain.ArtifactRecord;
+import com.autocode.protocol.model.GatewayResponse;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+@RestController
+@RequestMapping("/api/v1/tasks/{taskId}/artifacts")
+public class ArtifactsController {
+    private final ArtifactsService artifactsService;
+
+    public ArtifactsController(ArtifactsService artifactsService) {
+        this.artifactsService = artifactsService;
+    }
+
+    @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    // Use #p0 instead of named params to avoid requiring Java -parameters for SpEL.
+    @PreAuthorize("hasAnyAuthority('ROLE_AGENT','ROLE_ADMIN') or @projectAuthz.canAccessTask(#p0)")
+    public ResponseEntity<GatewayResponse> upload(
+            @PathVariable("taskId") String taskId,
+            @RequestParam("file") MultipartFile file,
+            @RequestParam(value = "name", required = false) String name
+    ) throws IOException {
+        if (file == null || file.isEmpty()) {
+            return ResponseEntity.badRequest().body(GatewayResponses.error("file is required"));
+        }
+        String artifactName = (name == null || name.isBlank()) ? file.getOriginalFilename() : name;
+        ArtifactRecord record = artifactsService.upload(taskId, artifactName, file.getContentType(), file.getInputStream());
+        return ResponseEntity.ok(GatewayResponses.ok(Map.of(
+                "artifactId", record.artifactId(),
+                "taskId", record.taskId(),
+                "name", record.name(),
+                "contentType", record.contentType(),
+                "sizeBytes", record.sizeBytes(),
+                "sha256", record.sha256(),
+                "createdAt", record.createdAt().toString()
+        )));
+    }
+
+    @GetMapping
+    @PreAuthorize("@projectAuthz.canAccessTask(#p0)")
+    public ResponseEntity<GatewayResponse> list(@PathVariable("taskId") String taskId) {
+        List<ArtifactRecord> list = artifactsService.list(taskId);
+        // Map.of(...) disallows null values, but contentType/name can be null.
+        List<Map<String, Object>> items = list.stream().map(r -> {
+            Map<String, Object> m = new HashMap<>();
+            m.put("artifactId", r.artifactId());
+            m.put("taskId", r.taskId());
+            m.put("name", r.name());
+            m.put("contentType", r.contentType());
+            m.put("sizeBytes", r.sizeBytes());
+            m.put("sha256", r.sha256());
+            m.put("createdAt", r.createdAt() == null ? null : r.createdAt().toString());
+            return m;
+        }).toList();
+        return ResponseEntity.ok(GatewayResponses.ok(Map.of("taskId", taskId, "items", items)));
+    }
+
+    @GetMapping("/{artifactId}/download")
+    @PreAuthorize("@projectAuthz.canAccessTask(#p0)")
+    public ResponseEntity<StreamingResponseBody> download(
+            @PathVariable("taskId") String taskId,
+            @PathVariable("artifactId") String artifactId,
+            @RequestParam(value = "token", required = false) String token
+    ) {
+        ArtifactContent content = artifactsService.download(taskId, artifactId, token);
+        ArtifactRecord r = content.record();
+        MediaType mediaType = (r.contentType() == null || r.contentType().isBlank())
+                ? MediaType.APPLICATION_OCTET_STREAM
+                : MediaType.parseMediaType(r.contentType());
+
+        StreamingResponseBody body = outputStream -> {
+            try (InputStream in = content.stream()) {
+                byte[] buf = new byte[8192];
+                int n;
+                while ((n = in.read(buf)) >= 0) {
+                    if (n == 0) continue;
+                    outputStream.write(buf, 0, n);
+                }
+            }
+        };
+        return ResponseEntity.ok()
+                .contentType(mediaType)
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + safeFilename(r.name()) + "\"")
+                .header("X-Artifact-Id", r.artifactId())
+                .header("X-Artifact-Sha256", r.sha256())
+                .contentLength(r.sizeBytes())
+                .body(body);
+    }
+
+    private static String safeFilename(String name) {
+        if (name == null || name.isBlank()) return "artifact.bin";
+        return name.replaceAll("[\\r\\n\\\\\"]", "_");
+    }
+
+    // GatewayResponses centralizes response construction for gateway-style endpoints.
+}
+

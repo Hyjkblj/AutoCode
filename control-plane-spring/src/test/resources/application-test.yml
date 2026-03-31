@@ -1,0 +1,6 @@
+mvp:
+  auth:
+    operator-tokens: op-a,op-b
+    agent-tokens: ag-a,ag-b
+    revoked-tokens: op-b,ag-b
+

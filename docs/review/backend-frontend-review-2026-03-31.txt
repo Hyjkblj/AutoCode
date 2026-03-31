@@ -1,0 +1,74 @@
+## 前端 Findings
+- 未发现阻塞性问题。
+
+## 后端 Findings
+- [Blocker] control-plane-spring/src/main/java/com/autocode/controlplane/service/TaskService.java:96-136
+  问题：Idempotency-Key 的并发重复提交没有原子保护，可能导致同一个幂等键在高并发下出现一次成功一次 500/回滚，且无法稳定返回同一结果。
+  原因：当前实现是先查 idempotency_records 再创建任务、最后再写幂等记录（96-136），没有“抢占式写入/唯一约束冲突回查”的闭环；并发下两请求都查不到记录时会同时创建任务。
+  影响：会导致重复任务/提交失败不确定，客户端重试会放大，运维侧难以判定真实创建结果，进一步破坏“提交幂等 + 重试安全”。
+  建议：把幂等从“读后写”改为“写后读/冲突回查”。方案A（推荐）：先写 idempotency_records(idempotency_key, task_id=预生成)，利用 PK 唯一性抢占；冲突则查出已有 task_id 并返回对应任务。方案B：保持先建任务，但在 save(idempotencyRecord) 捕获唯一键冲突后回查记录并返回对应任务，同时确保不会把失败路径返回 500。并补齐：幂等键与 projectId/operator 的绑定（防止同 key 跨租户复用）。
+
+- [Blocker] control-plane-spring/src/main/java/com/autocode/controlplane/service/TaskService.java:394-457
+  问题：事件摄取 ingestAgentEvent 的“去重/顺序”事实源不稳，无法保证并发上报时的 seq 单调一致与重复事件的稳定幂等。
+  原因：去重仅依赖 eventId（403-405），且服务端会在缺失时生成新 eventId（437-441），导致重试但 eventId 变化 ⇒ 去重失效；同时 seq 由 task.nextSeq 在内存自增（455-457）且没有乐观锁/行锁语义，存在并发写入导致同 seq/乱序/丢增量风险。
+  影响：会导致回放历史不可信、前端/运维看到的事件流乱序或丢事件；恢复/对账时无法靠事件日志重建确定状态。
+  建议：明确事件事实源与恢复模型：要求 agent 生成稳定的 eventId（重试不变），服务端禁止缺失（不要自动生成）。序列分配原子化：用数据库原子序列（UPDATE tasks SET next_seq=next_seq+1 RETURNING next_seq / SELECT ... FOR UPDATE）或在 task_events 上建立 (task_id, seq_num) 唯一约束并处理冲突重试。恢复模型：定义“状态 = 事件折叠”的权威规则，必要时引入快照（snapshot）并说明从快照+增量事件恢复。
+
+- [Blocker] control-plane-spring/src/main/java/com/autocode/controlplane/service/TaskService.java:424-428、546-562
+  问题：在事务提交前向 WebSocket 广播事件，可能出现“广播了但数据库回滚”的幽灵事件。
+  原因：messagingTemplate.convertAndSend(...) 在同一 @Transactional 热路径中直接执行（427、561-562），没有 after-commit 钩子。
+  影响：客户端会看到不可恢复的假状态，重连/回放时又找不到对应持久化事件，直接破坏“恢复能力”。
+  建议：把广播改为事务提交后执行：使用 TransactionSynchronizationManager.registerSynchronization(afterCommit) 或 outbox 表 + 异步投递；并在广播消息中携带持久化后的 seq/eventId 作为确认。
+
+- [Major] control-plane-spring/src/main/java/com/autocode/controlplane/service/TaskService.java:43-631
+  问题：TaskService 继续向“巨型 service”扩张，混杂编排、状态机、队列调度、审计、协议校验、序列分配、WS 推送、重试退避等职责。
+  原因：单类承担过多领域与基础设施关注点（多 repo + queue + ws + audit + metrics + protocol validator 全部注入），边界不清会推动后续功能继续堆入热路径。
+  影响：修改任何一段逻辑都会牵动事务/一致性/可观测性；回归风险大，测试难以分层覆盖，最终导致不可控的架构耦合。
+  建议：按边界拆分：领域编排 TaskOrchestrator（状态机 + 事件折叠）；事件存储/序列 TaskEventStore（幂等/seq/唯一约束）；投递 TaskEventPublisher（after-commit/outbox）；调度/租约恢复 LeaseRecoveryJob（单独事务/限速/幂等）。
+
+- [Major] control-plane-spring/src/main/java/com/autocode/controlplane/api/GlobalExceptionHandler.java:13-36
+  问题：错误返回不稳定且可能泄露内部异常信息，缺乏稳定错误码与上下文。
+  原因：统一返回只有 error: String（ApiResponse），并把 ex.getMessage()/\"internal error: \"+ex.getMessage() 直接返回客户端（15、29、35）。
+  影响：客户端/agent 侧无法可靠分流重试与否；线上排障依赖字符串匹配；同时可能泄露敏感信息（SQL/路径/配置）。
+  建议：引入稳定错误码模型（code/message/details/requestId）。未知异常返回固定文案 + traceId，并在服务端日志记录完整堆栈与关键字段（taskId/sessionId/nodeId）。
+
+- [Major] control-plane-spring/src/main/java/com/autocode/controlplane/api/TaskController.java:38-44（以及同类风格）
+  问题：同一 API 族的响应契约不一致（有的返回 ApiResponse，有的直接 404/204 无 envelope）。
+  原因：getTask not found 走 ResponseEntity.notFound().build()（41-44），agent getNextTask noContent 也直接 204（44-47），但成功路径是 ApiResponse.ok(...)。
+  影响：消费者需要写分支解析，SDK 难以稳定；错误处理与可观测性（错误码/traceId）更难统一。
+  建议：统一契约：即使 404/204 也返回标准 envelope（或明确文档规定例外并为其提供稳定字段，如 code=NOT_FOUND），并在 OpenAPI 中固化。
+
+- [Major] control-plane-spring/src/main/java/com/autocode/controlplane/service/protocol/TaskEventValidator.java:35-54
+  问题：协议校验与实际写入逻辑存在“前后不一致”，会让协议演进变得脆弱。
+  原因：例如 APPROVAL_REQUIRED 强制要求 approvalId（37），但 TaskService 又支持缺失时生成（538-544），导致不同客户端版本在同一服务端表现不一致。
+  影响：DTO/协议难以稳定演进，升级时容易出现“老客户端突然被拒”。
+  建议：明确“事实源是谁”：若 approvalId 必须由 agent 生成，则 TaskService 不应再生成；若由服务端生成，则 validator 不应强制要求，改为允许缺失并由服务端填充（但要保证重试稳定）。
+
+- [Minor] control-plane-spring/src/main/resources/application.yml:10-13、24-27、60-68
+  问题：默认配置中包含弱口令/明文 secret（DB/Redis 密码、operator/agent token、JWT secret）。
+  原因：000000、operator-dev-token、dev-secret-change-me... 直接出现在默认配置。
+  影响：一旦被误部署到非本地环境会形成直接安全事故；也会让日志/抓包环境下泄露风险上升。
+  建议：将默认值移到 application-local.yml 或仅用环境变量注入；启动时若检测到 dev 默认值且非 local profile，直接 fail-fast。
+
+## Open Questions
+- 会话/回合/快照：当前只有 TaskEntity.sessionId 与事件流 task_events，是否需要“快照（snapshot）”作为恢复加速/权威状态？如果需要，快照的事实源与生成时机是什么（按 seq、按事件类型、按时间）？
+- 幂等语义：Idempotency-Key 是否要求同 key 返回完全相同的 taskId 与响应体？是否需要绑定 projectId/operator 防止跨项目复用？
+- 事件语义：agent 上报事件是否保证同一次重试 eventId 不变？是否存在并发上报（多线程）导致同 task 同时 ingest？
+
+## 测试缺口
+- 前端
+  - 当前仓库未发现前端源码（未发现 .ts/.tsx/.vue），因此无法审查前端边界与测试；如果前端在其他仓库/目录，需要补充路径后才能给出“具体页面/路径”的测试缺口清单。
+- 后端
+  - 幂等并发测试：POST /api/v1/tasks 同一 Idempotency-Key 并发 2 次，断言返回同一 taskId，且不会出现 500/双任务落库（覆盖 TaskService.createTask 96-136）。
+  - 事件重试幂等测试：POST /api/v1/agent/tasks/{taskId}/events 对同一业务事件（相同 eventId）重复提交，断言不重复入库且 seq 不跳变；对“重试但 eventId 变化”的场景要明确预期（拒绝/接受但去重键不同）。
+  - 并发 ingest 顺序测试：同一 task 并发上报 2 个事件，断言 seq_num 单调递增且无重复（覆盖 normalizeEvent 455-457 + 持久化）。
+  - 事务广播一致性测试：模拟保存事件失败/回滚时不应向 WS 广播（需要引入 after-commit 后验证）。
+  - 契约一致性测试：GET /api/v1/tasks/{taskId} not found、GET /api/v1/agent/tasks/next noContent 的响应体契约是否符合 OpenAPI/SDK 预期。
+
+## Review Summary
+- 当前后端的核心链路（任务创建、事件摄取、租约恢复）功能完整，但一致性与恢复能力的关键点不够硬。
+- 最大风险集中在幂等并发保护不足、事件 seq/去重事实源不稳、事务内广播导致回放不一致，这些属于会真实出事故的缺陷。
+- 其次是 TaskService 职责过载，继续扩大会快速把系统推向高耦合不可测。
+- 错误契约目前只有字符串，难以支撑稳定 SDK 与可观测排障。
+- 若先把上述 Blocker 修掉，并补齐并发/幂等/事务一致性测试，这个项目的“可恢复、可演进”底盘才算建立起来。
+

@@ -1,0 +1,221 @@
+## 目标产品：移动端自然语言生成 Web/小程序应用平台（B→A 路线）
+
+### 产品愿景（你们真正要交付的东西）
+- 一个移动端 App（iOS/Android）让企业用户用自然语言描述需求，选择目标（Web 或小程序）与模板，一键生成可运行工程，并可在移动端查看进度、预览差异、审批高风险动作、下载产物。
+- 平台必须具备：可审计、可控（最小权限执行/默认拒绝/审批强绑定）、可扩展（Runner 可替换）、可观测（traceId/runId/taskId 一致）。
+- 路线：先做 B（导出 zip 离线交付），再做 A（云端 Runner + 在线预览/部署）。协议与语义尽量保持不变，只替换执行 Runner 与产物分发。
+
+
+## 三大板块（强隔离，高内聚低耦合）
+
+### 板块 A：契约层（shared-protocol）
+- 职责：唯一事实来源的“公共契约”，定义 Task / Event / Approval / Artifacts 的 DTO 与 schema，明确版本化与兼容策略。
+- 隔离：不包含任何业务用例实现，不依赖 Spring/JPA/Redis/WS，不包含 Runner/claudecode 调用代码。
+- 被依赖：Mobile、Control Plane、Runner。
+
+### 板块 B：控制面（Control Plane / Spring Boot）
+- 职责：对外 API（任务/事件/审批/产物），调度与幂等、事件摄取与广播、鉴权与审计（不可篡改最小落地）。
+- 隔离：业务规则在 domain；存储/队列/WS/对象存储为 adapters；不引入 claudecode 与执行细节。
+- 被依赖：Mobile、Runner。
+
+### 板块 C：真实执行面（Python Runner）
+- 职责：领取任务→在受控 workspace 内调用 claudecode（非交互）→生成/构建/导出→上传 artifacts→上报结构化事件；并实现 default-deny 的最小权限策略。
+- 隔离：只通过 shared-protocol + Control Plane API 通信；不直连 DB；不把服务端规则复制到客户端（只做执行策略与安全门禁）。
+
+
+## 三个 PR 规划（彼此可独立合并、独立交付）
+
+### PR-1：协议与契约（shared-protocol）——“先把语言统一”
+
+目标：
+- 定义移动端“自然语言生成应用”的稳定契约，支撑 B 阶段 zip 导出与审批/审计，且为 A 阶段演进留好版本空间。
+
+范围（必须做）：
+- Task 输入（CreateTaskRequest）建议字段（保持可选与向后兼容）：
+  - identity：projectId/tenantId、idempotencyKey
+  - intent：prompt、target(web|miniapp)、templateId、exportMode(zip|git)
+  - execution：workspaceRef（B：path；A：workspaceId）、agentProfile、sessionKey
+  - risk：riskPolicy(low|medium|high)
+- Event 事件类型与 payload（至少覆盖）：
+  - TASK_CREATED/TASK_STARTED/TASK_DONE/TASK_FAILED
+  - SPEC_PROPOSED（产出 spec.json 的结构化摘要/引用）
+  - FILE_PATCH_PREVIEW（变更预览：patch 或文件清单 + hash）
+  - BUILD_STARTED/BUILD_LOG/BUILD_DONE（构建过程与摘要）
+  - APPROVAL_REQUIRED/APPROVAL_RESULT（审批门禁）
+  - ARTIFACT_READY（artifactId/hash/size/mime/type）
+- ApprovalContext（强绑定）字段：
+  - action（app.generate/app.iterate/app.publish）
+  - tool（claudecode.run/build.run/publish.run）
+  - workspaceRef（path 或 id）
+  - inputsHash（规范化输入 hash，防漂移）
+- schema 校验与版本化：
+  - payload 必填字段
+  - eventVersion 版本管理
+  - 向后兼容策略（新增字段只增不改、默认值语义）
+
+不做：
+- Control Plane API/存储实现
+- Runner 实现
+
+验收标准：
+- 协议模块编译 + 单测通过
+- 新增 DTO 的序列化/反序列化 + schema 校验覆盖
+- 给出 2 份示例 JSON（至少 SPEC_PROPOSED、ARTIFACT_READY）
+
+Agent Prompt（PR-1 / 协议 Agent）：
+
+你是一个资深“契约工程师”。请仅修改 shared-protocol，补齐移动端自然语言生成 Web/小程序应用所需的稳定协议契约。保持高内聚低耦合、契约优先、向后兼容。禁止修改 control-plane-spring 与 runner。
+
+必须实现：
+- CreateTaskRequest（identity/intent/execution/risk）字段补齐（新增字段保持可选）
+- Event 类型与 payload DTO：SPEC_PROPOSED、FILE_PATCH_PREVIEW、BUILD_*、APPROVAL_*、ARTIFACT_READY 等
+- Artifacts 元数据 DTO（artifactId/hash/size/mime/type）
+- ApprovalContext（action/tool/workspaceRef/inputsHash）
+- schema 校验与 eventVersion 版本化策略，并补充 (de)serialization 单测
+
+质量门槛：
+- 不引入 Spring/JPA/Redis/WS 依赖
+- DTO 命名一致、避免循环依赖
+- 给出示例 payload 与兼容说明
+
+
+### PR-2：Control Plane 产物体系 + 下载鉴权 + 审计链（B 阶段关键交付）
+
+目标：
+- 让移动端能看到“产物列表/下载”，并对下载与审批写审计链（最小可用 hash chain），满足企业可控与可追溯。
+
+范围（必须做）：
+- Artifacts API（至少）：
+  - POST /api/v1/tasks/{taskId}/artifacts（Runner 上传或登记）
+  - GET  /api/v1/tasks/{taskId}/artifacts（移动端列表）
+  - GET  /api/v1/tasks/{taskId}/artifacts/{artifactId}/download（下载：短期 token 或签名 URL）
+- 存储适配器：
+  - 优先本地文件（B 阶段），接口预留可切 MinIO/对象存储
+- 下载鉴权：
+  - 默认拒绝，无权限返回明确错误
+  - 成功下载必须写审计（actor/taskId/artifactId）
+- 审计不可篡改最小落地：
+  - hash chain（prevHash -> hash），关键事件（审批/下载）必须入链
+
+隔离与分层约束：
+- domain/application/ports/adapters 分层清晰
+- controller 只做协议层与用例调用，不直连 JPA/SDK
+- 通过 ports 抽象：ArtifactsPort、AuditPort、AuthPort
+
+验收标准：
+- 上传/登记→列表→下载链路可用（本地存储即可）
+- 下载鉴权生效 + 审计链写入可验证（prevHash 链接正确）
+- 不破坏现有任务/事件闭环
+
+Agent Prompt（PR-2 / 控制面 Agent）：
+
+你是一个资深 Spring Boot 架构工程师。请仅在 control-plane-spring 中实现 B 阶段 Artifacts 体系（API + 存储适配器 + 下载鉴权 + 审计 hash chain）。必须高内聚低耦合，严格分层：domain/application/ports/adapters。禁止修改 shared-protocol 与 runner。
+
+必须实现：
+- 3 个 artifacts endpoint（上传/列表/下载），对外 DTO 使用 shared-protocol
+- ArtifactsPort + 本地文件 adapter（若已有 MinIO 则可选增加）
+- 下载鉴权（默认拒绝）
+- AuditPort + hash chain 最小实现（审批/下载必入链）
+- 集成测试覆盖：登记/上传→列表→下载；以及审计链 prevHash 验证
+
+
+### PR-3：真实 Python Runner（claudecode-runner）+ 最小权限策略（default-deny）
+
+目标：
+- 做出可在 Windows 上运行的“真实执行面”：领取任务→受控执行→结构化事件→产物上传→移动端可下载 zip。
+
+范围（必须做）：
+- runtime：
+  - poll/claim/lease 语义对齐（以现有 Control Plane API 为准）
+  - retry/backoff，runId 贯穿
+- policy（default-deny）：
+  - workspace allowlist（禁止越界读写）
+  - 禁网（默认禁止；放开必须显式策略+审批）
+  - 命令白名单/工具最小集（所有 subprocess 必须经过 policy 校验与审计）
+  - 触发审批：高风险动作发出 APPROVAL_REQUIRED，并等待 APPROVAL_RESULT
+- runner：
+  - claudecode 非交互调用封装（可替换接口）
+  - 输出解析为结构化 TaskEvent（eventVersion 完整）
+  - 产物生成：spec.json、build-report.json、export.zip（可选 diff.patch/README.generated.md）
+- client：
+  - Control Plane API client：PollNextTask / IngestEvent / artifacts 上传或登记
+
+不做：
+- 不改 Control Plane 业务规则与存储
+- 不扩展协议（缺口回 PR-1）
+
+验收标准：
+- 本地端到端可跑：创建任务→Runner 执行→事件可订阅→ARTIFACT_READY→下载 zip 可解压
+- policy 默认拒绝：路径越界/禁网/非白名单命令必须拒绝并上报可解释事件
+
+Agent Prompt（PR-3 / 真实 Python Runner Agent）：
+
+你是一个资深 Python Agent/Runner 工程师。请用 Python 实现“真实执行面 Runner”，让移动端自然语言生成 Web/小程序工程的任务能够在本地（Windows）受控执行并产出 zip。你只能通过 shared-protocol + Control Plane HTTP API 通信。禁止修改 shared-protocol 与 control-plane-spring。
+
+必须实现：
+- 目录分层（建议）：runtime/ policy/ runner/ client/ tool（或等价）
+- client：
+  - PollNextTask / IngestEvent / Artifacts 上传或登记（对齐 control plane API）
+- policy（default-deny）：
+  - workspace allowlist（所有路径必须归一化后校验）
+  - 禁网（默认禁止）
+  - subprocess 命令白名单（所有执行必须走统一的受控执行器）
+  - 高风险触发审批：发 APPROVAL_REQUIRED，等待 APPROVAL_RESULT
+- runner/claudecode-runner：
+  - claudecode 非交互调用封装（接口抽象，便于未来替换）
+  - 将输出/日志映射成结构化事件：SPEC_PROPOSED、FILE_PATCH_PREVIEW、BUILD_*、ARTIFACT_READY
+  - 生成产物：spec.json、build-report.json、export.zip（可选 diff.patch/README.generated.md）
+- tests：
+  - policy 单测（越界/禁网/非白名单）
+  - runner 冒烟（mock claudecode 输出，验证事件序列与产物落盘）
+
+工程化要求：
+- 选择一种依赖管理（poetry/uv/pip-tools 其一）并提供可复现安装方式
+- 日志结构化（至少含 taskId/runId），错误分类清晰
+
+
+## 隔离契约（全项目必须遵守）
+- 唯一共享点：shared-protocol（DTO/schema）+ Control Plane 对外 API（OpenAPI/HTTP/WS）
+- Runner 不直连 DB，不引用 control-plane 内部类
+- Control Plane 不引入 claudecode/Runner 细节
+- 契约变更只进 PR-1；API 行为变更需要对应集成测试更新
+
+
+## 测试 Agent（跨板块，但只做黑盒验证）
+
+定位：
+- 用“外部视角”验证：移动端目标产品的契约一致性、端到端链路、以及执行面安全策略 default-deny。
+- 断言基于：协议字段/HTTP 状态/审计链/产物内容；尽量不依赖内部实现类。
+
+最小覆盖矩阵：
+- shared-protocol：
+  - 新增事件 payload 的 (de)serialization 与 schema 必填校验
+  - eventVersion 兼容策略（新字段可选、旧 payload 不破）
+- control-plane（黑盒）：
+  - artifacts：登记/上传→列表→下载
+  - 下载鉴权：无权限拒绝；成功下载写审计链；prevHash 链接正确
+- python runner（灰盒/黑盒）：
+  - policy：workspace 越界/禁网/非白名单命令必须拒绝
+  - 事件序列：TASK_STARTED → (SPEC/BUILD/ARTIFACT_READY) → TASK_DONE/FAILED
+- 端到端：
+  - CreateTask → Runner 执行 → 事件订阅可读（seq）→ 下载 zip 可解压且包含必要产物
+
+Agent Prompt（测试 Agent）：
+
+你是一个资深测试/质量工程师（后端/分布式/安全）。请新增或完善自动化测试，验证“移动端自然语言生成 Web/小程序应用平台（B：zip 导出）”的契约一致性与端到端正确性。坚持黑盒优先：断言基于 shared-protocol 与 Control Plane 对外 API 行为，而非内部实现细节。
+
+强约束：
+- 不允许为了测试改生产业务逻辑（允许在 test/ 或 profile 下增加最小可测试性开关与夹具）
+- 异步事件验证必须有超时、退避重试，避免 flakes
+- 测试必须可重复运行、无顺序依赖
+
+必须交付：
+1) shared-protocol 单测：新增事件 payload 的 (de)serialization + 必填字段校验 + eventVersion 兼容
+2) control-plane 集成测试：artifacts 登记/上传→列表→下载 + 鉴权失败用例 + 审计链 prevHash 验证
+3) runner 测试：policy 单测（越界/禁网/白名单）+ runner 冒烟（mock claudecode）
+4) 端到端（强烈建议）：启动 control plane + runner，创建任务，等到 ARTIFACT_READY，下载 zip 校验可解压与关键文件存在
+
+交付物：
+- CI 可运行的测试命令说明（docs/ 或 README）
+- 覆盖矩阵：需求点 → 用例 → 断言依据（协议字段/HTTP 状态/审计链/zip 内容）
+

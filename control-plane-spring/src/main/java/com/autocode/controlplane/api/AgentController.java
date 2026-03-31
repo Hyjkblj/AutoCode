@@ -1,0 +1,69 @@
+/**
+ * Agent-facing REST API for node registration, heartbeats, task polling, and event ingestion.
+ */
+package com.autocode.controlplane.api;
+
+import com.autocode.controlplane.model.AgentNode;
+import com.autocode.controlplane.service.AgentRegistryService;
+import com.autocode.controlplane.service.TaskService;
+import com.autocode.protocol.model.ApprovalDecision;
+import com.autocode.protocol.model.TaskSummary;
+import jakarta.validation.Valid;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+import java.util.Map;
+
+@RestController
+@RequestMapping("/api/v1/agent")
+public class AgentController {
+    private final AgentRegistryService agentRegistryService;
+    private final TaskService taskService;
+
+    public AgentController(AgentRegistryService agentRegistryService, TaskService taskService) {
+        this.agentRegistryService = agentRegistryService;
+        this.taskService = taskService;
+    }
+
+    @PostMapping("/register")
+    public ResponseEntity<ApiResponse<AgentNode>> register(@Valid @RequestBody AgentRegisterRequest request) {
+        return ResponseEntity.ok(ApiResponse.ok(agentRegistryService.register(request)));
+    }
+
+    @PostMapping("/heartbeat")
+    public ResponseEntity<ApiResponse<AgentNode>> heartbeat(@Valid @RequestBody AgentHeartbeatRequest request) {
+        return ResponseEntity.ok(ApiResponse.ok(agentRegistryService.heartbeat(request)));
+    }
+
+    @GetMapping("/tasks/next")
+    public ResponseEntity<ApiResponse<TaskSummary>> getNextTask(
+            @RequestParam("nodeId") String nodeId,
+            @RequestParam(value = "profile", required = false) String profile
+    ) {
+        return taskService.pollNextTaskForNode(nodeId, profile)
+                .map(task -> ResponseEntity.ok(ApiResponse.ok(task)))
+                .orElseGet(() -> ResponseEntity.noContent().build());
+    }
+
+    @PostMapping("/tasks/{taskId}/events")
+    public ResponseEntity<ApiResponse<TaskSummary>> ingestEvent(
+            @PathVariable("taskId") String taskId,
+            @Valid @RequestBody AgentEventRequest request
+    ) {
+        return taskService.ingestAgentEvent(taskId, request.getEvent())
+                .map(summary -> ResponseEntity.ok(ApiResponse.ok(summary)))
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    @GetMapping("/tasks/{taskId}/approval")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> getApprovalStatus(@PathVariable("taskId") String taskId) {
+        ApprovalDecision decision = taskService.getApprovalDecision(taskId).orElse(ApprovalDecision.PENDING);
+        return ResponseEntity.ok(ApiResponse.ok(Map.of("decision", decision.name().toLowerCase())));
+    }
+
+    @GetMapping("/nodes")
+    public ResponseEntity<ApiResponse<List<AgentNode>>> listNodes() {
+        return ResponseEntity.ok(ApiResponse.ok(agentRegistryService.listAgents()));
+    }
+}

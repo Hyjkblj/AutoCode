@@ -1,0 +1,13 @@
+**/target/
+**/.idea/
+**/*.iml
+**/.vscode/
+**/.classpath
+**/.project
+**/.settings/
+**/*.log
+
+# Local-only config / secrets
+**/application-local.yml
+**/application-local.yaml
+.env

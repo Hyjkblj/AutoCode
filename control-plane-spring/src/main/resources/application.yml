@@ -1,0 +1,74 @@
+server:
+  port: 8048
+
+spring:
+  application:
+    name: control-plane-spring
+  autoconfigure:
+    exclude: org.springframework.boot.autoconfigure.security.servlet.UserDetailsServiceAutoConfiguration
+  datasource:
+    url: ${MVP_DB_URL:jdbc:mysql://localhost:3306/mvp_codeops?useUnicode=true&characterEncoding=utf8&serverTimezone=UTC}
+    username: ${MVP_DB_USERNAME:root}
+    password: ${MVP_DB_PASSWORD}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        format_sql: false
+  flyway:
+    enabled: true
+  data:
+    redis:
+      host: ${MVP_REDIS_HOST:192.168.88.130}
+      port: ${MVP_REDIS_PORT:6379}
+      password: ${MVP_REDIS_PASSWORD}
+      repositories:
+        enabled: false
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+  metrics:
+    tags:
+      application: ${spring.application.name}
+  tracing:
+    sampling:
+      probability: ${MVP_TRACING_SAMPLING_PROBABILITY:0.1}
+
+  otlp:
+    tracing:
+      endpoint: ${MVP_OTLP_ENDPOINT:http://localhost:4318/v1/traces}
+
+mvp:
+  scheduler:
+    # queue: poll from redis/rabbit/inmem queue (may cause re-enqueue churn when profile/lane mismatches)
+    # db:    pick next eligible QUEUED task from DB (fair by created_at; avoids re-enqueue churn)
+    mode: ${MVP_SCHEDULER_MODE:db}
+    retry:
+      base-backoff-seconds: ${MVP_SCHEDULER_RETRY_BASE_BACKOFF_SECONDS:5}
+    lease-recover-interval-ms: ${MVP_SCHEDULER_LEASE_RECOVER_INTERVAL_MS:5000}
+  auth:
+    mode: token
+    operator-token: ${MVP_OPERATOR_TOKEN}
+    agent-token: ${MVP_AGENT_TOKEN}
+    # Rotation / revocation (optional):
+    # operator-tokens: tokenA,tokenB
+    # agent-tokens: tokenC,tokenD
+    # revoked-tokens: oldTokenX,oldTokenY
+    jwt:
+      secret: ${MVP_JWT_SECRET}
+      access-ttl-seconds: ${MVP_JWT_ACCESS_TTL_SECONDS:900}
+  mtls:
+    required-for-agent: ${MVP_MTLS_REQUIRED_FOR_AGENT:false}
+  queue:
+    redis-key: mvp:task:queue
+    lease-seconds: 60
+    backend: redis

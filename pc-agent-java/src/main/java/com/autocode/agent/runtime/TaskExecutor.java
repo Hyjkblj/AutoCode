@@ -26,6 +26,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.lang.reflect.Method;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
@@ -63,7 +64,9 @@ public class TaskExecutor {
     private void rebuildFromConfig(AgentConfig config) {
         // MVP: registry is in-memory; re-register built-ins with latest policies.
         toolRegistry.clear()
-                .register(new CommandExecTool(new CommandSafetyPolicy(config.getAllowedCommandPrefixes()), this.commandRunner));
+                .register(new CommandExecTool(
+                        new CommandSafetyPolicy(config.getAllowedCommandPrefixes(), config.isNetworkAllowed()),
+                        this.commandRunner));
         this.invocationPolicy = CompositeToolInvocationPolicy.builder()
                 .add(new WorkspaceAllowlistPolicy(config.getAllowedWorkspacePrefixes()))
                 .build();
@@ -78,9 +81,10 @@ public class TaskExecutor {
         long taskStartNs = System.nanoTime();
 
         String command = promptCommandExtractor.extractCommand(task.getPrompt());
-        String cwd = (task.getWorkspacePath() == null || task.getWorkspacePath().isBlank())
+        String workspacePath = readWorkspacePathCompat(task);
+        String cwd = (workspacePath == null || workspacePath.isBlank())
                 ? System.getProperty("user.dir", "")
-                : task.getWorkspacePath();
+                : workspacePath;
         ToolCall call = new ToolCall(
                 "command.exec",
                 "run_command",
@@ -129,6 +133,11 @@ public class TaskExecutor {
             ApprovalDecision decision = waitForApproval(task.getTaskId());
             long approvalWaitMs = (System.nanoTime() - approvalStartNs) / 1_000_000;
             log.info("Task {} approval wait {}ms traceId={} runId={}", task.getTaskId(), approvalWaitMs, traceId, runId);
+            send(task, traceId, runId, EventType.APPROVAL_RESULT, Map.of(
+                    "approvalId", approvalId,
+                    "decision", decision.name().toLowerCase(),
+                    "waitMs", approvalWaitMs
+            ));
             if (decision == ApprovalDecision.REJECT) {
                 send(task, traceId, runId, EventType.TASK_FAILED, Map.of("reason", "approval_rejected"));
                 return;
@@ -140,13 +149,15 @@ public class TaskExecutor {
         }
 
         // 开始执行：以 TOOL_START/TOOL_END 形式上报，便于前端展示工具调用过程
-        send(task, traceId, runId, EventType.TOOL_START, Map.of(
-                "tool", call.getTool(),
-                "command", command,
-                "cwd", cwd,
-                "approvalId", approvalIdForExec,
-                "action", call.getAction()
-        ));
+        HashMap<String, Object> toolStart = new HashMap<>();
+        toolStart.put("tool", call.getTool());
+        toolStart.put("command", command);
+        toolStart.put("cwd", cwd);
+        toolStart.put("action", call.getAction());
+        if (approvalIdForExec != null) {
+            toolStart.put("approvalId", approvalIdForExec);
+        }
+        send(task, traceId, runId, EventType.TOOL_START, toolStart);
 
         ToolExecutionResult exec;
         long execStartNs = System.nanoTime();
@@ -224,6 +235,9 @@ public class TaskExecutor {
 
     private void send(TaskSummary task, String traceId, String runId, EventType type, Map<String, Object> payload) throws IOException {
         TaskEvent event = new TaskEvent();
+        // Control plane validates eventId before ingest and uses it for idempotent deduplication.
+        event.setEventId("evt_" + UUID.randomUUID().toString().replace("-", ""));
+        event.setEventVersion(1);
         event.setType(type);
         event.setTimestamp(Instant.now());
         event.setAssistant(task.getAssistant());
@@ -233,5 +247,25 @@ public class TaskExecutor {
         merged.putAll(payload);
         event.setPayload(merged);
         client.publishEvent(task.getTaskId(), event);
+    }
+
+    /**
+     * shared-protocol may evolve; keep agent compatible with older TaskSummary shapes that don't expose workspacePath.
+     */
+    private static String readWorkspacePathCompat(TaskSummary task) {
+        if (task == null) {
+            return null;
+        }
+        try {
+            Method m = task.getClass().getMethod("getWorkspacePath");
+            Object v = m.invoke(task);
+            if (v == null) {
+                return null;
+            }
+            String s = String.valueOf(v).trim();
+            return s.isEmpty() ? null : s;
+        } catch (Exception ignored) {
+            return null;
+        }
     }
 }

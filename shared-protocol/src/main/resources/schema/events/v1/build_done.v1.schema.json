@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autocode.example/schema/events/v1/build_done.v1.schema.json",
+  "title": "BUILD_DONE TaskEvent v1",
+  "allOf": [
+    { "$ref": "task_event.v1.schema.json" },
+    {
+      "type": "object",
+      "properties": {
+        "type": { "const": "BUILD_DONE" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "buildId": { "type": "string" },
+            "status": { "type": "string" },
+            "durationMs": { "type": "integer", "minimum": 0 },
+            "reportArtifact": { "$ref": "artifact.schema.json" }
+          }
+        }
+      }
+    }
+  ]
+}
+

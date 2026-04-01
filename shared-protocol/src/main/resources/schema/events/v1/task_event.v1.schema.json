@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autocode.example/schema/events/v1/task_event.v1.schema.json",
+  "title": "TaskEvent v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["eventId", "taskId", "type", "timestamp", "seq", "eventVersion"],
+  "properties": {
+    "eventId": { "type": "string", "minLength": 1 },
+    "taskId": { "type": "string", "minLength": 1 },
+    "sessionId": { "type": "string" },
+    "assistant": { "type": "string" },
+    "type": { "type": "string" },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "seq": { "type": "integer", "minimum": 0 },
+    "eventVersion": { "type": "integer", "const": 1 },
+    "payload": { "type": "object" }
+  }
+}
+

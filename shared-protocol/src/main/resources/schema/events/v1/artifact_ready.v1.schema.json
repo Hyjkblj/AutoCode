@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autocode.example/schema/events/v1/artifact_ready.v1.schema.json",
+  "title": "ARTIFACT_READY TaskEvent v1",
+  "allOf": [
+    { "$ref": "task_event.v1.schema.json" },
+    {
+      "type": "object",
+      "properties": {
+        "type": { "const": "ARTIFACT_READY" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["artifact"],
+          "properties": {
+            "artifact": { "$ref": "artifact.schema.json" },
+            "kind": { "type": "string" }
+          }
+        }
+      }
+    }
+  ]
+}
+

@@ -1,0 +1,23 @@
+{
+  "eventId": "evt_01HQ7FZK2B1KQ3S3GAP9V1Q2M8",
+  "taskId": "task_123",
+  "sessionId": "sess_abc",
+  "assistant": "gpt",
+  "type": "SPEC_PROPOSED",
+  "timestamp": "2026-04-01T09:00:00Z",
+  "seq": 10,
+  "eventVersion": 1,
+  "payload": {
+    "artifact": {
+      "artifactId": "art_spec_001",
+      "hash": "sha256:6b0f1e1c8a0e7b9c...",
+      "size": 2048,
+      "mime": "application/json",
+      "type": "spec"
+    },
+    "path": "spec.json",
+    "summary": "Generate a web app: todo list with login, using template 'web-basic'.",
+    "schemaVersion": "v1"
+  }
+}
+

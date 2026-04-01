@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autocode.example/schema/events/v1/file_patch_preview.v1.schema.json",
+  "title": "FILE_PATCH_PREVIEW TaskEvent v1",
+  "allOf": [
+    { "$ref": "task_event.v1.schema.json" },
+    {
+      "type": "object",
+      "properties": {
+        "type": { "const": "FILE_PATCH_PREVIEW" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "format": { "type": "string" },
+            "patch": { "type": "string" },
+            "files": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["path", "changeType"],
+                "properties": {
+                  "path": { "type": "string", "minLength": 1 },
+                  "changeType": { "type": "string", "minLength": 1 },
+                  "beforeHash": { "type": "string" },
+                  "afterHash": { "type": "string" }
+                }
+              }
+            },
+            "previewHash": { "type": "string" }
+          },
+          "anyOf": [
+            { "required": ["patch"] },
+            { "required": ["files"] }
+          ]
+        }
+      }
+    }
+  ]
+}
+

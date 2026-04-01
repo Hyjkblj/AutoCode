@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autocode.example/schema/events/v1/build_log.v1.schema.json",
+  "title": "BUILD_LOG TaskEvent v1",
+  "allOf": [
+    { "$ref": "task_event.v1.schema.json" },
+    {
+      "type": "object",
+      "properties": {
+        "type": { "const": "BUILD_LOG" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["message"],
+          "properties": {
+            "buildId": { "type": "string" },
+            "level": { "type": "string" },
+            "message": { "type": "string", "minLength": 1 }
+          }
+        }
+      }
+    }
+  ]
+}
+

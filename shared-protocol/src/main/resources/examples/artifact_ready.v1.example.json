@@ -1,0 +1,21 @@
+{
+  "eventId": "evt_01HQ7G0A9E9Y1K2V9B8H1M7J6Q",
+  "taskId": "task_123",
+  "sessionId": "sess_abc",
+  "assistant": "gpt",
+  "type": "ARTIFACT_READY",
+  "timestamp": "2026-04-01T09:05:00Z",
+  "seq": 42,
+  "eventVersion": 1,
+  "payload": {
+    "artifact": {
+      "artifactId": "art_export_zip_001",
+      "hash": "sha256:3a2b1c0d9e8f7a6b...",
+      "size": 1048576,
+      "mime": "application/zip",
+      "type": "zip"
+    },
+    "kind": "zip"
+  }
+}
+

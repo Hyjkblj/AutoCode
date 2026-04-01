@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autocode.example/schema/events/v1/approval_result.v1.schema.json",
+  "title": "APPROVAL_RESULT TaskEvent v1",
+  "allOf": [
+    { "$ref": "task_event.v1.schema.json" },
+    {
+      "type": "object",
+      "properties": {
+        "type": { "const": "APPROVAL_RESULT" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["approvalId", "decision"],
+          "properties": {
+            "approvalId": { "type": "string", "minLength": 1 },
+            "decision": { "type": "string", "minLength": 1 },
+            "message": { "type": "string" },
+            "context": { "type": "object" }
+          }
+        }
+      }
+    }
+  ]
+}
+

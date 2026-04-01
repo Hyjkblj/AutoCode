@@ -1,0 +1,127 @@
+package com.autocode.protocol.validation;
+
+import com.autocode.protocol.model.EventType;
+import com.autocode.protocol.model.TaskEvent;
+
+import java.util.Map;
+
+/**
+ * Lightweight contract validator for {@link TaskEvent}.
+ *
+ * Note: Payload is represented as a {@code Map<String, Object>} for cross-language compatibility. This validator
+ * enforces required fields for a subset of events used by the platform.
+ */
+public final class TaskEventContractValidator {
+    private TaskEventContractValidator() {}
+
+    public static void validate(TaskEvent event) {
+        if (event == null) {
+            throw new ContractViolationException("TaskEvent must not be null");
+        }
+        if (isBlank(event.getEventId())) {
+            throw new ContractViolationException("TaskEvent.eventId is required");
+        }
+        if (isBlank(event.getTaskId())) {
+            throw new ContractViolationException("TaskEvent.taskId is required");
+        }
+        if (event.getType() == null) {
+            throw new ContractViolationException("TaskEvent.type is required");
+        }
+        if (event.getTimestamp() == null) {
+            throw new ContractViolationException("TaskEvent.timestamp is required");
+        }
+        if (event.getSeq() < 0) {
+            throw new ContractViolationException("TaskEvent.seq must be >= 0");
+        }
+        if (event.getEventVersion() != 1) {
+            throw new ContractViolationException("Unsupported TaskEvent.eventVersion: " + event.getEventVersion());
+        }
+
+        Map<String, Object> payload = event.getPayload();
+        // payload map itself is optional for legacy events, but event-specific requirements may apply.
+
+        EventType type = event.getType();
+        switch (type) {
+            case SPEC_PROPOSED -> {
+                requireMap(payload, "payload");
+                requireArtifact(payload);
+            }
+            case FILE_PATCH_PREVIEW -> {
+                requireMap(payload, "payload");
+                // Either patch or files must exist.
+                Object patch = payload.get("patch");
+                Object files = payload.get("files");
+                if (patch == null && files == null) {
+                    throw new ContractViolationException("FILE_PATCH_PREVIEW requires payload.patch or payload.files");
+                }
+            }
+            case BUILD_STARTED -> requireMap(payload, "payload");
+            case BUILD_LOG -> {
+                requireMap(payload, "payload");
+                requireString(payload, "message");
+            }
+            case BUILD_DONE -> requireMap(payload, "payload");
+            case APPROVAL_REQUIRED -> {
+                requireMap(payload, "payload");
+                requireString(payload, "approvalId");
+                requireMap(payload, "context");
+                @SuppressWarnings("unchecked")
+                Map<String, Object> ctx = (Map<String, Object>) payload.get("context");
+                requireString(ctx, "action");
+                requireString(ctx, "tool");
+                requireString(ctx, "workspaceRef");
+                requireString(ctx, "inputsHash");
+            }
+            case APPROVAL_RESULT -> {
+                requireMap(payload, "payload");
+                requireString(payload, "approvalId");
+                // decision is required but cross-language casing differs; accept "decision" only.
+                requireString(payload, "decision");
+            }
+            case ARTIFACT_READY -> {
+                requireMap(payload, "payload");
+                requireArtifact(payload);
+            }
+            default -> {
+                // legacy/other events: no additional constraints here
+            }
+        }
+    }
+
+    private static void requireArtifact(Map<String, Object> payload) {
+        requireMap(payload, "artifact");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> artifact = (Map<String, Object>) payload.get("artifact");
+        requireString(artifact, "artifactId");
+        requireString(artifact, "type");
+        // hash/size/mime are strongly recommended but optional for compatibility.
+    }
+
+    private static void requireMap(Map<String, Object> map, String name) {
+        if (map == null) {
+            throw new ContractViolationException(name + " is required");
+        }
+        // For nested map checks:
+        if (!"payload".equals(name)) {
+            Object value = map.get(name);
+            if (!(value instanceof Map)) {
+                throw new ContractViolationException("payload." + name + " must be an object");
+            }
+        }
+    }
+
+    private static void requireString(Map<String, Object> payload, String key) {
+        if (payload == null) {
+            throw new ContractViolationException("payload is required");
+        }
+        Object value = payload.get(key);
+        if (!(value instanceof String) || isBlank((String) value)) {
+            throw new ContractViolationException("payload." + key + " is required");
+        }
+    }
+
+    private static boolean isBlank(String s) {
+        return s == null || s.trim().isEmpty();
+    }
+}
+

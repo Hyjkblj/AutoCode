@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autocode.example/schema/events/v1/spec_proposed.v1.schema.json",
+  "title": "SPEC_PROPOSED TaskEvent v1",
+  "allOf": [
+    { "$ref": "task_event.v1.schema.json" },
+    {
+      "type": "object",
+      "properties": {
+        "type": { "const": "SPEC_PROPOSED" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["artifact"],
+          "properties": {
+            "artifact": { "$ref": "artifact.schema.json" },
+            "path": { "type": "string" },
+            "summary": { "type": "string" },
+            "schemaVersion": { "type": "string" }
+          }
+        }
+      }
+    }
+  ]
+}
+

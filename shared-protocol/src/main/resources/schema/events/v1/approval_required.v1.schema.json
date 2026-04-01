@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autocode.example/schema/events/v1/approval_required.v1.schema.json",
+  "title": "APPROVAL_REQUIRED TaskEvent v1",
+  "allOf": [
+    { "$ref": "task_event.v1.schema.json" },
+    {
+      "type": "object",
+      "properties": {
+        "type": { "const": "APPROVAL_REQUIRED" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["approvalId", "context"],
+          "properties": {
+            "approvalId": { "type": "string", "minLength": 1 },
+            "reason": { "type": "string" },
+            "context": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["action", "tool", "workspaceRef", "inputsHash"],
+              "properties": {
+                "action": { "type": "string", "minLength": 1 },
+                "tool": { "type": "string", "minLength": 1 },
+                "workspaceRef": { "type": "string", "minLength": 1 },
+                "inputsHash": { "type": "string", "minLength": 1 },
+                "inputs": { "type": "object" }
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}
+

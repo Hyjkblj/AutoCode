@@ -72,3 +72,10 @@ mvp:
     redis-key: mvp:task:queue
     lease-seconds: 60
     backend: redis
+
+artifacts:
+  storage:
+    base-dir: ${MVP_ARTIFACTS_BASE_DIR:./data/artifacts}
+  download:
+    # B-stage: shared token (default deny when empty)
+    shared-token: ${MVP_ARTIFACTS_DOWNLOAD_SHARED_TOKEN:}

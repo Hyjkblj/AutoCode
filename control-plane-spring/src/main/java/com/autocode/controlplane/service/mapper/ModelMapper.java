@@ -18,9 +18,10 @@ public class ModelMapper {
         summary.setProjectId(task.getProjectId());
         summary.setPrompt(task.getPrompt());
         summary.setAssistant(task.getAssistant());
-        summary.setWorkspacePath(task.getWorkspacePath());
-        summary.setAgentProfile(task.getAgentProfile());
-        summary.setSessionKey(task.getSessionKey());
+        // Backward/forward compatible with shared-protocol: these fields may not exist in older versions.
+        invokeSetterIfPresent(summary, "setWorkspacePath", String.class, task.getWorkspacePath());
+        invokeSetterIfPresent(summary, "setAgentProfile", String.class, task.getAgentProfile());
+        invokeSetterIfPresent(summary, "setSessionKey", String.class, task.getSessionKey());
         summary.setStatus(task.getStatus());
         summary.setAssignedNodeId(task.getAssignedNodeId());
         summary.setCreatedAt(task.getCreatedAt());
@@ -36,5 +37,15 @@ public class ModelMapper {
         node.setLastHeartbeatAt(entity.getLastHeartbeatAt());
         node.setOnline(online);
         return node;
+    }
+
+    private static <T, V> void invokeSetterIfPresent(T target, String setterName, Class<V> argType, V value) {
+        try {
+            target.getClass().getMethod(setterName, argType).invoke(target, value);
+        } catch (NoSuchMethodException ignored) {
+            // shared-protocol older version: field not present
+        } catch (Exception e) {
+            throw new IllegalStateException("Failed to invoke " + setterName, e);
+        }
     }
 }

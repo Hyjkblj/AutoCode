@@ -27,7 +27,16 @@ public class AgentRunner {
 
     public AgentRunner(AgentConfig config) {
         this.config = config;
-        this.apiClient = new AgentApiClient(config.getBaseUrl(), config.getAgentToken());
+        if (config.getClientTls().isKeyMaterialConfigured()) {
+            log.info("TLS client certificate enabled for control plane ({})", config.getBaseUrl());
+        }
+        this.apiClient = new AgentApiClient(
+                config.getBaseUrl(),
+                config.getAgentToken(),
+                config.getAgentProfile(),
+                config.getHttpTimeouts(),
+                config.getClientTls(),
+                config.getAgentVersion());
         this.taskExecutor = new TaskExecutor(apiClient, config);
         String path = System.getenv("MVP_AGENT_CONFIG_PATH");
         this.configFile = (path == null || path.isBlank()) ? null : new File(path.trim());

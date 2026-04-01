@@ -10,7 +10,8 @@ import java.util.Properties;
 /**
  * Loads agent configuration overrides from a simple .properties file.
  *
- * Keys reuse the same names as env vars, e.g. MVP_ALLOWED_COMMAND_PREFIXES.
+ * Keys reuse the same names as env vars, e.g. MVP_ALLOWED_COMMAND_PREFIXES, MVP_NETWORK_ALLOWED,
+ * MVP_HTTP_*_TIMEOUT_SECONDS, MVP_AGENT_VERSION.
  */
 public class AgentConfigFileLoader {
     public AgentConfig loadOverrides(File file) {
@@ -32,6 +33,15 @@ public class AgentConfigFileLoader {
 
         List<String> allowedCommands = splitList(props.getProperty("MVP_ALLOWED_COMMAND_PREFIXES"));
         List<String> allowedWorkspaces = splitList(props.getProperty("MVP_ALLOWED_WORKSPACE_PREFIXES"));
+        String networkRaw = props.getProperty("MVP_NETWORK_ALLOWED");
+        boolean networkAllowed = networkRaw == null ? base.isNetworkAllowed() : truthyProperty(networkRaw);
+
+        AgentConfig.HttpTimeouts httpTimeouts = AgentConfig.HttpTimeouts.mergeFromProperties(base.getHttpTimeouts(), props);
+
+        String versionProp = props.getProperty("MVP_AGENT_VERSION");
+        String agentVersion = (versionProp == null || versionProp.isBlank())
+                ? base.getAgentVersion()
+                : versionProp.trim();
 
         return new AgentConfig(
                 base.getBaseUrl(),
@@ -42,8 +52,17 @@ public class AgentConfigFileLoader {
                 approvalTimeoutSeconds == null ? base.getApprovalTimeoutSeconds() : Long.parseLong(approvalTimeoutSeconds.trim()),
                 allowedCommands == null ? base.getAllowedCommandPrefixes() : allowedCommands,
                 allowedWorkspaces == null ? base.getAllowedWorkspacePrefixes() : allowedWorkspaces,
-                base.getAgentProfile()
+                base.getAgentProfile(),
+                networkAllowed,
+                httpTimeouts,
+                base.getClientTls(),
+                agentVersion
         );
+    }
+
+    private static boolean truthyProperty(String raw) {
+        String v = raw.trim().toLowerCase();
+        return v.equals("1") || v.equals("true") || v.equals("yes") || v.equals("on");
     }
 
     private List<String> splitList(String value) {

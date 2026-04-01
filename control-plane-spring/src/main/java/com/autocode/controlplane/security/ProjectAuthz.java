@@ -16,20 +16,23 @@ public class ProjectAuthz {
     private final UserEntityRepository userRepository;
     private final ProjectMembershipEntityRepository membershipRepository;
     private final TaskEntityRepository taskRepository;
+    private final AuthProperties authProperties;
 
     public ProjectAuthz(
             UserEntityRepository userRepository,
             ProjectMembershipEntityRepository membershipRepository,
-            TaskEntityRepository taskRepository
+            TaskEntityRepository taskRepository,
+            AuthProperties authProperties
     ) {
         this.userRepository = userRepository;
         this.membershipRepository = membershipRepository;
         this.taskRepository = taskRepository;
+        this.authProperties = authProperties;
     }
 
     public boolean canAccessProject(String projectId) {
         if (projectId == null || projectId.isBlank()) return false;
-        if (isAdmin()) return true;
+        if (isElevatedAuthority()) return true;
         String username = SecurityPrincipalUtils.currentUsernameOrNull();
         if (username == null) return false;
         Optional<UserEntity> user = userRepository.findByUsername(username);
@@ -38,7 +41,7 @@ public class ProjectAuthz {
 
     public boolean canAccessTask(String taskId) {
         if (taskId == null || taskId.isBlank()) return false;
-        if (isAdmin()) return true;
+        if (isElevatedAuthority()) return true;
         String username = SecurityPrincipalUtils.currentUsernameOrNull();
         if (username == null) return false;
         Optional<UserEntity> user = userRepository.findByUsername(username);
@@ -49,12 +52,12 @@ public class ProjectAuthz {
         return membershipRepository.existsByProjectIdAndUserId(projectId, user.get().getUserId());
     }
 
-    private boolean isAdmin() {
+    private boolean isElevatedAuthority() {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         if (auth == null || !auth.isAuthenticated()) return false;
-        return auth.getAuthorities().stream().anyMatch(a ->
-                "ROLE_ADMIN".equals(a.getAuthority()) || "ROLE_OPERATOR".equals(a.getAuthority())
-        );
+        return auth.getAuthorities().stream().anyMatch(a -> authProperties
+                .elevatedAuthorityList()
+                .contains(a.getAuthority()));
     }
 }
 

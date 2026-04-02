@@ -10,7 +10,29 @@
     "hash": { "type": "string" },
     "size": { "type": "integer", "minimum": 0 },
     "mime": { "type": "string" },
-    "type": { "type": "string", "minLength": 1 }
+    "type": { "type": "string", "minLength": 1 },
+    "name": { "type": "string" },
+    "downloadUrl": { "type": "string" },
+    "entryPath": { "type": "string" },
+    "build": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "command": { "type": "string", "minLength": 1 },
+        "workingDir": { "type": "string" }
+      }
+    },
+    "run": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "command": { "type": "string" },
+        "hints": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    }
   }
 }
 

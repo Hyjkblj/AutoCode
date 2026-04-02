@@ -14,6 +14,8 @@ This module is the single source of truth for cross-component DTOs and event sch
 - Changing an existing field's meaning is not allowed.
 - For `TaskEvent.payload` (a `Map<String, Object>`), producers should follow the JSON Schemas in
   `src/main/resources/schema/events/v1/` for event-specific required keys.
+- Standalone manifests (multi-artifact exports) use `src/main/resources/schema/manifest/v1/`; `schemaVersion = 1`
+  matches the same compatibility rules as event payloads (optional additive fields only).
 
 ## Payload DTOs and schema
 
@@ -24,4 +26,7 @@ the JSON Schemas are the language-neutral source for validation and documentatio
 
 `com.autocode.protocol.validation.TaskEventContractValidator` performs lightweight required-field checks for the
 platform's key event types (v1). It is intended to be used by both control plane and runners before emitting/accepting events.
+
+`com.autocode.protocol.validation.ArtifactManifestContractValidator` validates `ArtifactManifest` documents (v1) using the
+same minimal required-field approach.
 

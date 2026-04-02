@@ -1,9 +1,9 @@
 /**
- * Task artifacts API (B-stage): upload/list/download.
+ * Task artifacts API (B-stage): upload/list/download/preview.
  *
  * Notes:
  * - Upload/list are JSON endpoints using shared-protocol gateway envelope.
- * - Download returns bytes, but still enforces default-deny authz and writes audit hash-chain on success.
+ * - Download/preview return bytes with the same shared-token gate; preview uses inline disposition for UI.
  */
 package com.autocode.controlplane.api;
 
@@ -85,6 +85,21 @@ public class ArtifactsController {
             @RequestParam(value = "token", required = false) String token
     ) {
         ArtifactContent content = artifactsService.download(taskId, artifactId, token);
+        return toStreamingResponse(content, "attachment");
+    }
+
+    @GetMapping("/{artifactId}/preview")
+    @PreAuthorize("@projectAuthz.canAccessTask(#p0)")
+    public ResponseEntity<StreamingResponseBody> preview(
+            @PathVariable("taskId") String taskId,
+            @PathVariable("artifactId") String artifactId,
+            @RequestParam(value = "token", required = false) String token
+    ) {
+        ArtifactContent content = artifactsService.preview(taskId, artifactId, token);
+        return toStreamingResponse(content, "inline");
+    }
+
+    private static ResponseEntity<StreamingResponseBody> toStreamingResponse(ArtifactContent content, String disposition) {
         ArtifactRecord r = content.record();
         MediaType mediaType = (r.contentType() == null || r.contentType().isBlank())
                 ? MediaType.APPLICATION_OCTET_STREAM
@@ -102,7 +117,7 @@ public class ArtifactsController {
         };
         return ResponseEntity.ok()
                 .contentType(mediaType)
-                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + safeFilename(r.name()) + "\"")
+                .header(HttpHeaders.CONTENT_DISPOSITION, disposition + "; filename=\"" + safeFilename(r.name()) + "\"")
                 .header("X-Artifact-Id", r.artifactId())
                 .header("X-Artifact-Sha256", r.sha256())
                 .contentLength(r.sizeBytes())

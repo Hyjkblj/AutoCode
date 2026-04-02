@@ -27,7 +27,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 @SpringBootTest
 @AutoConfigureMockMvc
-class TaskWorkflowIntegrationTest {
+class TaskWorkflowIntegrationTest extends OperatorProj1MembershipFixture {
 
     @Autowired
     private MockMvc mockMvc;

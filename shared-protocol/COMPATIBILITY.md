@@ -16,6 +16,8 @@ This module is the single source of truth for cross-component DTOs and event sch
   `src/main/resources/schema/events/v1/` for event-specific required keys.
 - Standalone manifests (multi-artifact exports) use `src/main/resources/schema/manifest/v1/`; `schemaVersion = 1`
   matches the same compatibility rules as event payloads (optional additive fields only).
+- Service runtime descriptions (ports, health checks, env hints, startup) use `src/main/resources/schema/runtime/v1/`;
+  `schemaVersion = 1` follows the same optional-additive rules.
 
 ## Payload DTOs and schema
 
@@ -29,4 +31,6 @@ platform's key event types (v1). It is intended to be used by both control plane
 
 `com.autocode.protocol.validation.ArtifactManifestContractValidator` validates `ArtifactManifest` documents (v1) using the
 same minimal required-field approach.
+
+`com.autocode.protocol.validation.ServiceRuntimeDescriptorContractValidator` validates `ServiceRuntimeDescriptor` documents (v1).
 

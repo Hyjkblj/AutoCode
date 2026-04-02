@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "serviceId": "control-plane-api",
+  "displayName": "Control Plane API",
+  "ports": [
+    { "name": "http", "port": 8080, "protocol": "http" }
+  ],
+  "healthCheck": {
+    "path": "/actuator/health",
+    "method": "GET",
+    "portName": "http"
+  },
+  "environment": [
+    {
+      "name": "SPRING_PROFILES_ACTIVE",
+      "description": "Spring profile(s) to activate",
+      "required": false,
+      "defaultValue": "dev"
+    }
+  ],
+  "startup": {
+    "command": "mvn",
+    "workingDir": "control-plane-spring",
+    "args": ["spring-boot:run"]
+  }
+}

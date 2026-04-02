@@ -31,6 +31,7 @@ import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicLong;
 
 public class TaskExecutor {
     private static final Logger log = LoggerFactory.getLogger(TaskExecutor.class);
@@ -42,6 +43,7 @@ public class TaskExecutor {
     private final GitDiffCollector gitDiffCollector;
     private final ToolRegistry toolRegistry;
     private volatile CompositeToolInvocationPolicy invocationPolicy;
+    private final AtomicLong seq = new AtomicLong(0);
 
     public TaskExecutor(AgentApiClient client, AgentConfig config) {
         this.client = client;
@@ -234,19 +236,37 @@ public class TaskExecutor {
     }
 
     private void send(TaskSummary task, String traceId, String runId, EventType type, Map<String, Object> payload) throws IOException {
-        TaskEvent event = new TaskEvent();
-        // Control plane validates eventId before ingest and uses it for idempotent deduplication.
-        event.setEventId("evt_" + UUID.randomUUID().toString().replace("-", ""));
-        event.setEventVersion(1);
-        event.setType(type);
-        event.setTimestamp(Instant.now());
-        event.setAssistant(task.getAssistant());
+        TaskEvent event = buildEvent(task, traceId, runId, type, payload, seq.getAndIncrement());
         HashMap<String, Object> merged = new HashMap<>();
         merged.put("traceId", traceId);
         merged.put("runId", runId);
         merged.putAll(payload);
         event.setPayload(merged);
         client.publishEvent(task.getTaskId(), event);
+    }
+
+    static TaskEvent buildEvent(
+            TaskSummary task,
+            String traceId,
+            String runId,
+            EventType type,
+            Map<String, Object> payload,
+            long seq) {
+        TaskEvent event = new TaskEvent();
+        // Control plane validates eventId before ingest and uses it for idempotent deduplication.
+        event.setEventId("evt_" + UUID.randomUUID().toString().replace("-", ""));
+        event.setEventVersion(1);
+        event.setType(type);
+        event.setTimestamp(Instant.now());
+        if (task != null) {
+            event.setTaskId(task.getTaskId());
+            event.setAssistant(task.getAssistant());
+            // shared-protocol uses sessionId; TaskSummary currently exposes sessionKey.
+            event.setSessionId(task.getSessionKey());
+        }
+        event.setSeq(Math.max(0, seq));
+        // payload is set by caller (merged with traceId/runId in send()).
+        return event;
     }
 
     /**

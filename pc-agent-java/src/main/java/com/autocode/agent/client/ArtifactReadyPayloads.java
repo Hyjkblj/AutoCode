@@ -20,6 +20,18 @@ public final class ArtifactReadyPayloads {
      * @throws IllegalArgumentException when required fields for schema validation are missing
      */
     public static Map<String, Object> fromMetadata(ArtifactMetadata metadata) {
+        return fromMetadata(metadata, null);
+    }
+
+    /**
+     * Builds payload compatible with shared-protocol {@code ARTIFACT_READY v1} schema:
+     * <pre>
+     *   { "artifact": { ... }, "kind": "zip" }
+     * </pre>
+     *
+     * @param kind optional hint for UI; suggested values: zip | spec | build-report | patch
+     */
+    public static Map<String, Object> fromMetadata(ArtifactMetadata metadata, String kind) {
         if (metadata == null) {
             throw new IllegalArgumentException("metadata is required");
         }
@@ -27,24 +39,40 @@ public final class ArtifactReadyPayloads {
         if (artifactId == null || artifactId.isBlank()) {
             throw new IllegalArgumentException("artifactId is required");
         }
+
+        String type = metadata.getType();
+        if (type == null || type.isBlank()) {
+            throw new IllegalArgumentException("type is required for artifact payload");
+        }
+
         Long size = metadata.getSize();
-        if (size == null || size < 0) {
-            throw new IllegalArgumentException("size is required and must be >= 0");
+        if (size != null && size < 0) {
+            throw new IllegalArgumentException("size must be >= 0 when provided");
         }
+
+        HashMap<String, Object> artifact = new HashMap<>();
+        artifact.put("artifactId", artifactId);
+        artifact.put("type", type);
+
         String hash = metadata.getHash();
-        if (hash == null || hash.isBlank()) {
-            throw new IllegalArgumentException("hash is required for artifact payload");
+        if (hash != null && !hash.isBlank()) {
+            artifact.put("hash", hash);
         }
-        HashMap<String, Object> payload = new HashMap<>();
-        payload.put("artifactId", artifactId);
-        payload.put("size", size);
-        payload.put("hash", hash);
+        if (size != null) {
+            artifact.put("size", size);
+        }
         if (metadata.getMime() != null && !metadata.getMime().isBlank()) {
-            payload.put("mime", metadata.getMime());
+            artifact.put("mime", metadata.getMime());
         }
-        if (metadata.getType() != null && !metadata.getType().isBlank()) {
-            payload.put("type", metadata.getType());
+
+        HashMap<String, Object> payload = new HashMap<>();
+        payload.put("artifact", artifact);
+
+        String k = (kind == null || kind.isBlank()) ? null : kind.trim();
+        if (k != null) {
+            payload.put("kind", k);
         }
+
         return payload;
     }
 }

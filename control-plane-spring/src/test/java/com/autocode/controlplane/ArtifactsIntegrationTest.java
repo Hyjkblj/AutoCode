@@ -207,5 +207,14 @@ class ArtifactsIntegrationTest {
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.ok").value(false))
                 .andExpect(jsonPath("$.error").value("not found"));
+
+        // Non-members must also not be able to download (even with a valid shared token),
+        // otherwise artifacts become enumerable via download probing.
+        mockMvc.perform(get("/api/v1/tasks/{taskId}/artifacts/{artifactId}/download", taskId, "art_any_1")
+                        .queryParam("token", "test-download-token")
+                        .header("Authorization", "Bearer operator-dev-token"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.ok").value(false))
+                .andExpect(jsonPath("$.error").value("not found"));
     }
 }

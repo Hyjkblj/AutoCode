@@ -81,4 +81,3 @@ class TaskEventContractValidatorTest {
         assertThrows(ContractViolationException.class, () -> TaskEventContractValidator.validate(event));
     }
 }
-

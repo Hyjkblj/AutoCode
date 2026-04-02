@@ -13,6 +13,13 @@ import java.util.List;
 public class AuthProperties {
     private String operatorToken = "operator-dev-token";
     private String agentToken = "agent-dev-token";
+    /**
+     * Authorities treated as "elevated" for cross-project access in {@link ProjectAuthz}.
+     * Defaults to ROLE_ADMIN only; keep ROLE_OPERATOR out by default to avoid widening access.
+     *
+     * Example: mvp.auth.elevated-authorities=ROLE_ADMIN,ROLE_OPERATOR
+     */
+    private String elevatedAuthorities = "ROLE_ADMIN";
 
     /**
      * Comma-separated tokens for rotation. When empty, falls back to operatorToken/agentToken.
@@ -65,6 +72,14 @@ public class AuthProperties {
         this.revokedTokens = revokedTokens;
     }
 
+    public String getElevatedAuthorities() {
+        return elevatedAuthorities;
+    }
+
+    public void setElevatedAuthorities(String elevatedAuthorities) {
+        this.elevatedAuthorities = elevatedAuthorities;
+    }
+
     public List<String> operatorTokenList() {
         List<String> list = split(operatorTokens);
         if (!list.isEmpty()) {
@@ -83,6 +98,11 @@ public class AuthProperties {
 
     public List<String> revokedTokenList() {
         return split(revokedTokens);
+    }
+
+    public List<String> elevatedAuthorityList() {
+        List<String> list = split(elevatedAuthorities);
+        return list.isEmpty() ? List.of("ROLE_ADMIN") : list;
     }
 
     private List<String> split(String value) {

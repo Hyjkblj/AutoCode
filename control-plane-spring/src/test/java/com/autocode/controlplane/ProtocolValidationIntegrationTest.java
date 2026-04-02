@@ -14,7 +14,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 @SpringBootTest
 @AutoConfigureMockMvc
-class ProtocolValidationIntegrationTest {
+class ProtocolValidationIntegrationTest extends OperatorProj1MembershipFixture {
 
     @Autowired
     private MockMvc mockMvc;

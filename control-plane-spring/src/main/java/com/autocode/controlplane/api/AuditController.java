@@ -25,7 +25,7 @@ public class AuditController {
 
     @GetMapping("/export")
     // Use #p0 for SpEL stability without Java -parameters.
-    @PreAuthorize("hasAnyAuthority('ROLE_OPERATOR','ROLE_ADMIN') or @projectAuthz.canAccessTask(#p0)")
+    @PreAuthorize("@projectAuthz.canAccessTask(#p0)")
     public ResponseEntity<ApiResponse<Map<String, Object>>> exportByTask(@RequestParam("taskId") String taskId) {
         List<AuditLogEntity> logs = auditLogRepository.findByTaskIdOrderByCreatedAtAscAuditIdAsc(taskId);
         // Map.of(...) disallows null values, but prevHash/detailsJson can be null for the first entry.

@@ -127,6 +127,22 @@ class ArtifactsIntegrationTest {
                     }
                 });
 
+        mockMvc.perform(get("/api/v1/tasks/{taskId}/artifacts/{artifactId}/preview", taskId, artifactId)
+                        .header("Authorization", "Bearer operator-dev-token"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.ok").value(false));
+
+        mockMvc.perform(get("/api/v1/tasks/{taskId}/artifacts/{artifactId}/preview", taskId, artifactId)
+                        .queryParam("token", "test-download-token")
+                        .header("Authorization", "Bearer operator-dev-token"))
+                .andExpect(status().isOk())
+                .andExpect(result -> {
+                    String cd = result.getResponse().getHeader("Content-Disposition");
+                    if (cd == null || !cd.toLowerCase().contains("inline")) {
+                        throw new AssertionError("preview should use inline Content-Disposition: " + cd);
+                    }
+                });
+
         mockMvc.perform(get("/api/v1/audits/export")
                         .param("taskId", taskId)
                         .header("Authorization", "Bearer operator-dev-token"))
@@ -159,6 +175,12 @@ class ArtifactsIntegrationTest {
                 .andExpect(jsonPath("$.ok").value(false));
 
         mockMvc.perform(get("/api/v1/tasks/{taskId}/artifacts/{artifactId}/download", missingTaskId, "art_missing_1")
+                        .queryParam("token", "test-download-token")
+                        .header("Authorization", "Bearer operator-dev-token"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.ok").value(false));
+
+        mockMvc.perform(get("/api/v1/tasks/{taskId}/artifacts/{artifactId}/preview", missingTaskId, "art_missing_1")
                         .queryParam("token", "test-download-token")
                         .header("Authorization", "Bearer operator-dev-token"))
                 .andExpect(status().isNotFound())
@@ -212,6 +234,26 @@ class ArtifactsIntegrationTest {
         // otherwise artifacts become enumerable via download probing.
         mockMvc.perform(get("/api/v1/tasks/{taskId}/artifacts/{artifactId}/download", taskId, "art_any_1")
                         .queryParam("token", "test-download-token")
+                        .header("Authorization", "Bearer operator-dev-token"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.ok").value(false))
+                .andExpect(jsonPath("$.error").value("not found"));
+
+        mockMvc.perform(get("/api/v1/tasks/{taskId}/artifacts/{artifactId}/preview", taskId, "art_any_1")
+                        .queryParam("token", "test-download-token")
+                        .header("Authorization", "Bearer operator-dev-token"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.ok").value(false))
+                .andExpect(jsonPath("$.error").value("not found"));
+
+        mockMvc.perform(get("/api/v1/tasks/{taskId}/artifacts/derived", taskId)
+                        .header("Authorization", "Bearer operator-dev-token"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.ok").value(false))
+                .andExpect(jsonPath("$.error").value("not found"));
+
+        mockMvc.perform(get("/api/v1/audits/export")
+                        .param("taskId", taskId)
                         .header("Authorization", "Bearer operator-dev-token"))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.ok").value(false))

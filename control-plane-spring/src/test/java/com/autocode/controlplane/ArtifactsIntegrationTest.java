@@ -258,5 +258,26 @@ class ArtifactsIntegrationTest {
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.ok").value(false))
                 .andExpect(jsonPath("$.error").value("not found"));
+
+        // M2: other task-scoped operator APIs must also mask existence (not 403).
+        mockMvc.perform(get("/api/v1/tasks/{taskId}", taskId)
+                        .header("Authorization", "Bearer operator-dev-token"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.ok").value(false))
+                .andExpect(jsonPath("$.error").value("not found"));
+
+        mockMvc.perform(get("/api/v1/tasks/{taskId}/events", taskId)
+                        .header("Authorization", "Bearer operator-dev-token"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.ok").value(false))
+                .andExpect(jsonPath("$.error").value("not found"));
+
+        mockMvc.perform(post("/api/v1/tasks")
+                        .header("Authorization", "Bearer operator-dev-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(createPayload))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.ok").value(false))
+                .andExpect(jsonPath("$.error").value("not found"));
     }
 }

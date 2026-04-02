@@ -2,6 +2,7 @@ package com.autocode.agent.security.policy;
 
 import com.autocode.agent.runtime.tool.ToolCall;
 import com.autocode.agent.runtime.tool.ToolContext;
+import com.autocode.agent.security.WorkspacePrefixGuard;
 
 import java.util.List;
 
@@ -29,17 +30,11 @@ public class WorkspaceAllowlistPolicy implements ToolInvocationPolicy {
         if (cwd == null || cwd.isBlank()) {
             return PolicyDecision.deny("cwd_missing");
         }
-        String c = normalize(cwd);
-        for (String p : allowedPrefixes) {
-            if (c.startsWith(normalize(p))) {
-                return PolicyDecision.allow();
-            }
+        String c = WorkspacePrefixGuard.normalizePath(cwd);
+        if (WorkspacePrefixGuard.isPathUnderAllowedPrefixes(c, allowedPrefixes)) {
+            return PolicyDecision.allow();
         }
         return PolicyDecision.deny("cwd_not_allowed");
-    }
-
-    private String normalize(String path) {
-        return path.replace('\\', '/').trim();
     }
 }
 

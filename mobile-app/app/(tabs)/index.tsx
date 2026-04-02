@@ -17,7 +17,7 @@ export default function HomeScreen() {
       </Text>
       <View style={styles.hint} lightColor="#f0f4f8" darkColor="#1a1a1a">
         <Text style={styles.hintText}>
-          PR-1：会话与项目已持久化。请到「项目」页切换项目；后续 PR 将接入自然语言任务与进度。
+          PR-2：请到「任务」页用自然语言发起任务，查看列表与详情中的进度条与日志（当前为本地模拟轮询，后续对接控制面）。
         </Text>
       </View>
     </View>

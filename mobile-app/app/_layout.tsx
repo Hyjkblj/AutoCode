@@ -9,6 +9,7 @@ import 'react-native-reanimated';
 import { AuthRedirect } from '@/components/AuthRedirect';
 import { useColorScheme } from '@/components/useColorScheme';
 import { AuthProvider } from '@/contexts/AuthContext';
+import { TaskProvider } from '@/contexts/TaskContext';
 
 export {
   // Catch any errors thrown by the Layout component.
@@ -46,7 +47,9 @@ export default function RootLayout() {
 
   return (
     <AuthProvider>
-      <RootLayoutNav />
+      <TaskProvider>
+        <RootLayoutNav />
+      </TaskProvider>
     </AuthProvider>
   );
 }

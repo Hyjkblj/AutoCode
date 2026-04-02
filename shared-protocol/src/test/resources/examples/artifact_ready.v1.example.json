@@ -15,7 +15,14 @@
       "size": 1048576,
       "mime": "application/zip",
       "type": "zip",
-      "entryPath": "dist/index.html"
+      "entryPath": "dist/index.html",
+      "build": {
+        "command": "npm ci && npm run build",
+        "workingDir": "."
+      },
+      "run": {
+        "hints": ["Preview static export under dist/."]
+      }
     },
     "kind": "zip"
   }

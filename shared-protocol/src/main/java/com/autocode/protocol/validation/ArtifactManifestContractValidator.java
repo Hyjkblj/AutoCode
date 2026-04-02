@@ -32,7 +32,9 @@ public final class ArtifactManifestContractValidator {
             if (isBlank(a.getType())) {
                 throw new ContractViolationException("artifact.type is required");
             }
+            ArtifactMetadataContractValidator.validateNestedDescriptors(a);
         }
+        ArtifactMetadataContractValidator.assertUniqueArtifactIds(artifacts);
         String def = manifest.getDefaultArtifactId();
         if (!isBlank(def)) {
             boolean found = false;

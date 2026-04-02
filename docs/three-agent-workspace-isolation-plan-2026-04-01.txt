@@ -1,0 +1,240 @@
+四 Agent 任务划分（工作区严格独立，移动端独立开发）
+日期：2026-04-01
+
+目标
+- 将当前主线剩余问题拆分为 4 个互不干扰的开发任务（其中移动端单独一条线）。
+- 每个 Agent 在独立 worktree + 独立分支开发，禁止跨路径改动，避免工作区污染。
+
+一、统一隔离规则（所有 Agent 必须遵守）
+1. 每个 Agent 使用独立 worktree：
+   - git worktree add ..\AutoCode-a1 -b fix/a1-control-plane-authz master
+   - git worktree add ..\AutoCode-a2 -b fix/a2-shared-protocol-contract master
+   - git worktree add ..\AutoCode-a3 -b fix/a3-java-agent-artifact-payload master
+   - git worktree add ..\AutoCode-a4 -b feat/a4-mobile-visual-app master
+2. 禁止在主工作区直接开发。
+3. 禁止使用 git add .，只能按文件精确 add。
+4. 提交前必须执行 git status --short，若出现白名单外文件，必须先还原再提交。
+5. 禁止提交临时文件（__pycache__、*.pyc、日志、IDE 文件）。
+6. 交叉路径禁改（移动端必须区别于 Agent-1/2/3）：
+   - Agent-1/2/3：禁止修改移动端白名单路径（mobile-app/**、app-mobile/**、apps/mobile/**）。
+   - Agent-4：禁止修改 control-plane-spring/**、shared-protocol/**、pc-agent-java/**（如需能力支持，必须拆分为对应 Agent 的 PR 先合入）。
+
+二、Agent-1（控制面权限修复，P0）
+角色
+- Control Plane Security Agent
+
+任务
+1. 修复项目级访问控制语义，确保非成员访问 artifacts 返回 404。
+2. 保持管理员/运维角色策略可解释、可配置，不放大越权面。
+3. 修复并通过对应集成测试（ArtifactsIntegrationTest 相关失败用例）。
+
+允许修改路径（白名单）
+- control-plane-spring/src/main/**
+- control-plane-spring/src/test/**
+
+禁止修改路径
+- shared-protocol/**
+- pc-agent-java/**
+- docs/**
+- scripts/**
+- pom.xml（仓库根）
+
+验收命令
+- mvn -pl shared-protocol,control-plane-spring -am -DskipTests compile
+- mvn -pl shared-protocol,control-plane-spring -am -Dtest=ArtifactsIntegrationTest test
+
+三、Agent-2（协议契约收口，P1）
+角色
+- Shared Protocol Contract Agent
+
+任务
+1. 收口 ARTIFACT_READY 契约（schema/DTO/example/validator 一致性）。
+2. 确保 eventVersion=1 下新增事件的兼容策略清晰且可测试。
+3. 清理示例文件与测试资源的不一致（路径与内容一致）。
+
+允许修改路径（白名单）
+- shared-protocol/src/main/**
+- shared-protocol/src/test/**
+- shared-protocol/src/main/resources/**
+- shared-protocol/src/test/resources/**
+- shared-protocol/COMPATIBILITY.md
+- shared-protocol/pom.xml
+
+禁止修改路径
+- control-plane-spring/**
+- pc-agent-java/**
+- docs/**
+- scripts/**
+- pom.xml（仓库根）
+
+验收命令
+- mvn -pl shared-protocol test
+
+四、Agent-3（Java Agent 契约对齐，P1）
+角色
+- Java Agent Runtime Agent
+
+任务
+1. 将 Java Agent 的 ARTIFACT_READY payload 生成逻辑与 shared-protocol 对齐。
+2. 确保上报事件字段（eventId/eventVersion/payload）与控制面校验兼容。
+3. 增补或修复 pc-agent-java 对应单测，避免回归。
+
+允许修改路径（白名单）
+- pc-agent-java/src/main/**
+- pc-agent-java/src/test/**
+- pc-agent-java/pom.xml
+- pom.xml（仅 dependencyManagement 必要改动）
+
+禁止修改路径
+- control-plane-spring/**
+- shared-protocol/**
+- docs/**
+- scripts/**
+
+验收命令
+- mvn -pl shared-protocol,pc-agent-java -am test
+
+五、Agent-4（移动端可视化 App，P1）
+角色
+- Mobile Visual App Agent
+
+任务
+1. 构建移动端可视化 App：登录、项目选择、自然语言输入、任务进度、产物预览/发布入口、历史与版本。
+2. 与控制面/协议契约对齐，但禁止直接修改 control-plane-spring/shared-protocol/pc-agent-java（通过提需求给对应 Agent 来补齐缺口）。
+3. 提供最小可用的端到端手动测试路径（至少能完成一次“发起生成→看到进度→看到产物入口”）。
+
+允许修改路径（白名单）
+- mobile-app/**
+- app-mobile/**
+- apps/mobile/**
+
+禁止修改路径
+- control-plane-spring/**
+- shared-protocol/**
+- pc-agent-java/**
+- docs/**
+- scripts/**
+- pom.xml（仓库根）
+
+验收命令
+- 以移动端模块自身的构建/测试命令为准（在 mobile-app/ 内执行），并要求 git status --short 干净
+
+六、合并顺序（主控执行）
+1. 先合 Agent-2（协议）到 master。
+2. 再合 Agent-1（控制面权限修复）。
+3. 再合 Agent-3（Java Agent 契约对齐）。
+4. 最后合 Agent-4（移动端可视化 App）。
+
+七、主控最终门禁
+1. git status --short 必须干净。
+2. Java 回归：
+   - mvn -B -q -pl shared-protocol,control-plane-spring,pc-agent-java -am test
+3. 如恢复 Python Runner 后，再补：
+   - cd claudecode-runner && python -m pytest -q
+4. 移动端回归：
+   - 在移动端模块内执行其构建/测试命令（至少能完成一次端到端手动验证流程）
+
+八、提交模板（每个 Agent）
+1. git status --short
+2. git add <白名单内文件>
+3. git commit -m "fix(<scope>): <summary>"
+4. git status --short（确认仅剩本分支预期变更或已干净）
+
+九、M1-M4 里程碑拆分为 PR 任务（按 Agent-1/2/3 职责划分；移动端在 M5 独立）
+说明
+- 目标：把“移动端自然语言生成 Web/微信小程序（含可选后端与服务器部署）”的主线工作拆成可合并的 PR。
+- 约束：必须遵守本文件“一、统一隔离规则”及各 Agent 白名单；每个 PR 合并前必须 git status --short 干净；禁止提交构建产物目录（如 build/）。
+- 合并顺序：按“六、合并顺序（主控执行）”执行。
+
+M1：底座闭环（协议 + 权限 + Java Agent 对齐）
+Agent-2（shared-protocol）PR：ARTIFACT_READY v1 契约收口（P1）
+- PR 标题建议：fix(shared-protocol): finalize ARTIFACT_READY v1 contract
+- 目标：收口 ARTIFACT_READY（schema/DTO/example/validator 一致性），明确 eventVersion=1 的兼容策略并可测试，清理示例/测试资源不一致。
+- 允许修改路径：见“三、Agent-2（协议契约收口，P1）”白名单
+- 验收命令：mvn -pl shared-protocol test
+
+Agent-1（control-plane-spring）PR：非成员访问 artifacts 返回 404（P0）
+- PR 标题建议：fix(control-plane): hide artifacts from non-members
+- 目标：修复项目级访问控制语义（非成员访问 artifacts 返回 404）；管理员/运维策略可解释且可配置；ArtifactsIntegrationTest 相关失败用例修复并通过。
+- 允许修改路径：见“二、Agent-1（控制面权限修复，P0）”白名单
+- 验收命令：
+  - mvn -pl shared-protocol,control-plane-spring -am -DskipTests compile
+  - mvn -pl shared-protocol,control-plane-spring -am -Dtest=ArtifactsIntegrationTest test
+
+Agent-3（pc-agent-java）PR：上报事件字段 + 审批门禁对齐（P1）
+- PR 标题建议：fix(pc-agent-java): align event reporting & approval gating
+- 目标：对齐 ARTIFACT_READY 上报字段（eventId/eventVersion/payload）与控制面校验兼容；命令执行安全策略/审批策略可配置（含 network gate）；补齐/修复单测。
+- 允许修改路径：见“四、Agent-3（Java Agent 契约对齐，P1）”白名单
+- 验收命令：mvn -pl shared-protocol,pc-agent-java -am test
+
+M2：稳定产出工程（模板/脚手架/可重复构建 的“协议钉子”与闭环）
+Agent-2（shared-protocol）PR：补齐“工程产出/制品清单”契约（v1 兼容）
+- PR 标题建议：fix(shared-protocol): standardize artifact manifest fields (v1 compatible)
+- 目标：把工程产出所需元信息（artifact 清单/入口/构建方式/运行提示等）固化为可校验结构；提供 examples + tests 锁住。
+- 验收命令：mvn -pl shared-protocol test
+
+Agent-1（control-plane-spring）PR：产物列表/下载/预览入口的权限语义闭环
+- PR 标题建议：fix(control-plane): enforce artifact visibility for list/download/preview
+- 目标：对 artifacts 相关能力（列表/下载/预览入口）统一权限与返回语义（坚持非成员 404），补齐集成测试。
+- 验收命令：mvn -pl shared-protocol,control-plane-spring -am -Dtest=ArtifactsIntegrationTest test
+
+Agent-3（pc-agent-java）PR：将本地产出映射为标准 artifact payload
+- PR 标题建议：fix(pc-agent-java): report standardized artifact manifest
+- 目标：把构建/生成结果映射为 shared-protocol 定义的 artifact payload，并稳定上报；必要时加强工作区隔离约束；补齐单测。
+- 验收命令：mvn -pl shared-protocol,pc-agent-java -am test
+
+M3：能跑起来（后端可本地一键启动/可检测/可呈现）
+Agent-2（shared-protocol）PR：定义“后端服务运行描述”结构（v1 兼容）
+- PR 标题建议：fix(shared-protocol): define service runtime descriptor (v1)
+- 目标：补齐后端服务运行信息结构（端口/健康检查/env schema/启动描述等）的契约与校验；examples + tests。
+- 验收命令：mvn -pl shared-protocol test
+
+Agent-1（control-plane-spring）PR：接收/存储/展示（或校验并透传）运行信息，且权限正确
+- PR 标题建议：fix(control-plane): support runtime metadata with correct authz
+- 目标：控制面能处理运行信息（至少校验并透传），并保持非成员 404；补齐集成测试。
+- 验收命令：mvn -pl shared-protocol,control-plane-spring -am test
+
+Agent-3（pc-agent-java）PR：本地启动/检测/上报最小闭环（与契约对齐）
+- PR 标题建议：fix(pc-agent-java): minimal run/health reporting
+- 目标：按约定生成运行信息并上报；至少具备健康检查/进程状态的最小可用检测；单测锁住关键字段。
+- 验收命令：mvn -pl shared-protocol,pc-agent-java -am test
+
+M4：能部署（构建 → 发布到服务器/环境，含审批门禁）
+Agent-2（shared-protocol）PR：定义“部署请求/部署结果”事件与 payload（v1 兼容）
+- PR 标题建议：fix(shared-protocol): add deploy plan/result payloads (v1)
+- 目标：新增或收口部署相关结构化字段（部署目标环境、产物 URL、状态、日志引用等），保持 v1 兼容策略；examples + tests。
+- 验收命令：mvn -pl shared-protocol test
+
+Agent-1（control-plane-spring）PR：部署权限/审计/状态机推进（非成员不可探测）
+- PR 标题建议：fix(control-plane): deploy authz, audit, and state transitions
+- 目标：控制面对部署动作的权限策略、审计与状态机推进；对非成员维持 404 掩蔽语义；补齐集成测试。
+- 验收命令：mvn -pl shared-protocol,control-plane-spring -am test
+
+Agent-3（pc-agent-java）PR：部署执行与审批门禁联动，上报部署结果
+- PR 标题建议：fix(pc-agent-java): gate deploy execution via approvals
+- 目标：部署相关命令/网络操作默认触发审批门禁；执行结果按协议上报；单测覆盖审批触发与上报字段。
+- 验收命令：mvn -pl shared-protocol,pc-agent-java -am test
+
+M5：移动端可视化 App（独立开发线：仅 Agent-4 改移动端代码）
+说明
+- 目标：提供移动端可视化应用，让用户能登录、输入自然语言、选择目标（Web/微信小程序）、查看生成进度、预览产物、触发发布，并查看历史与版本。
+- 约束：移动端代码与 Agent-1/2/3 完全解耦；移动端代码只允许 Agent-4 在独立 worktree 内修改（见“五、Agent-4”白名单）。
+  如移动端依赖协议/控制面/Java Agent 的新增字段或 API，必须拆成 Agent-1/2/3 各自 PR 先合入，再由 Agent-4 消费（禁止 Agent-4 跨路径直接改）。
+
+Agent-4（mobile-app）PR-1：移动端项目骨架 + 登录/会话 + 项目选择
+- PR 标题建议：feat(mobile-app): bootstrap app with auth & project selection
+- 目标：建立移动端工程与基础导航；完成登录/会话保持；项目列表与切换。
+- 允许修改路径：见“五、Agent-4（移动端可视化 App）”白名单
+- 验收命令：以移动端模块自身为准（构建成功 + 基本页面可用）
+
+Agent-4（mobile-app）PR-2：自然语言发起生成 + 任务列表/详情 + 进度可视化
+- PR 标题建议：feat(mobile-app): prompt-to-task flow with progress UI
+- 目标：自然语言输入→创建任务→查看任务列表/详情→展示进度（轮询或订阅）。
+- 允许修改路径：见“五、Agent-4（移动端可视化 App）”白名单
+- 验收命令：以移动端模块自身为准（可完整跑通一次“发起→看到进度”）
+
+Agent-4（mobile-app）PR-3：artifacts 预览入口 + 发布入口 + 历史/版本页
+- PR 标题建议：feat(mobile-app): artifacts preview/publish entry and history
+- 目标：展示 artifacts 列表/详情；提供预览入口与发布入口（先做入口与状态展示）；提供历史与版本查看。
+- 允许修改路径：见“五、Agent-4（移动端可视化 App）”白名单
+- 验收命令：以移动端模块自身为准（可完整跑通一次“看到产物入口”）

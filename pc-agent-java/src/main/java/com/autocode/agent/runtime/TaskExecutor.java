@@ -34,7 +34,9 @@ import java.lang.reflect.Method;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
@@ -225,23 +227,41 @@ public class TaskExecutor {
         }
 
         // M1/M2：可选将本地产物上传并上报 ARTIFACT_READY（路径须在工作区前缀白名单内）
-        try {
-            maybePublishPostSuccessArtifact(task, traceId, runId, cwd);
-        } catch (Exception ex) {
-            log.warn("post-success artifact upload skipped: {}", ex.getMessage());
-        }
+        maybePublishPostSuccessArtifacts(task, traceId, runId, cwd);
 
         long totalMs = (System.nanoTime() - taskStartNs) / 1_000_000;
         log.info("Task {} done total {}ms traceId={} runId={}", task.getTaskId(), totalMs, traceId, runId);
         send(task, traceId, runId, EventType.TASK_DONE, Map.of("result", "success"));
     }
 
-    private void maybePublishPostSuccessArtifact(TaskSummary task, String traceId, String runId, String cwd)
-            throws IOException {
-        String raw = System.getenv("MVP_POST_SUCCESS_ARTIFACT_PATH");
-        if (raw == null || raw.isBlank()) {
+    private void maybePublishPostSuccessArtifacts(TaskSummary task, String traceId, String runId, String cwd) {
+        String multi = System.getenv("MVP_POST_SUCCESS_ARTIFACT_PATHS");
+        String single = System.getenv("MVP_POST_SUCCESS_ARTIFACT_PATH");
+        List<String> rawPaths = new ArrayList<>();
+        if (multi != null && !multi.isBlank()) {
+            for (String p : multi.split(",")) {
+                String t = p.trim();
+                if (!t.isEmpty()) {
+                    rawPaths.add(t);
+                }
+            }
+        } else if (single != null && !single.isBlank()) {
+            rawPaths.add(single.trim());
+        }
+        if (rawPaths.isEmpty()) {
             return;
         }
+        for (String raw : rawPaths) {
+            try {
+                publishOnePostSuccessArtifact(task, traceId, runId, cwd, raw);
+            } catch (Exception ex) {
+                log.warn("post-success artifact upload skipped for {}: {}", raw, ex.getMessage());
+            }
+        }
+    }
+
+    private void publishOnePostSuccessArtifact(TaskSummary task, String traceId, String runId, String cwd, String raw)
+            throws IOException {
         Path cwdPath = Path.of(cwd).toAbsolutePath().normalize();
         Path artifactPath;
         try {
@@ -251,7 +271,7 @@ public class TaskExecutor {
             return;
         }
         if (!Files.isRegularFile(artifactPath)) {
-            log.warn("MVP_POST_SUCCESS_ARTIFACT_PATH is not a regular file: {}", artifactPath);
+            log.warn("post-success artifact path is not a regular file: {}", artifactPath);
             return;
         }
         String normalizedArtifact = WorkspacePrefixGuard.normalizePath(artifactPath.toString());
@@ -272,6 +292,7 @@ public class TaskExecutor {
         String logicalName = readOptionalEnv("MVP_ARTIFACT_LOGICAL_NAME");
         ArtifactMetadata meta = client.uploadArtifact(
                 task.getTaskId(), filename, logicalName, contentType, data);
+        LocalArtifactMapper.applyServerMetadataDefaults(meta, filename);
         String kind = LocalArtifactMapper.inferKind(meta);
         if (kind == null || kind.isBlank()) {
             kind = LocalArtifactMapper.inferArtifactType(filename);
@@ -326,12 +347,26 @@ public class TaskExecutor {
 
     private void send(TaskSummary task, String traceId, String runId, EventType type, Map<String, Object> payload) throws IOException {
         TaskEvent event = buildEvent(task, traceId, runId, type, payload, seq.getAndIncrement());
-        HashMap<String, Object> merged = new HashMap<>();
-        merged.put("traceId", traceId);
-        merged.put("runId", runId);
-        merged.putAll(payload);
-        event.setPayload(merged);
+        event.setPayload(mergeOutboundPayload(type, traceId, runId, payload));
         client.publishEvent(task.getTaskId(), event);
+    }
+
+    /**
+     * {@code ARTIFACT_READY} v1 JSON Schema allows only {@code artifact} and {@code kind} in payload — do not inject
+     * {@code traceId}/{@code runId} there (M1 contract alignment).
+     */
+    static Map<String, Object> mergeOutboundPayload(EventType type, String traceId, String runId, Map<String, Object> payload) {
+        HashMap<String, Object> merged = new HashMap<>();
+        if (mergesCorrelationIntoPayload(type)) {
+            merged.put("traceId", traceId);
+            merged.put("runId", runId);
+        }
+        merged.putAll(payload);
+        return merged;
+    }
+
+    static boolean mergesCorrelationIntoPayload(EventType type) {
+        return type != EventType.ARTIFACT_READY;
     }
 
     static TaskEvent buildEvent(

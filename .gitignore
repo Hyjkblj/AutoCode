@@ -1,4 +1,8 @@
 **/target/
+**/build/
+
+# Mobile app lives on feat/a4-mobile-visual-app (separate worktree); keep this clone free of accidental mobile PR noise
+/mobile-app/
 **/.idea/
 **/*.iml
 **/.vscode/

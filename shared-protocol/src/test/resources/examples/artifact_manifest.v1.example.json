@@ -19,6 +19,13 @@
         "command": "npx serve dist",
         "hints": ["Open http://localhost:3000 after serve starts."]
       }
+    },
+    {
+      "artifactId": "art_spec_bundle_002",
+      "name": "spec.json",
+      "type": "spec_bundle",
+      "mime": "application/json",
+      "entryPath": "spec/spec.json"
     }
   ]
 }

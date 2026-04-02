@@ -65,4 +65,19 @@ public final class LocalArtifactMapper {
         }
         return null;
     }
+
+    /**
+     * Fills {@code type} / {@code mime} when the control plane returns partial {@link ArtifactMetadata} after upload.
+     */
+    public static void applyServerMetadataDefaults(ArtifactMetadata metadata, String fileName) {
+        if (metadata == null) {
+            return;
+        }
+        if (metadata.getType() == null || metadata.getType().isBlank()) {
+            metadata.setType(inferArtifactType(fileName));
+        }
+        if (metadata.getMime() == null || metadata.getMime().isBlank()) {
+            metadata.setMime(guessMimeType(fileName));
+        }
+    }
 }

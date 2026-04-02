@@ -94,6 +94,7 @@ public final class TaskEventContractValidator {
         Map<String, Object> artifact = (Map<String, Object>) payload.get("artifact");
         requireString(artifact, "artifactId");
         requireString(artifact, "type");
+        ArtifactMetadataContractValidator.validateNestedDescriptorsFromMap(artifact);
         // hash/size/mime are strongly recommended but optional for compatibility.
     }
 

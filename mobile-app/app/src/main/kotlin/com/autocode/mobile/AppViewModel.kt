@@ -8,6 +8,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.autocode.mobile.network.ArtifactListItem
 import com.autocode.mobile.network.ControlPlaneClient
 import com.autocode.mobile.network.TaskSummaryDto
 import kotlinx.coroutines.delay
@@ -31,6 +32,7 @@ private object PrefsKeys {
     val TASKS_JSON = stringPreferencesKey("tasks_json")
     val BASE_URL = stringPreferencesKey("base_url")
     val GENERATION_TARGET = stringPreferencesKey("generation_target")
+    val PUBLISH_HISTORY_JSON = stringPreferencesKey("publish_history_json")
 }
 
 data class UiState(
@@ -42,6 +44,8 @@ data class UiState(
     /** 控制面根 URL，空表示离线模拟（PR-1/PR-2） */
     val baseUrl: String = "",
     val generationTarget: GenerationTarget = GenerationTarget.WEB,
+    /** PR-3：发布/版本历史（本地持久化） */
+    val publishHistory: List<PublishHistoryEntry> = emptyList(),
 )
 
 class AppViewModel(application: Application) : AndroidViewModel(application) {
@@ -52,6 +56,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private val taskListSerializer = ListSerializer(TaskItem.serializer())
+    private val publishHistorySerializer = ListSerializer(PublishHistoryEntry.serializer())
 
     private val _uiState = MutableStateFlow(UiState())
     val uiState: StateFlow<UiState> = _uiState.asStateFlow()
@@ -90,6 +95,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             if (rawTasks.isNullOrBlank()) emptyList()
             else runCatching { json.decodeFromString(taskListSerializer, rawTasks) }.getOrDefault(emptyList())
 
+        val rawHistory = prefs[PrefsKeys.PUBLISH_HISTORY_JSON]
+        val publishHistory: List<PublishHistoryEntry> =
+            if (rawHistory.isNullOrBlank()) emptyList()
+            else runCatching { json.decodeFromString(publishHistorySerializer, rawHistory) }.getOrDefault(emptyList())
+
         val session =
             if (token.isNotBlank() && display.isNotBlank()) Session(accessToken = token, displayName = display)
             else null
@@ -115,6 +125,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 tasks = normalizedTasks,
                 baseUrl = baseUrl,
                 generationTarget = generationTarget,
+                publishHistory = publishHistory,
             )
         }
         if (session != null && normalizedTasks != tasks) {
@@ -138,6 +149,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             p[PrefsKeys.TASKS_JSON] = json.encodeToString(taskListSerializer, s.tasks)
             p[PrefsKeys.BASE_URL] = s.baseUrl.trim()
             p[PrefsKeys.GENERATION_TARGET] = generationTargetStorageValue(s.generationTarget)
+            p[PrefsKeys.PUBLISH_HISTORY_JSON] = json.encodeToString(publishHistorySerializer, s.publishHistory)
         }
     }
 
@@ -219,6 +231,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     tasks = emptyList(),
                     baseUrl = baseUrl,
                     generationTarget = target,
+                    publishHistory = emptyList(),
                 )
             }
             getApplication<Application>().mobileDataStore.edit { p ->
@@ -226,6 +239,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 p.remove(PrefsKeys.DISPLAY)
                 p.remove(PrefsKeys.PROJECT)
                 p.remove(PrefsKeys.TASKS_JSON)
+                p.remove(PrefsKeys.PUBLISH_HISTORY_JSON)
             }
         }
     }
@@ -345,6 +359,58 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun tasksForCurrentProject(): List<TaskItem> {
         val pid = _uiState.value.selectedProjectId ?: return emptyList()
         return _uiState.value.tasks.filter { it.projectId == pid }.sortedByDescending { it.createdAt }
+    }
+
+    fun succeededTasksForCurrentProject(): List<TaskItem> =
+        tasksForCurrentProject().filter { it.status == TaskStatus.SUCCEEDED }
+
+    /**
+     * PR-3：拉取任务下已上传产物；离线且任务已完成时返回占位条目。
+     */
+    suspend fun loadArtifactsForTask(taskId: String): Result<List<ArtifactListItem>> {
+        val base = _uiState.value.baseUrl.trim()
+        val session = _uiState.value.session
+        if (base.isNotEmpty() && session != null) {
+            return ControlPlaneClient.listArtifacts(base, session.accessToken, taskId)
+        }
+        val task = taskById(taskId)
+        if (task != null && task.status == TaskStatus.SUCCEEDED) {
+            return Result.success(
+                listOf(
+                    ArtifactListItem(
+                        artifactId = "local-mock-1",
+                        taskId = taskId,
+                        name = "产物占位.zip",
+                        contentType = "application/zip",
+                        sizeBytes = 2048L,
+                        sha256 = "mock-sha256",
+                    ),
+                ),
+            )
+        }
+        return Result.success(emptyList())
+    }
+
+    fun recordPublishEntry(
+        taskId: String,
+        artifactId: String?,
+        artifactName: String?,
+        versionLabel: String,
+    ) {
+        viewModelScope.launch {
+            val e =
+                PublishHistoryEntry(
+                    id = "pub_${System.currentTimeMillis()}",
+                    taskId = taskId,
+                    artifactId = artifactId,
+                    artifactName = artifactName,
+                    versionLabel = versionLabel,
+                    status = "submitted_mock",
+                    createdAt = System.currentTimeMillis(),
+                )
+            _uiState.update { it.copy(publishHistory = listOf(e) + it.publishHistory) }
+            persistAll()
+        }
     }
 
     private fun startLocalProgressTicker() {

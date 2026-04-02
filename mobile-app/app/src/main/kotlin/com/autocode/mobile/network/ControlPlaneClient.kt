@@ -8,8 +8,10 @@ import kotlinx.serialization.json.put
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.longOrNull
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -17,7 +19,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import java.util.concurrent.TimeUnit
 
 /**
- * 最小控制面 HTTP 客户端（PR-2：创建任务 + 轮询任务摘要）。
+ * 最小控制面 HTTP 客户端（PR-2：任务；PR-3：产物列表）。
  * 需控制面开启 `mvp.auth.mode=jwt` 且提供 `/api/v1/auth/login`。
  */
 object ControlPlaneClient {
@@ -93,6 +95,30 @@ object ControlPlaneClient {
             }
         }
 
+    suspend fun listArtifacts(
+        baseUrl: String,
+        bearerToken: String,
+        taskId: String,
+    ): Result<List<ArtifactListItem>> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val root = normalizeBaseUrl(baseUrl)
+                val req =
+                    Request.Builder()
+                        .url("$root/api/v1/tasks/${taskId.trim()}/artifacts")
+                        .header("Authorization", "Bearer ${bearerToken.trim()}")
+                        .get()
+                        .build()
+                client.newCall(req).execute().use { resp ->
+                    val text = resp.body?.string().orEmpty()
+                    if (!resp.isSuccessful) {
+                        error("HTTP ${resp.code}: ${text.take(300)}")
+                    }
+                    parseGatewayArtifactList(text, taskId.trim())
+                }
+            }
+        }
+
     suspend fun getTask(
         baseUrl: String,
         bearerToken: String,
@@ -154,6 +180,27 @@ object ControlPlaneClient {
             status = status,
         )
     }
+
+    private fun parseGatewayArtifactList(body: String, fallbackTaskId: String): List<ArtifactListItem> {
+        val obj = json.parseToJsonElement(body).jsonObject
+        if (obj["ok"]?.jsonPrimitive?.booleanOrNull != true) {
+            error(obj["error"]?.jsonPrimitive?.contentOrNull ?: "产物列表失败")
+        }
+        val payload = obj["payload"]?.jsonObject ?: error("响应缺少 payload")
+        val tid = payload["taskId"]?.jsonPrimitive?.contentOrNull ?: fallbackTaskId
+        val items = payload["items"]?.jsonArray ?: return emptyList()
+        return items.map { el ->
+            val o = el.jsonObject
+            ArtifactListItem(
+                artifactId = o["artifactId"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                taskId = o["taskId"]?.jsonPrimitive?.contentOrNull ?: tid,
+                name = o["name"]?.jsonPrimitive?.contentOrNull,
+                contentType = o["contentType"]?.jsonPrimitive?.contentOrNull,
+                sizeBytes = o["sizeBytes"]?.jsonPrimitive?.longOrNull,
+                sha256 = o["sha256"]?.jsonPrimitive?.contentOrNull,
+            )
+        }
+    }
 }
 
 data class TaskSummaryDto(
@@ -161,4 +208,13 @@ data class TaskSummaryDto(
     val projectId: String?,
     val prompt: String?,
     val status: String,
+)
+
+data class ArtifactListItem(
+    val artifactId: String,
+    val taskId: String,
+    val name: String?,
+    val contentType: String?,
+    val sizeBytes: Long?,
+    val sha256: String?,
 )

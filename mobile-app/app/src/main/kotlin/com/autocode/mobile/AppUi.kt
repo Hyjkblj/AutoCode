@@ -15,6 +15,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.List
@@ -39,6 +40,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -47,6 +49,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
+import com.autocode.mobile.network.ArtifactListItem
 import kotlinx.coroutines.launch
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -68,6 +71,7 @@ private sealed class Tab(
     data object Tasks : Tab("tasks", "任务", Icons.Filled.List)
     data object Projects : Tab("projects", "项目", Icons.Filled.Folder)
     data object Account : Tab("account", "我的", Icons.Filled.Person)
+    data object Artifacts : Tab("artifacts", "产物", Icons.Filled.AttachFile)
 }
 
 @Composable
@@ -169,13 +173,21 @@ private fun MainShell(vm: AppViewModel) {
     val innerNav = rememberNavController()
     val navBackStackEntry by innerNav.currentBackStackEntryAsState()
     val current = navBackStackEntry?.destination?.route.orEmpty()
-    val showBar = current in listOf(Tab.Home.route, Tab.Tasks.route, Tab.Projects.route, Tab.Account.route)
+    val showBar =
+        current in
+            listOf(
+                Tab.Home.route,
+                Tab.Tasks.route,
+                Tab.Projects.route,
+                Tab.Account.route,
+                Tab.Artifacts.route,
+            )
 
     Scaffold(
         bottomBar = {
             if (showBar) {
                 NavigationBar {
-                    val tabs = listOf(Tab.Home, Tab.Tasks, Tab.Projects, Tab.Account)
+                    val tabs = listOf(Tab.Home, Tab.Tasks, Tab.Artifacts, Tab.Projects, Tab.Account)
                     tabs.forEach { tab ->
                         val selected = current == tab.route
                         NavigationBarItem(
@@ -213,7 +225,49 @@ private fun MainShell(vm: AppViewModel) {
                 arguments = listOf(navArgument("id") { type = NavType.StringType }),
             ) { entry ->
                 val id = entry.arguments?.getString("id").orEmpty()
-                TaskDetailTab(vm, taskId = id, onBack = { innerNav.popBackStack() })
+                TaskDetailTab(
+                    vm,
+                    taskId = id,
+                    onBack = { innerNav.popBackStack() },
+                    innerNav = innerNav,
+                )
+            }
+            composable(Tab.Artifacts.route) {
+                ArtifactsHubTab(vm, innerNav)
+            }
+            composable(
+                route = "artifacts/history",
+            ) {
+                PublishHistoryScreen(vm, onBack = { innerNav.popBackStack() })
+            }
+            composable(
+                route = "artifacts/task/{taskId}",
+                arguments = listOf(navArgument("taskId") { type = NavType.StringType }),
+            ) { entry ->
+                val tid = entry.arguments?.getString("taskId").orEmpty()
+                ArtifactsForTaskScreen(
+                    vm,
+                    taskId = tid,
+                    onBack = { innerNav.popBackStack() },
+                    innerNav = innerNav,
+                )
+            }
+            composable(
+                route = "artifacts/item/{taskId}/{artifactId}",
+                arguments =
+                    listOf(
+                        navArgument("taskId") { type = NavType.StringType },
+                        navArgument("artifactId") { type = NavType.StringType },
+                    ),
+            ) { entry ->
+                val tid = entry.arguments?.getString("taskId").orEmpty()
+                val aid = entry.arguments?.getString("artifactId").orEmpty()
+                ArtifactDetailScreen(
+                    vm,
+                    taskId = tid,
+                    artifactId = aid,
+                    onBack = { innerNav.popBackStack() },
+                )
             }
             composable(Tab.Projects.route) {
                 ProjectsTab(vm)
@@ -249,8 +303,9 @@ private fun HomeTab(vm: AppViewModel) {
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp)) {
                 Text(
-                    "PR-1：登录、会话、项目、生成目标（Web/微信小程序）。\n" +
-                        "PR-2：自然语言创建任务；配置控制面后通过 HTTP 轮询任务状态，否则本地进度模拟。",
+                    "PR-1：登录、会话、项目、生成目标。\n" +
+                        "PR-2：自然语言任务 + 控制面轮询或本地模拟。\n" +
+                        "PR-3：「产物」Tab 列表/详情、预览与发布入口（占位）、发布历史。",
                 )
             }
         }
@@ -330,7 +385,12 @@ private fun TaskListTab(vm: AppViewModel, nav: NavHostController) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun TaskDetailTab(vm: AppViewModel, taskId: String, onBack: () -> Unit) {
+private fun TaskDetailTab(
+    vm: AppViewModel,
+    taskId: String,
+    onBack: () -> Unit,
+    innerNav: NavHostController,
+) {
     val state by vm.uiState.collectAsStateWithLifecycle()
     val task = state.tasks.find { it.id == taskId }
 
@@ -381,6 +441,297 @@ private fun TaskDetailTab(vm: AppViewModel, taskId: String, onBack: () -> Unit) 
             Spacer(Modifier.height(8.dp))
             task.logs.forEach { line ->
                 Text("· $line", fontFamily = FontFamily.Monospace)
+            }
+            if (task.status == TaskStatus.SUCCEEDED) {
+                Spacer(Modifier.height(20.dp))
+                TextButton(
+                    onClick = { innerNav.navigate("artifacts/task/${task.id}") },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("查看产物（PR-3）")
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ArtifactsHubTab(vm: AppViewModel, nav: NavHostController) {
+    val state by vm.uiState.collectAsStateWithLifecycle()
+    val done = vm.succeededTasksForCurrentProject()
+    Column(Modifier.padding(16.dp)) {
+        TopAppBar(title = { Text("产物") })
+        Text(
+            "选择已完成的任务查看上传产物；离线已完成任务显示占位文件。",
+            style = MaterialTheme.typography.bodySmall,
+        )
+        Spacer(Modifier.height(12.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text("发布与版本", style = MaterialTheme.typography.titleSmall)
+            TextButton(onClick = { nav.navigate("artifacts/history") }) {
+                Text("历史记录")
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+        if (state.selectedProjectId == null) {
+            Text("请先在「项目」页选择项目。")
+            return@Column
+        }
+        if (done.isEmpty()) {
+            Text("当前项目下暂无已完成任务。请先在「任务」页发起并等待完成。")
+            return@Column
+        }
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            items(done, key = { it.id }) { t ->
+                Card(
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .clickable { nav.navigate("artifacts/task/${t.id}") },
+                ) {
+                    Column(Modifier.padding(14.dp)) {
+                        Text(t.prompt, maxLines = 2, style = MaterialTheme.typography.titleSmall)
+                        Spacer(Modifier.height(6.dp))
+                        Text("任务 ${t.id}", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ArtifactsForTaskScreen(
+    vm: AppViewModel,
+    taskId: String,
+    onBack: () -> Unit,
+    innerNav: NavHostController,
+) {
+    val scope = rememberCoroutineScope()
+    var items by remember { mutableStateOf<List<ArtifactListItem>>(emptyList()) }
+    var loadErr by remember { mutableStateOf<String?>(null) }
+    var loading by remember { mutableStateOf(true) }
+
+    LaunchedEffect(taskId) {
+        loading = true
+        loadErr = null
+        vm.loadArtifactsForTask(taskId).fold(
+            onSuccess = { items = it },
+            onFailure = { loadErr = it.message ?: "加载失败" },
+        )
+        loading = false
+    }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("任务产物") },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                    }
+                },
+                actions = {
+                    TextButton(
+                        onClick = {
+                            scope.launch {
+                                loading = true
+                                vm.loadArtifactsForTask(taskId).fold(
+                                    onSuccess = { items = it; loadErr = null },
+                                    onFailure = { loadErr = it.message ?: "加载失败" },
+                                )
+                                loading = false
+                            }
+                        },
+                    ) {
+                        Text("刷新")
+                    }
+                },
+            )
+        },
+    ) { pad ->
+        Column(
+            Modifier
+                .padding(pad)
+                .padding(16.dp)
+                .fillMaxSize(),
+        ) {
+            Text("任务 ID：$taskId", style = MaterialTheme.typography.bodySmall)
+            Spacer(Modifier.height(12.dp))
+            if (loading) {
+                CircularProgressIndicator()
+            } else {
+                loadErr?.let {
+                    Text(it, color = MaterialTheme.colorScheme.error)
+                    Spacer(Modifier.height(8.dp))
+                }
+                if (items.isEmpty()) {
+                    Text("暂无产物（控制面列表为空或任务尚无上传）。")
+                } else {
+                    LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        items(items, key = { it.artifactId }) { a ->
+                            Card(
+                                modifier =
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            innerNav.navigate(
+                                                "artifacts/item/${a.taskId}/${a.artifactId}",
+                                            )
+                                        },
+                            ) {
+                                Column(Modifier.padding(14.dp)) {
+                                    Text(a.name ?: a.artifactId, style = MaterialTheme.typography.titleSmall)
+                                    Text(
+                                        "${a.contentType ?: "—"} · ${a.sizeBytes ?: 0} bytes",
+                                        style = MaterialTheme.typography.bodySmall,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ArtifactDetailScreen(
+    vm: AppViewModel,
+    taskId: String,
+    artifactId: String,
+    onBack: () -> Unit,
+) {
+    var loading by remember { mutableStateOf(true) }
+    var art by remember { mutableStateOf<ArtifactListItem?>(null) }
+    var err by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(taskId, artifactId) {
+        loading = true
+        err = null
+        art = null
+        vm.loadArtifactsForTask(taskId).fold(
+            onSuccess = { list ->
+                val found = list.find { it.artifactId == artifactId }
+                if (found != null) {
+                    art = found
+                } else {
+                    err = "未找到该产物"
+                }
+            },
+            onFailure = { err = it.message ?: "加载失败" },
+        )
+        loading = false
+    }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("产物详情") },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                    }
+                },
+            )
+        },
+    ) { pad ->
+        Column(
+            Modifier
+                .padding(pad)
+                .padding(16.dp)
+                .fillMaxSize(),
+        ) {
+            if (loading) {
+                CircularProgressIndicator()
+                return@Column
+            }
+            err?.let {
+                Text(it, color = MaterialTheme.colorScheme.error)
+                return@Column
+            }
+            val a = art ?: return@Column
+            Text(a.name ?: a.artifactId, style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(12.dp))
+            Text("artifactId：${a.artifactId}")
+            Text("contentType：${a.contentType ?: "—"}")
+            Text("sizeBytes：${a.sizeBytes ?: "—"}")
+            Text("sha256：${a.sha256 ?: "—"}", fontFamily = FontFamily.Monospace)
+            Spacer(Modifier.height(20.dp))
+            Text(
+                "预览入口（占位）：后续可接下载 URL、内嵌 WebView 或专用预览器。",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Spacer(Modifier.height(8.dp))
+            Button(
+                onClick = { /* 占位：无通用浏览器带 JWT 下载 */ },
+                enabled = false,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("打开预览（待接下载鉴权）")
+            }
+            Spacer(Modifier.height(12.dp))
+            Text(
+                "发布入口（占位）：记录一次发布申请到本地历史，模拟流水线回调。",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Spacer(Modifier.height(8.dp))
+            Button(
+                onClick = {
+                    val ver = "v-${System.currentTimeMillis().toString().takeLast(8)}"
+                    vm.recordPublishEntry(taskId, a.artifactId, a.name, ver)
+                },
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("提交发布申请（占位）")
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun PublishHistoryScreen(vm: AppViewModel, onBack: () -> Unit) {
+    val state by vm.uiState.collectAsStateWithLifecycle()
+    val sorted = state.publishHistory.sortedByDescending { it.createdAt }
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("发布历史") },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                    }
+                },
+            )
+        },
+    ) { pad ->
+        LazyColumn(
+            modifier =
+                Modifier
+                    .padding(pad)
+                    .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            if (sorted.isEmpty()) {
+                item { Text("暂无记录。在产物详情页使用「提交发布申请」。") }
+            } else {
+                items(sorted, key = { it.id }) { e ->
+                    Card(Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(14.dp)) {
+                            Text(e.versionLabel, style = MaterialTheme.typography.titleSmall)
+                            Text("任务 ${e.taskId}", style = MaterialTheme.typography.bodySmall)
+                            Text("产物 ${e.artifactName ?: e.artifactId ?: "—"}")
+                            Text("状态 ${e.status} · ${e.createdAt}", style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                }
             }
         }
     }

@@ -10,12 +10,20 @@
   "payload": {
     "artifact": {
       "artifactId": "art_export_zip_001",
+      "name": "export.zip",
       "hash": "sha256:1b2c3d4e5f60718293a4b5c6d7e8f901234567890abcdef1234567890abcdef",
       "size": 1048576,
       "mime": "application/zip",
-      "type": "zip"
+      "type": "zip",
+      "entryPath": "dist/index.html",
+      "build": {
+        "command": "npm ci && npm run build",
+        "workingDir": "."
+      },
+      "run": {
+        "hints": ["Preview static export under dist/."]
+      }
     },
     "kind": "zip"
   }
 }
-

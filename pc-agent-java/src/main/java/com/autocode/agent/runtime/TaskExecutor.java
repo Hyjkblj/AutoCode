@@ -3,7 +3,9 @@
  */
 package com.autocode.agent.runtime;
 
+import com.autocode.agent.artifact.LocalArtifactMapper;
 import com.autocode.agent.client.AgentApiClient;
+import com.autocode.agent.client.ArtifactReadyPayloads;
 import com.autocode.agent.config.AgentConfig;
 import com.autocode.agent.runtime.exec.CommandRunner;
 import com.autocode.agent.runtime.git.GitDiffCollector;
@@ -14,11 +16,13 @@ import com.autocode.agent.runtime.tool.ToolExecutionResult;
 import com.autocode.agent.runtime.tool.ToolRegistry;
 import com.autocode.agent.runtime.tool.impl.CommandExecTool;
 import com.autocode.agent.security.CommandSafetyPolicy;
+import com.autocode.agent.security.WorkspacePrefixGuard;
 import com.autocode.agent.security.PromptCommandExtractor;
 import com.autocode.agent.security.policy.CompositeToolInvocationPolicy;
 import com.autocode.agent.security.policy.PolicyDecision;
 import com.autocode.agent.security.policy.WorkspaceAllowlistPolicy;
 import com.autocode.protocol.model.ApprovalDecision;
+import com.autocode.protocol.model.ArtifactMetadata;
 import com.autocode.protocol.model.EventType;
 import com.autocode.protocol.model.TaskEvent;
 import com.autocode.protocol.model.TaskSummary;
@@ -27,8 +31,12 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.lang.reflect.Method;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
@@ -218,9 +226,111 @@ public class TaskExecutor {
             // 预览属于附加信息，失败不影响主任务完成
         }
 
+        // M1/M2：可选将本地产物上传并上报 ARTIFACT_READY（路径须在工作区前缀白名单内）
+        maybePublishPostSuccessArtifacts(task, traceId, runId, cwd);
+
         long totalMs = (System.nanoTime() - taskStartNs) / 1_000_000;
         log.info("Task {} done total {}ms traceId={} runId={}", task.getTaskId(), totalMs, traceId, runId);
         send(task, traceId, runId, EventType.TASK_DONE, Map.of("result", "success"));
+    }
+
+    private void maybePublishPostSuccessArtifacts(TaskSummary task, String traceId, String runId, String cwd) {
+        String multi = System.getenv("MVP_POST_SUCCESS_ARTIFACT_PATHS");
+        String single = System.getenv("MVP_POST_SUCCESS_ARTIFACT_PATH");
+        List<String> rawPaths = new ArrayList<>();
+        if (multi != null && !multi.isBlank()) {
+            for (String p : multi.split(",")) {
+                String t = p.trim();
+                if (!t.isEmpty()) {
+                    rawPaths.add(t);
+                }
+            }
+        } else if (single != null && !single.isBlank()) {
+            rawPaths.add(single.trim());
+        }
+        if (rawPaths.isEmpty()) {
+            return;
+        }
+        for (String raw : rawPaths) {
+            try {
+                publishOnePostSuccessArtifact(task, traceId, runId, cwd, raw);
+            } catch (Exception ex) {
+                log.warn("post-success artifact upload skipped for {}: {}", raw, ex.getMessage());
+            }
+        }
+    }
+
+    private void publishOnePostSuccessArtifact(TaskSummary task, String traceId, String runId, String cwd, String raw)
+            throws IOException {
+        Path cwdPath = Path.of(cwd).toAbsolutePath().normalize();
+        Path artifactPath;
+        try {
+            artifactPath = resolveArtifactPath(raw.trim(), cwdPath);
+        } catch (SecurityException e) {
+            log.warn("artifact path rejected: {}", e.getMessage());
+            return;
+        }
+        if (!Files.isRegularFile(artifactPath)) {
+            log.warn("post-success artifact path is not a regular file: {}", artifactPath);
+            return;
+        }
+        String normalizedArtifact = WorkspacePrefixGuard.normalizePath(artifactPath.toString());
+        if (!WorkspacePrefixGuard.isPathUnderAllowedPrefixes(
+                normalizedArtifact, config.getAllowedWorkspacePrefixes())) {
+            log.warn("artifact path outside MVP_ALLOWED_WORKSPACE_PREFIXES: {}", artifactPath);
+            return;
+        }
+        long maxBytes = parseArtifactUploadMaxBytes();
+        long sz = Files.size(artifactPath);
+        if (sz > maxBytes) {
+            log.warn("artifact too large ({} bytes > {} max): {}", sz, maxBytes, artifactPath);
+            return;
+        }
+        byte[] data = Files.readAllBytes(artifactPath);
+        String filename = artifactPath.getFileName().toString();
+        String contentType = LocalArtifactMapper.guessMimeType(filename);
+        String logicalName = readOptionalEnv("MVP_ARTIFACT_LOGICAL_NAME");
+        ArtifactMetadata meta = client.uploadArtifact(
+                task.getTaskId(), filename, logicalName, contentType, data);
+        LocalArtifactMapper.applyServerMetadataDefaults(meta, filename);
+        String kind = LocalArtifactMapper.inferKind(meta);
+        if (kind == null || kind.isBlank()) {
+            kind = LocalArtifactMapper.inferArtifactType(filename);
+        }
+        send(task, traceId, runId, EventType.ARTIFACT_READY, ArtifactReadyPayloads.fromMetadata(meta, kind));
+    }
+
+    private static Path resolveArtifactPath(String raw, Path cwdPath) {
+        Path p = Path.of(raw);
+        if (p.isAbsolute()) {
+            return p.normalize();
+        }
+        Path resolved = cwdPath.resolve(p).normalize();
+        if (!resolved.startsWith(cwdPath)) {
+            throw new SecurityException("path escapes workspace cwd");
+        }
+        return resolved;
+    }
+
+    private static long parseArtifactUploadMaxBytes() {
+        String v = System.getenv("MVP_ARTIFACT_UPLOAD_MAX_BYTES");
+        if (v == null || v.isBlank()) {
+            return 256L * 1024 * 1024;
+        }
+        try {
+            long n = Long.parseLong(v.trim());
+            return n > 0 ? n : 256L * 1024 * 1024;
+        } catch (NumberFormatException e) {
+            return 256L * 1024 * 1024;
+        }
+    }
+
+    private static String readOptionalEnv(String key) {
+        String v = System.getenv(key);
+        if (v == null || v.isBlank()) {
+            return null;
+        }
+        return v.trim();
     }
 
     private ApprovalDecision waitForApproval(String taskId) throws IOException, InterruptedException {
@@ -237,12 +347,26 @@ public class TaskExecutor {
 
     private void send(TaskSummary task, String traceId, String runId, EventType type, Map<String, Object> payload) throws IOException {
         TaskEvent event = buildEvent(task, traceId, runId, type, payload, seq.getAndIncrement());
-        HashMap<String, Object> merged = new HashMap<>();
-        merged.put("traceId", traceId);
-        merged.put("runId", runId);
-        merged.putAll(payload);
-        event.setPayload(merged);
+        event.setPayload(mergeOutboundPayload(type, traceId, runId, payload));
         client.publishEvent(task.getTaskId(), event);
+    }
+
+    /**
+     * {@code ARTIFACT_READY} v1 JSON Schema allows only {@code artifact} and {@code kind} in payload — do not inject
+     * {@code traceId}/{@code runId} there (M1 contract alignment).
+     */
+    static Map<String, Object> mergeOutboundPayload(EventType type, String traceId, String runId, Map<String, Object> payload) {
+        HashMap<String, Object> merged = new HashMap<>();
+        if (mergesCorrelationIntoPayload(type)) {
+            merged.put("traceId", traceId);
+            merged.put("runId", runId);
+        }
+        merged.putAll(payload);
+        return merged;
+    }
+
+    static boolean mergesCorrelationIntoPayload(EventType type) {
+        return type != EventType.ARTIFACT_READY;
     }
 
     static TaskEvent buildEvent(

@@ -23,4 +23,13 @@ class LocalArtifactMapperTest {
         m.setType("patch");
         assertEquals("patch", LocalArtifactMapper.inferKind(m));
     }
+
+    @Test
+    void applyServerMetadataDefaultsFillsTypeAndMime() {
+        ArtifactMetadata m = new ArtifactMetadata();
+        m.setArtifactId("x");
+        LocalArtifactMapper.applyServerMetadataDefaults(m, "out.zip");
+        assertEquals("zip", m.getType());
+        assertEquals("application/zip", m.getMime());
+    }
 }

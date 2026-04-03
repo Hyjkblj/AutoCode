@@ -8,6 +8,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.autocode.mobile.network.ArtifactListItem
 import com.autocode.mobile.network.ControlPlaneClient
 import com.autocode.mobile.network.TaskSummaryDto
 import kotlinx.coroutines.delay
@@ -31,6 +32,7 @@ private object PrefsKeys {
     val TASKS_JSON = stringPreferencesKey("tasks_json")
     val BASE_URL = stringPreferencesKey("base_url")
     val GENERATION_TARGET = stringPreferencesKey("generation_target")
+    val PUBLISH_HISTORY_JSON = stringPreferencesKey("publish_history_json")
 }
 
 data class UiState(
@@ -42,9 +44,13 @@ data class UiState(
     /** 控制面根 URL，空表示离线模拟（PR-1/PR-2） */
     val baseUrl: String = "",
     val generationTarget: GenerationTarget = GenerationTarget.WEB,
+    /** PR-3：发布/版本历史（本地持久化） */
+    val publishHistory: List<PublishHistoryEntry> = emptyList(),
 )
 
 class AppViewModel(application: Application) : AndroidViewModel(application) {
+
+    private val previewMaxChars = 24_000
 
     private val json = Json {
         ignoreUnknownKeys = true
@@ -52,6 +58,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private val taskListSerializer = ListSerializer(TaskItem.serializer())
+    private val publishHistorySerializer = ListSerializer(PublishHistoryEntry.serializer())
 
     private val _uiState = MutableStateFlow(UiState())
     val uiState: StateFlow<UiState> = _uiState.asStateFlow()
@@ -90,6 +97,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             if (rawTasks.isNullOrBlank()) emptyList()
             else runCatching { json.decodeFromString(taskListSerializer, rawTasks) }.getOrDefault(emptyList())
 
+        val rawHistory = prefs[PrefsKeys.PUBLISH_HISTORY_JSON]
+        val publishHistory: List<PublishHistoryEntry> =
+            if (rawHistory.isNullOrBlank()) emptyList()
+            else runCatching { json.decodeFromString(publishHistorySerializer, rawHistory) }.getOrDefault(emptyList())
+
         val session =
             if (token.isNotBlank() && display.isNotBlank()) Session(accessToken = token, displayName = display)
             else null
@@ -115,6 +127,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 tasks = normalizedTasks,
                 baseUrl = baseUrl,
                 generationTarget = generationTarget,
+                publishHistory = publishHistory,
             )
         }
         if (session != null && normalizedTasks != tasks) {
@@ -138,6 +151,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             p[PrefsKeys.TASKS_JSON] = json.encodeToString(taskListSerializer, s.tasks)
             p[PrefsKeys.BASE_URL] = s.baseUrl.trim()
             p[PrefsKeys.GENERATION_TARGET] = generationTargetStorageValue(s.generationTarget)
+            p[PrefsKeys.PUBLISH_HISTORY_JSON] = json.encodeToString(publishHistorySerializer, s.publishHistory)
         }
     }
 
@@ -219,6 +233,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     tasks = emptyList(),
                     baseUrl = baseUrl,
                     generationTarget = target,
+                    publishHistory = emptyList(),
                 )
             }
             getApplication<Application>().mobileDataStore.edit { p ->
@@ -226,6 +241,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 p.remove(PrefsKeys.DISPLAY)
                 p.remove(PrefsKeys.PROJECT)
                 p.remove(PrefsKeys.TASKS_JSON)
+                p.remove(PrefsKeys.PUBLISH_HISTORY_JSON)
             }
         }
     }
@@ -345,6 +361,129 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun tasksForCurrentProject(): List<TaskItem> {
         val pid = _uiState.value.selectedProjectId ?: return emptyList()
         return _uiState.value.tasks.filter { it.projectId == pid }.sortedByDescending { it.createdAt }
+    }
+
+    fun succeededTasksForCurrentProject(): List<TaskItem> =
+        tasksForCurrentProject().filter { it.status == TaskStatus.SUCCEEDED }
+
+    /**
+     * PR-3：拉取任务下已上传产物；离线且任务已完成时返回占位条目。
+     */
+    suspend fun loadArtifactsForTask(taskId: String): Result<List<ArtifactListItem>> {
+        val base = _uiState.value.baseUrl.trim()
+        val session = _uiState.value.session
+        if (base.isNotEmpty() && session != null) {
+            return ControlPlaneClient.listArtifacts(base, session.accessToken, taskId)
+        }
+        val task = taskById(taskId)
+        if (task != null && task.status == TaskStatus.SUCCEEDED) {
+            return Result.success(
+                listOf(
+                    ArtifactListItem(
+                        artifactId = "local-mock-1",
+                        taskId = taskId,
+                        name = "产物占位.zip",
+                        contentType = "application/zip",
+                        sizeBytes = 2048L,
+                        sha256 = "mock-sha256",
+                    ),
+                ),
+            )
+        }
+        return Result.success(emptyList())
+    }
+
+    suspend fun loadArtifactPreview(taskId: String, artifact: ArtifactListItem): Result<ArtifactPreview> {
+        val title = artifact.name ?: artifact.artifactId
+        val base = _uiState.value.baseUrl.trim()
+        val session = _uiState.value.session
+
+        if (base.isEmpty()) {
+            return Result.success(
+                ArtifactPreview(
+                    title = title,
+                    contentType = artifact.contentType,
+                    content =
+                        buildString {
+                            appendLine("离线模式预览（Mock）")
+                            appendLine("taskId=$taskId")
+                            appendLine("artifactId=${artifact.artifactId}")
+                            appendLine("name=${artifact.name ?: "unknown"}")
+                            appendLine("提示：连接控制面后可读取真实产物内容。")
+                        },
+                    truncated = false,
+                    byteSize = (artifact.sizeBytes ?: 0L).coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
+                ),
+            )
+        }
+
+        if (session == null) {
+            return Result.failure(IllegalStateException("请先登录后再加载产物预览"))
+        }
+
+        if (!isTextPreviewable(artifact.contentType, artifact.name)) {
+            return Result.failure(IllegalStateException("该产物是二进制文件，当前仅支持文本预览"))
+        }
+
+        return ControlPlaneClient
+            .downloadArtifact(base, session.accessToken, taskId, artifact.artifactId)
+            .mapCatching { d ->
+                val raw = d.bytes.toString(Charsets.UTF_8)
+                val truncated = raw.length > previewMaxChars
+                ArtifactPreview(
+                    title = artifact.name ?: d.fileName ?: artifact.artifactId,
+                    contentType = artifact.contentType ?: d.contentType,
+                    content = if (truncated) raw.take(previewMaxChars) else raw,
+                    truncated = truncated,
+                    byteSize = d.bytes.size,
+                )
+            }
+    }
+
+    private fun isTextPreviewable(contentType: String?, fileName: String?): Boolean {
+        val ct = contentType?.lowercase().orEmpty()
+        if (ct.startsWith("text/")) return true
+        if (
+            ct.contains("json") ||
+            ct.contains("xml") ||
+            ct.contains("yaml") ||
+            ct.contains("x-www-form-urlencoded") ||
+            ct.contains("javascript")
+        ) {
+            return true
+        }
+        val name = fileName?.lowercase().orEmpty()
+        val suffixes =
+            listOf(
+                ".txt", ".md", ".json", ".xml", ".yaml", ".yml",
+                ".js", ".ts", ".tsx", ".jsx", ".html", ".css",
+                ".kt", ".kts", ".java", ".gradle", ".properties", ".sql",
+            )
+        return suffixes.any { s -> name.endsWith(s) }
+    }
+
+    fun recordPublishEntry(
+        taskId: String,
+        artifactId: String?,
+        artifactName: String?,
+        versionLabel: String,
+        status: String = "submitted_mock",
+    ) {
+        viewModelScope.launch {
+            val normalizedVersion = versionLabel.trim().ifEmpty { "v-${System.currentTimeMillis()}" }
+            val e =
+                PublishHistoryEntry(
+                    id = "pub_${System.currentTimeMillis()}",
+                    taskId = taskId,
+                    artifactId = artifactId,
+                    artifactName = artifactName,
+                    versionLabel = normalizedVersion,
+                    status = status,
+                    createdAt = System.currentTimeMillis(),
+                )
+            _uiState.update { it.copy(publishHistory = listOf(e) + it.publishHistory) }
+            persistAll()
+        }
     }
 
     private fun startLocalProgressTicker() {

@@ -72,3 +72,24 @@ data class Project(
     val id: String,
     val name: String,
 )
+
+/** 发布/版本历史（PR-3 占位：记录用户在 App 内触发的发布入口操作）。 */
+@Serializable
+data class PublishHistoryEntry(
+    val id: String,
+    val taskId: String,
+    val artifactId: String? = null,
+    val artifactName: String? = null,
+    val versionLabel: String,
+    val status: String,
+    val createdAt: Long,
+)
+
+/** PR-3：产物预览结构（仅用于界面展示，不持久化）。 */
+data class ArtifactPreview(
+    val title: String,
+    val contentType: String?,
+    val content: String,
+    val truncated: Boolean,
+    val byteSize: Int,
+)

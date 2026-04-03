@@ -183,7 +183,7 @@ public class AgentApiClient {
             if (!gateway.isOk() || gateway.getPayload() == null) {
                 throw new IOException("artifact upload rejected: " + (gateway.getError() != null ? gateway.getError() : "no payload"));
             }
-            return objectMapper.convertValue(gateway.getPayload(), ArtifactMetadata.class);
+            return toArtifactMetadata(gateway.getPayload());
         }
     }
 
@@ -241,5 +241,66 @@ public class AgentApiClient {
                 throw new IOException("request failed: " + response.code() + " " + error);
             }
         }
+    }
+
+    private ArtifactMetadata toArtifactMetadata(Object payload) {
+        ArtifactMetadata metadata = objectMapper.convertValue(payload, ArtifactMetadata.class);
+        if (!(payload instanceof Map<?, ?> map)) {
+            return metadata;
+        }
+        if (isBlank(metadata.getHash())) {
+            String hash = asTrimmedString(map.get("sha256"));
+            if (hash != null) {
+                metadata.setHash(hash);
+            }
+        }
+        if (metadata.getSize() == null) {
+            Long size = asLong(map.get("sizeBytes"));
+            if (size != null) {
+                metadata.setSize(size);
+            }
+        }
+        if (isBlank(metadata.getMime())) {
+            String contentType = asTrimmedString(map.get("contentType"));
+            if (contentType != null) {
+                metadata.setMime(contentType);
+            }
+        }
+        if (isBlank(metadata.getName())) {
+            String name = asTrimmedString(map.get("name"));
+            if (name != null) {
+                metadata.setName(name);
+            }
+        }
+        return metadata;
+    }
+
+    private static Long asLong(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof Number n) {
+            return n.longValue();
+        }
+        if (value instanceof String s) {
+            try {
+                return Long.parseLong(s.trim());
+            } catch (NumberFormatException ignored) {
+                return null;
+            }
+        }
+        return null;
+    }
+
+    private static String asTrimmedString(Object value) {
+        if (!(value instanceof String s)) {
+            return null;
+        }
+        String trimmed = s.trim();
+        return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    private static boolean isBlank(String value) {
+        return value == null || value.trim().isEmpty();
     }
 }

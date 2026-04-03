@@ -46,6 +46,13 @@ public final class LocalArtifactMapper {
         if (n.endsWith(".zip") || n.endsWith(".jar") || n.endsWith(".war")) {
             return "zip";
         }
+        if (n.endsWith(".json")
+                && (n.contains("service_runtime_descriptor")
+                || n.contains("service-runtime-descriptor")
+                || n.contains("runtime_descriptor")
+                || n.contains("runtime-descriptor"))) {
+            return "runtime";
+        }
         if (n.endsWith(".log") || n.endsWith(".txt")) {
             return "log";
         }

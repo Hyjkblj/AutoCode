@@ -18,6 +18,11 @@ class LocalArtifactMapperTest {
     }
 
     @Test
+    void inferTypeForRuntimeDescriptorJson() {
+        assertEquals("runtime", LocalArtifactMapper.inferArtifactType("service_runtime_descriptor.v1.json"));
+    }
+
+    @Test
     void inferKindPrefersMetadataType() {
         ArtifactMetadata m = new ArtifactMetadata();
         m.setType("patch");

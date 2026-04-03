@@ -24,8 +24,11 @@ import com.autocode.agent.security.policy.WorkspaceAllowlistPolicy;
 import com.autocode.protocol.model.ApprovalDecision;
 import com.autocode.protocol.model.ArtifactMetadata;
 import com.autocode.protocol.model.EventType;
+import com.autocode.protocol.model.ServiceRuntimeDescriptor;
 import com.autocode.protocol.model.TaskEvent;
 import com.autocode.protocol.model.TaskSummary;
+import com.autocode.protocol.validation.ServiceRuntimeDescriptorContractValidator;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -36,13 +39,17 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
 
 public class TaskExecutor {
     private static final Logger log = LoggerFactory.getLogger(TaskExecutor.class);
+    private static final ObjectMapper JSON = new ObjectMapper();
+    private static final String DEFAULT_RUNTIME_DESCRIPTOR_FILE = "service_runtime_descriptor.v1.json";
 
     private final AgentApiClient client;
     private final PromptCommandExtractor promptCommandExtractor;
@@ -227,14 +234,20 @@ public class TaskExecutor {
         }
 
         // M1/M2：可选将本地产物上传并上报 ARTIFACT_READY（路径须在工作区前缀白名单内）
-        maybePublishPostSuccessArtifacts(task, traceId, runId, cwd);
+        maybePublishPostSuccessArtifacts(task, traceId, runId, cwd, command);
+        maybePublishRuntimeDescriptor(task, traceId, runId, cwd, command);
 
         long totalMs = (System.nanoTime() - taskStartNs) / 1_000_000;
         log.info("Task {} done total {}ms traceId={} runId={}", task.getTaskId(), totalMs, traceId, runId);
         send(task, traceId, runId, EventType.TASK_DONE, Map.of("result", "success"));
     }
 
-    private void maybePublishPostSuccessArtifacts(TaskSummary task, String traceId, String runId, String cwd) {
+    private void maybePublishPostSuccessArtifacts(
+            TaskSummary task,
+            String traceId,
+            String runId,
+            String cwd,
+            String command) {
         String multi = System.getenv("MVP_POST_SUCCESS_ARTIFACT_PATHS");
         String single = System.getenv("MVP_POST_SUCCESS_ARTIFACT_PATH");
         List<String> rawPaths = new ArrayList<>();
@@ -253,14 +266,20 @@ public class TaskExecutor {
         }
         for (String raw : rawPaths) {
             try {
-                publishOnePostSuccessArtifact(task, traceId, runId, cwd, raw);
+                publishOnePostSuccessArtifact(task, traceId, runId, cwd, command, raw);
             } catch (Exception ex) {
                 log.warn("post-success artifact upload skipped for {}: {}", raw, ex.getMessage());
             }
         }
     }
 
-    private void publishOnePostSuccessArtifact(TaskSummary task, String traceId, String runId, String cwd, String raw)
+    private void publishOnePostSuccessArtifact(
+            TaskSummary task,
+            String traceId,
+            String runId,
+            String cwd,
+            String command,
+            String raw)
             throws IOException {
         Path cwdPath = Path.of(cwd).toAbsolutePath().normalize();
         Path artifactPath;
@@ -293,11 +312,251 @@ public class TaskExecutor {
         ArtifactMetadata meta = client.uploadArtifact(
                 task.getTaskId(), filename, logicalName, contentType, data);
         LocalArtifactMapper.applyServerMetadataDefaults(meta, filename);
+        applyRuntimeHints(meta, command, System.getenv());
         String kind = LocalArtifactMapper.inferKind(meta);
         if (kind == null || kind.isBlank()) {
             kind = LocalArtifactMapper.inferArtifactType(filename);
         }
         send(task, traceId, runId, EventType.ARTIFACT_READY, ArtifactReadyPayloads.fromMetadata(meta, kind));
+    }
+
+    private void maybePublishRuntimeDescriptor(
+            TaskSummary task,
+            String traceId,
+            String runId,
+            String cwd,
+            String command) {
+        Map<String, String> env = System.getenv();
+        ServiceRuntimeDescriptor descriptor = buildRuntimeDescriptor(task, command, cwd, env);
+        if (descriptor == null) {
+            return;
+        }
+        try {
+            ServiceRuntimeDescriptorContractValidator.validate(descriptor);
+        } catch (Exception ex) {
+            log.warn("runtime descriptor contract violation, skip report: {}", ex.getMessage());
+            return;
+        }
+        String fileName = readOptionalEnv(env, "MVP_RUNTIME_DESCRIPTOR_FILE");
+        if (fileName == null) {
+            fileName = DEFAULT_RUNTIME_DESCRIPTOR_FILE;
+        }
+        String logicalName = readOptionalEnv(env, "MVP_RUNTIME_DESCRIPTOR_LOGICAL_NAME");
+        String kind = firstNonBlank(readOptionalEnv(env, "MVP_RUNTIME_ARTIFACT_KIND"), "runtime");
+        try {
+            byte[] body = JSON.writeValueAsBytes(descriptor);
+            ArtifactMetadata metadata = client.uploadArtifact(
+                    task.getTaskId(),
+                    fileName,
+                    logicalName,
+                    "application/json",
+                    body);
+            LocalArtifactMapper.applyServerMetadataDefaults(metadata, fileName);
+            String type = metadata.getType() == null ? "" : metadata.getType().trim();
+            if (type.isEmpty() || "binary".equalsIgnoreCase(type)) {
+                metadata.setType("runtime");
+            }
+            if (metadata.getMime() == null || metadata.getMime().isBlank()) {
+                metadata.setMime("application/json");
+            }
+            if (metadata.getName() == null || metadata.getName().isBlank()) {
+                metadata.setName(fileName);
+            }
+            applyRuntimeHints(metadata, command, env);
+            send(task, traceId, runId, EventType.ARTIFACT_READY, ArtifactReadyPayloads.fromMetadata(metadata, kind));
+        } catch (Exception ex) {
+            log.warn("runtime descriptor upload skipped: {}", ex.getMessage());
+        }
+    }
+
+    static ServiceRuntimeDescriptor buildRuntimeDescriptor(
+            TaskSummary task,
+            String executedCommand,
+            String cwd,
+            Map<String, String> env) {
+        if (!isRuntimeReportingEnabled(env)) {
+            return null;
+        }
+        String serviceId = firstNonBlank(
+                readOptionalEnv(env, "MVP_RUNTIME_SERVICE_ID"),
+                task == null ? null : trimToNull(task.getTaskId()));
+        if (serviceId == null) {
+            return null;
+        }
+
+        ServiceRuntimeDescriptor descriptor = new ServiceRuntimeDescriptor();
+        descriptor.setSchemaVersion(1);
+        descriptor.setServiceId(serviceId);
+        descriptor.setDisplayName(readOptionalEnv(env, "MVP_RUNTIME_DISPLAY_NAME"));
+
+        Integer port = parsePositivePort(readOptionalEnv(env, "MVP_RUNTIME_PORT"));
+        if (port != null) {
+            ServiceRuntimeDescriptor.PortBinding binding = new ServiceRuntimeDescriptor.PortBinding();
+            binding.setName(firstNonBlank(readOptionalEnv(env, "MVP_RUNTIME_PORT_NAME"), "http"));
+            binding.setProtocol(firstNonBlank(readOptionalEnv(env, "MVP_RUNTIME_PORT_PROTOCOL"), "http"));
+            binding.setPort(port);
+            descriptor.setPorts(List.of(binding));
+        }
+
+        String healthPath = normalizeHealthPath(readOptionalEnv(env, "MVP_RUNTIME_HEALTH_PATH"));
+        if (healthPath != null) {
+            ServiceRuntimeDescriptor.HealthCheckSpec healthCheck = new ServiceRuntimeDescriptor.HealthCheckSpec();
+            healthCheck.setPath(healthPath);
+            healthCheck.setMethod(firstNonBlank(
+                    readOptionalEnv(env, "MVP_RUNTIME_HEALTH_METHOD"),
+                    "GET").toUpperCase(Locale.ROOT));
+            String healthPortName = firstNonBlank(
+                    readOptionalEnv(env, "MVP_RUNTIME_HEALTH_PORT_NAME"),
+                    descriptor.getPorts() == null || descriptor.getPorts().isEmpty()
+                            ? null
+                            : descriptor.getPorts().get(0).getName());
+            if (healthPortName != null) {
+                healthCheck.setPortName(healthPortName);
+            }
+            descriptor.setHealthCheck(healthCheck);
+        }
+
+        String startupCommand = firstNonBlank(
+                readOptionalEnv(env, "MVP_RUNTIME_START_COMMAND"),
+                trimToNull(executedCommand));
+        if (startupCommand != null) {
+            ServiceRuntimeDescriptor.StartupDescriptor startup = new ServiceRuntimeDescriptor.StartupDescriptor();
+            startup.setCommand(startupCommand);
+            startup.setWorkingDir(firstNonBlank(readOptionalEnv(env, "MVP_RUNTIME_WORKING_DIR"), trimToNull(cwd)));
+            List<String> args = parseCsv(readOptionalEnv(env, "MVP_RUNTIME_START_ARGS"));
+            if (!args.isEmpty()) {
+                startup.setArgs(args);
+            }
+            descriptor.setStartup(startup);
+        }
+        return descriptor;
+    }
+
+    static ArtifactMetadata.RunDescriptor buildRunDescriptor(
+            ArtifactMetadata.RunDescriptor existing,
+            String executedCommand,
+            Map<String, String> env) {
+        String command = firstNonBlank(
+                readOptionalEnv(env, "MVP_RUNTIME_RUN_COMMAND"),
+                existing == null ? null : trimToNull(existing.getCommand()),
+                trimToNull(executedCommand));
+
+        LinkedHashSet<String> hints = new LinkedHashSet<>();
+        if (existing != null && existing.getHints() != null) {
+            for (String hint : existing.getHints()) {
+                String normalized = trimToNull(hint);
+                if (normalized != null) {
+                    hints.add(normalized);
+                }
+            }
+        }
+
+        String explicitHealthUrl = readOptionalEnv(env, "MVP_RUNTIME_HEALTH_URL");
+        if (explicitHealthUrl != null) {
+            hints.add(explicitHealthUrl);
+        } else {
+            String healthPath = normalizeHealthPath(readOptionalEnv(env, "MVP_RUNTIME_HEALTH_PATH"));
+            if (healthPath != null) {
+                String healthBase = buildHealthBaseUrl(env);
+                hints.add(healthBase == null ? healthPath : healthBase + healthPath);
+            }
+        }
+
+        for (String hint : parseCsv(readOptionalEnv(env, "MVP_RUNTIME_RUN_HINTS"))) {
+            hints.add(hint);
+        }
+
+        if (command == null && hints.isEmpty()) {
+            return null;
+        }
+        ArtifactMetadata.RunDescriptor run = existing != null ? existing : new ArtifactMetadata.RunDescriptor();
+        run.setCommand(command);
+        run.setHints(hints.isEmpty() ? null : new ArrayList<>(hints));
+        return run;
+    }
+
+    private static void applyRuntimeHints(ArtifactMetadata metadata, String command, Map<String, String> env) {
+        if (metadata == null) {
+            return;
+        }
+        ArtifactMetadata.RunDescriptor run = buildRunDescriptor(metadata.getRun(), command, env);
+        if (run != null) {
+            metadata.setRun(run);
+        }
+    }
+
+    private static boolean isRuntimeReportingEnabled(Map<String, String> env) {
+        String flag = readOptionalEnv(env, "MVP_RUNTIME_REPORT_ENABLED");
+        if (flag != null) {
+            return isTruthy(flag);
+        }
+        return hasRuntimeSignals(env);
+    }
+
+    private static boolean hasRuntimeSignals(Map<String, String> env) {
+        return readOptionalEnv(env, "MVP_RUNTIME_SERVICE_ID") != null
+                || readOptionalEnv(env, "MVP_RUNTIME_DISPLAY_NAME") != null
+                || readOptionalEnv(env, "MVP_RUNTIME_PORT") != null
+                || readOptionalEnv(env, "MVP_RUNTIME_HEALTH_PATH") != null
+                || readOptionalEnv(env, "MVP_RUNTIME_HEALTH_URL") != null
+                || readOptionalEnv(env, "MVP_RUNTIME_START_COMMAND") != null
+                || readOptionalEnv(env, "MVP_RUNTIME_RUN_COMMAND") != null
+                || readOptionalEnv(env, "MVP_RUNTIME_RUN_HINTS") != null;
+    }
+
+    private static String buildHealthBaseUrl(Map<String, String> env) {
+        Integer port = parsePositivePort(readOptionalEnv(env, "MVP_RUNTIME_PORT"));
+        if (port == null) {
+            return null;
+        }
+        String scheme = firstNonBlank(
+                readOptionalEnv(env, "MVP_RUNTIME_HEALTH_SCHEME"),
+                readOptionalEnv(env, "MVP_RUNTIME_PORT_PROTOCOL"),
+                "http");
+        String host = firstNonBlank(readOptionalEnv(env, "MVP_RUNTIME_HEALTH_HOST"), "127.0.0.1");
+        return scheme + "://" + host + ":" + port;
+    }
+
+    private static Integer parsePositivePort(String value) {
+        if (value == null) {
+            return null;
+        }
+        try {
+            int port = Integer.parseInt(value);
+            if (port < 1 || port > 65535) {
+                return null;
+            }
+            return port;
+        } catch (NumberFormatException ex) {
+            return null;
+        }
+    }
+
+    private static String normalizeHealthPath(String path) {
+        String value = trimToNull(path);
+        if (value == null) {
+            return null;
+        }
+        return value.startsWith("/") ? value : "/" + value;
+    }
+
+    private static boolean isTruthy(String value) {
+        String v = value.trim().toLowerCase(Locale.ROOT);
+        return "1".equals(v) || "true".equals(v) || "yes".equals(v) || "on".equals(v);
+    }
+
+    private static List<String> parseCsv(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return List.of();
+        }
+        ArrayList<String> values = new ArrayList<>();
+        for (String p : raw.split(",")) {
+            String normalized = trimToNull(p);
+            if (normalized != null) {
+                values.add(normalized);
+            }
+        }
+        return values;
     }
 
     private static Path resolveArtifactPath(String raw, Path cwdPath) {
@@ -327,10 +586,35 @@ public class TaskExecutor {
 
     private static String readOptionalEnv(String key) {
         String v = System.getenv(key);
-        if (v == null || v.isBlank()) {
+        return trimToNull(v);
+    }
+
+    private static String readOptionalEnv(Map<String, String> env, String key) {
+        if (env == null || key == null) {
             return null;
         }
-        return v.trim();
+        return trimToNull(env.get(key));
+    }
+
+    private static String trimToNull(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    private static String firstNonBlank(String... values) {
+        if (values == null) {
+            return null;
+        }
+        for (String value : values) {
+            String normalized = trimToNull(value);
+            if (normalized != null) {
+                return normalized;
+            }
+        }
+        return null;
     }
 
     private ApprovalDecision waitForApproval(String taskId) throws IOException, InterruptedException {
@@ -385,29 +669,14 @@ public class TaskExecutor {
         if (task != null) {
             event.setTaskId(task.getTaskId());
             event.setAssistant(task.getAssistant());
-            event.setSessionId(readSessionIdCompat(task));
+            String sessionId = firstNonBlank(readSessionIdCompat(task), task.getSessionKey());
+            if (sessionId != null) {
+                event.setSessionId(sessionId);
+            }
         }
         event.setSeq(Math.max(0, seq));
         // payload is set by caller (merged with traceId/runId in send()).
         return event;
-    }
-
-    /**
-     * Prefer protocol-level sessionId; fall back to legacy sessionKey for backward compatibility.
-     */
-    private static String readSessionIdCompat(TaskSummary task) {
-        if (task == null) {
-            return null;
-        }
-        String sid = invokeStringGetter(task, "getSessionId");
-        if (sid != null && !sid.isBlank()) {
-            return sid;
-        }
-        String sk = invokeStringGetter(task, "getSessionKey");
-        if (sk != null && !sk.isBlank()) {
-            return sk;
-        }
-        return null;
     }
 
     /**
@@ -417,16 +686,25 @@ public class TaskExecutor {
         if (task == null) {
             return null;
         }
-        String value = invokeStringGetter(task, "getWorkspacePath");
-        if (value == null || value.isBlank()) {
+        try {
+            Method m = task.getClass().getMethod("getWorkspacePath");
+            Object v = m.invoke(task);
+            if (v == null) {
+                return null;
+            }
+            String s = String.valueOf(v).trim();
+            return s.isEmpty() ? null : s;
+        } catch (Exception ignored) {
             return null;
         }
-        return value;
     }
 
-    private static String invokeStringGetter(TaskSummary task, String getterName) {
+    private static String readSessionIdCompat(TaskSummary task) {
+        if (task == null) {
+            return null;
+        }
         try {
-            Method m = task.getClass().getMethod(getterName);
+            Method m = task.getClass().getMethod("getSessionId");
             Object v = m.invoke(task);
             if (v == null) {
                 return null;

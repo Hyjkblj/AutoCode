@@ -11,3 +11,5 @@
 **/application-local.yml
 **/application-local.yaml
 .env
+
+.gradle-local/

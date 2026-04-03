@@ -2,6 +2,8 @@ package com.autocode.mobile
 
 import android.app.Application
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -61,6 +63,9 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 private sealed class Tab(
     val route: String,
@@ -609,13 +614,24 @@ private fun ArtifactDetailScreen(
     artifactId: String,
     onBack: () -> Unit,
 ) {
+    val scope = rememberCoroutineScope()
     var loading by remember { mutableStateOf(true) }
     var art by remember { mutableStateOf<ArtifactListItem?>(null) }
     var err by remember { mutableStateOf<String?>(null) }
+    var preview by remember { mutableStateOf<ArtifactPreview?>(null) }
+    var previewErr by remember { mutableStateOf<String?>(null) }
+    var previewLoading by remember { mutableStateOf(false) }
+    var versionLabel by rememberSaveable(taskId, artifactId) { mutableStateOf(defaultVersionLabel()) }
+    var publishHint by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(taskId, artifactId) {
         loading = true
         err = null
         art = null
+        preview = null
+        previewErr = null
+        previewLoading = false
+        versionLabel = defaultVersionLabel()
+        publishHint = null
         vm.loadArtifactsForTask(taskId).fold(
             onSuccess = { list ->
                 val found = list.find { it.artifactId == artifactId }
@@ -646,6 +662,7 @@ private fun ArtifactDetailScreen(
             Modifier
                 .padding(pad)
                 .padding(16.dp)
+                .verticalScroll(rememberScrollState())
                 .fillMaxSize(),
         ) {
             if (loading) {
@@ -665,31 +682,78 @@ private fun ArtifactDetailScreen(
             Text("sha256：${a.sha256 ?: "—"}", fontFamily = FontFamily.Monospace)
             Spacer(Modifier.height(20.dp))
             Text(
-                "预览入口（占位）：后续可接下载 URL、内嵌 WebView 或专用预览器。",
-                style = MaterialTheme.typography.bodySmall,
-            )
-            Spacer(Modifier.height(8.dp))
-            Button(
-                onClick = { /* 占位：无通用浏览器带 JWT 下载 */ },
-                enabled = false,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text("打开预览（待接下载鉴权）")
-            }
-            Spacer(Modifier.height(12.dp))
-            Text(
-                "发布入口（占位）：记录一次发布申请到本地历史，模拟流水线回调。",
+                "产物预览入口：支持文本类产物在线加载。",
                 style = MaterialTheme.typography.bodySmall,
             )
             Spacer(Modifier.height(8.dp))
             Button(
                 onClick = {
-                    val ver = "v-${System.currentTimeMillis().toString().takeLast(8)}"
-                    vm.recordPublishEntry(taskId, a.artifactId, a.name, ver)
+                    scope.launch {
+                        previewLoading = true
+                        previewErr = null
+                        preview = null
+                        vm.loadArtifactPreview(taskId, a).fold(
+                            onSuccess = { preview = it },
+                            onFailure = { previewErr = it.message ?: "加载预览失败" },
+                        )
+                        previewLoading = false
+                    }
                 },
+                enabled = !previewLoading,
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                Text("提交发布申请（占位）")
+                Text(if (previewLoading) "加载预览中..." else "加载预览")
+            }
+            previewErr?.let {
+                Spacer(Modifier.height(8.dp))
+                Text(it, color = MaterialTheme.colorScheme.error)
+            }
+            preview?.let { p ->
+                Spacer(Modifier.height(12.dp))
+                Card(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(12.dp)) {
+                        Text(p.title, style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            "${p.contentType ?: "text/plain"} · ${p.byteSize} bytes",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        Text(p.content, fontFamily = FontFamily.Monospace)
+                        if (p.truncated) {
+                            Spacer(Modifier.height(8.dp))
+                            Text("预览内容已截断，请下载完整文件查看。", style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                }
+            }
+            Spacer(Modifier.height(12.dp))
+            Text(
+                "发布入口：填写版本号并记录到历史/版本页。",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Spacer(Modifier.height(8.dp))
+            OutlinedTextField(
+                value = versionLabel,
+                onValueChange = { versionLabel = it },
+                label = { Text("版本号（例如 v2026.04.04-001）") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(Modifier.height(8.dp))
+            Button(
+                onClick = {
+                    val version = versionLabel.trim()
+                    vm.recordPublishEntry(taskId, a.artifactId, a.name, version)
+                    publishHint = "已记录发布申请：$version"
+                },
+                enabled = versionLabel.trim().isNotEmpty(),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("提交发布申请")
+            }
+            publishHint?.let {
+                Spacer(Modifier.height(8.dp))
+                Text(it, color = MaterialTheme.colorScheme.primary)
             }
         }
     }
@@ -703,7 +767,7 @@ private fun PublishHistoryScreen(vm: AppViewModel, onBack: () -> Unit) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("发布历史") },
+                title = { Text("历史与版本") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
@@ -725,10 +789,11 @@ private fun PublishHistoryScreen(vm: AppViewModel, onBack: () -> Unit) {
                 items(sorted, key = { it.id }) { e ->
                     Card(Modifier.fillMaxWidth()) {
                         Column(Modifier.padding(14.dp)) {
-                            Text(e.versionLabel, style = MaterialTheme.typography.titleSmall)
+                            Text("版本 ${e.versionLabel}", style = MaterialTheme.typography.titleSmall)
                             Text("任务 ${e.taskId}", style = MaterialTheme.typography.bodySmall)
                             Text("产物 ${e.artifactName ?: e.artifactId ?: "—"}")
-                            Text("状态 ${e.status} · ${e.createdAt}", style = MaterialTheme.typography.bodySmall)
+                            Text("状态 ${e.status}", style = MaterialTheme.typography.bodySmall)
+                            Text("时间 ${formatTimestamp(e.createdAt)}", style = MaterialTheme.typography.bodySmall)
                         }
                     }
                 }
@@ -736,6 +801,14 @@ private fun PublishHistoryScreen(vm: AppViewModel, onBack: () -> Unit) {
         }
     }
 }
+
+private fun defaultVersionLabel(): String =
+    "v" + SimpleDateFormat("yyyyMMdd-HHmmss", Locale.getDefault()).format(Date())
+
+private fun formatTimestamp(millis: Long): String =
+    runCatching {
+        SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date(millis))
+    }.getOrElse { millis.toString() }
 
 @Composable
 private fun ProjectsTab(vm: AppViewModel) {

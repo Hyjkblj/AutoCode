@@ -50,6 +50,8 @@ data class UiState(
 
 class AppViewModel(application: Application) : AndroidViewModel(application) {
 
+    private val previewMaxChars = 24_000
+
     private val json = Json {
         ignoreUnknownKeys = true
         encodeDefaults = true
@@ -391,21 +393,92 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         return Result.success(emptyList())
     }
 
+    suspend fun loadArtifactPreview(taskId: String, artifact: ArtifactListItem): Result<ArtifactPreview> {
+        val title = artifact.name ?: artifact.artifactId
+        val base = _uiState.value.baseUrl.trim()
+        val session = _uiState.value.session
+
+        if (base.isEmpty()) {
+            return Result.success(
+                ArtifactPreview(
+                    title = title,
+                    contentType = artifact.contentType,
+                    content =
+                        buildString {
+                            appendLine("离线模式预览（Mock）")
+                            appendLine("taskId=$taskId")
+                            appendLine("artifactId=${artifact.artifactId}")
+                            appendLine("name=${artifact.name ?: "unknown"}")
+                            appendLine("提示：连接控制面后可读取真实产物内容。")
+                        },
+                    truncated = false,
+                    byteSize = (artifact.sizeBytes ?: 0L).coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
+                ),
+            )
+        }
+
+        if (session == null) {
+            return Result.failure(IllegalStateException("请先登录后再加载产物预览"))
+        }
+
+        if (!isTextPreviewable(artifact.contentType, artifact.name)) {
+            return Result.failure(IllegalStateException("该产物是二进制文件，当前仅支持文本预览"))
+        }
+
+        return ControlPlaneClient
+            .downloadArtifact(base, session.accessToken, taskId, artifact.artifactId)
+            .mapCatching { d ->
+                val raw = d.bytes.toString(Charsets.UTF_8)
+                val truncated = raw.length > previewMaxChars
+                ArtifactPreview(
+                    title = artifact.name ?: d.fileName ?: artifact.artifactId,
+                    contentType = artifact.contentType ?: d.contentType,
+                    content = if (truncated) raw.take(previewMaxChars) else raw,
+                    truncated = truncated,
+                    byteSize = d.bytes.size,
+                )
+            }
+    }
+
+    private fun isTextPreviewable(contentType: String?, fileName: String?): Boolean {
+        val ct = contentType?.lowercase().orEmpty()
+        if (ct.startsWith("text/")) return true
+        if (
+            ct.contains("json") ||
+            ct.contains("xml") ||
+            ct.contains("yaml") ||
+            ct.contains("x-www-form-urlencoded") ||
+            ct.contains("javascript")
+        ) {
+            return true
+        }
+        val name = fileName?.lowercase().orEmpty()
+        val suffixes =
+            listOf(
+                ".txt", ".md", ".json", ".xml", ".yaml", ".yml",
+                ".js", ".ts", ".tsx", ".jsx", ".html", ".css",
+                ".kt", ".kts", ".java", ".gradle", ".properties", ".sql",
+            )
+        return suffixes.any { s -> name.endsWith(s) }
+    }
+
     fun recordPublishEntry(
         taskId: String,
         artifactId: String?,
         artifactName: String?,
         versionLabel: String,
+        status: String = "submitted_mock",
     ) {
         viewModelScope.launch {
+            val normalizedVersion = versionLabel.trim().ifEmpty { "v-${System.currentTimeMillis()}" }
             val e =
                 PublishHistoryEntry(
                     id = "pub_${System.currentTimeMillis()}",
                     taskId = taskId,
                     artifactId = artifactId,
                     artifactName = artifactName,
-                    versionLabel = versionLabel,
-                    status = "submitted_mock",
+                    versionLabel = normalizedVersion,
+                    status = status,
                     createdAt = System.currentTimeMillis(),
                 )
             _uiState.update { it.copy(publishHistory = listOf(e) + it.publishHistory) }

@@ -84,3 +84,12 @@ data class PublishHistoryEntry(
     val status: String,
     val createdAt: Long,
 )
+
+/** PR-3：产物预览结构（仅用于界面展示，不持久化）。 */
+data class ArtifactPreview(
+    val title: String,
+    val contentType: String?,
+    val content: String,
+    val truncated: Boolean,
+    val byteSize: Int,
+)

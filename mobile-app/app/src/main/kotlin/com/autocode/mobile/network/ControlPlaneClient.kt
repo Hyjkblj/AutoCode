@@ -119,6 +119,39 @@ object ControlPlaneClient {
             }
         }
 
+    suspend fun downloadArtifact(
+        baseUrl: String,
+        bearerToken: String,
+        taskId: String,
+        artifactId: String,
+    ): Result<ArtifactDownloadData> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val root = normalizeBaseUrl(baseUrl)
+                val req =
+                    Request.Builder()
+                        .url("$root/api/v1/tasks/${taskId.trim()}/artifacts/${artifactId.trim()}/download")
+                        .header("Authorization", "Bearer ${bearerToken.trim()}")
+                        .get()
+                        .build()
+                client.newCall(req).execute().use { resp ->
+                    val bytes = resp.body?.bytes() ?: ByteArray(0)
+                    if (resp.code == 404) {
+                        error("产物不存在或无权访问 (404)")
+                    }
+                    if (!resp.isSuccessful) {
+                        val txt = bytes.toString(Charsets.UTF_8).take(300)
+                        error("HTTP ${resp.code}: $txt")
+                    }
+                    ArtifactDownloadData(
+                        bytes = bytes,
+                        contentType = resp.header("Content-Type"),
+                        fileName = parseDownloadFilename(resp.header("Content-Disposition")),
+                    )
+                }
+            }
+        }
+
     suspend fun getTask(
         baseUrl: String,
         bearerToken: String,
@@ -201,6 +234,18 @@ object ControlPlaneClient {
             )
         }
     }
+
+    private fun parseDownloadFilename(contentDisposition: String?): String? {
+        if (contentDisposition.isNullOrBlank()) return null
+        val key = "filename=\""
+        val idx = contentDisposition.indexOf(key, ignoreCase = true)
+        if (idx < 0) return null
+        return contentDisposition
+            .substring(idx + key.length)
+            .substringBefore('"')
+            .trim()
+            .takeIf { it.isNotEmpty() }
+    }
 }
 
 data class TaskSummaryDto(
@@ -217,4 +262,10 @@ data class ArtifactListItem(
     val contentType: String?,
     val sizeBytes: Long?,
     val sha256: String?,
+)
+
+data class ArtifactDownloadData(
+    val bytes: ByteArray,
+    val contentType: String?,
+    val fileName: String?,
 )

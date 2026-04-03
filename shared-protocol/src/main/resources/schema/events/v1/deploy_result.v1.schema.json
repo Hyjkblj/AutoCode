@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autocode.example/schema/events/v1/deploy_result.v1.schema.json",
+  "title": "DEPLOY_RESULT TaskEvent v1",
+  "allOf": [
+    { "$ref": "task_event.v1.schema.json" },
+    {
+      "type": "object",
+      "properties": {
+        "type": { "const": "DEPLOY_RESULT" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["requestId", "status"],
+          "properties": {
+            "requestId": { "type": "string", "minLength": 1 },
+            "deploymentId": { "type": "string" },
+            "environment": { "type": "string" },
+            "status": { "type": "string", "minLength": 1 },
+            "message": { "type": "string" },
+            "endpointUrl": { "type": "string" },
+            "startedAt": { "type": "string", "format": "date-time" },
+            "finishedAt": { "type": "string", "format": "date-time" },
+            "resultArtifact": { "$ref": "artifact.schema.json" }
+          }
+        }
+      }
+    }
+  ]
+}

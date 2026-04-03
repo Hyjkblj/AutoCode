@@ -44,7 +44,7 @@ public final class TaskEventContractValidator {
         switch (type) {
             case SPEC_PROPOSED -> {
                 requireMap(payload, "payload");
-                requireArtifact(payload);
+                requireArtifact(payload, "artifact");
             }
             case FILE_PATCH_PREVIEW -> {
                 requireMap(payload, "payload");
@@ -64,13 +64,7 @@ public final class TaskEventContractValidator {
             case APPROVAL_REQUIRED -> {
                 requireMap(payload, "payload");
                 requireString(payload, "approvalId");
-                requireMap(payload, "context");
-                @SuppressWarnings("unchecked")
-                Map<String, Object> ctx = (Map<String, Object>) payload.get("context");
-                requireString(ctx, "action");
-                requireString(ctx, "tool");
-                requireString(ctx, "workspaceRef");
-                requireString(ctx, "inputsHash");
+                requireApprovalContext(payload, "context");
             }
             case APPROVAL_RESULT -> {
                 requireMap(payload, "payload");
@@ -78,9 +72,24 @@ public final class TaskEventContractValidator {
                 // decision is required but cross-language casing differs; accept "decision" only.
                 requireString(payload, "decision");
             }
+            case DEPLOY_PLAN -> {
+                requireMap(payload, "payload");
+                requireString(payload, "requestId");
+                requireString(payload, "environment");
+                requireArtifact(payload, "artifact");
+                if (payload.containsKey("context")) {
+                    requireApprovalContext(payload, "context");
+                }
+            }
+            case DEPLOY_RESULT -> {
+                requireMap(payload, "payload");
+                requireString(payload, "requestId");
+                requireString(payload, "status");
+                validateOptionalArtifact(payload, "resultArtifact");
+            }
             case ARTIFACT_READY -> {
                 requireMap(payload, "payload");
-                requireArtifact(payload);
+                requireArtifact(payload, "artifact");
             }
             default -> {
                 // legacy/other events: no additional constraints here
@@ -88,10 +97,37 @@ public final class TaskEventContractValidator {
         }
     }
 
-    private static void requireArtifact(Map<String, Object> payload) {
-        requireMap(payload, "artifact");
+    private static void requireApprovalContext(Map<String, Object> payload, String key) {
+        requireMap(payload, key);
         @SuppressWarnings("unchecked")
-        Map<String, Object> artifact = (Map<String, Object>) payload.get("artifact");
+        Map<String, Object> ctx = (Map<String, Object>) payload.get(key);
+        requireString(ctx, "action");
+        requireString(ctx, "tool");
+        requireString(ctx, "workspaceRef");
+        requireString(ctx, "inputsHash");
+    }
+
+    private static void requireArtifact(Map<String, Object> payload, String key) {
+        requireMap(payload, key);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> artifact = (Map<String, Object>) payload.get(key);
+        validateArtifactMap(artifact);
+    }
+
+    private static void validateOptionalArtifact(Map<String, Object> payload, String key) {
+        Object value = payload.get(key);
+        if (value == null) {
+            return;
+        }
+        if (!(value instanceof Map)) {
+            throw new ContractViolationException("payload." + key + " must be an object");
+        }
+        @SuppressWarnings("unchecked")
+        Map<String, Object> artifact = (Map<String, Object>) value;
+        validateArtifactMap(artifact);
+    }
+
+    private static void validateArtifactMap(Map<String, Object> artifact) {
         requireString(artifact, "artifactId");
         requireString(artifact, "type");
         ArtifactMetadataContractValidator.validateNestedDescriptorsFromMap(artifact);

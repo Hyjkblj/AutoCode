@@ -120,6 +120,14 @@ class TaskControllerIntegrationTest extends OperatorProj1MembershipFixture {
                 .andExpect(jsonPath("$.payload").isArray());
     }
 
+    @Test
+    void createTaskShouldExposeSessionIdInSummary() throws Exception {
+        String response = createTask("session id field");
+        String sessionId = objectMapper.readTree(response).path("payload").path("sessionId").asText();
+
+        org.junit.jupiter.api.Assertions.assertTrue(sessionId != null && sessionId.startsWith("ses_"));
+    }
+
     private String createTask(String prompt) throws Exception {
         String payload = """
                 {

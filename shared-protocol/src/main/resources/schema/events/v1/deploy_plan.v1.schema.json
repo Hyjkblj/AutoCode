@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autocode.example/schema/events/v1/deploy_plan.v1.schema.json",
+  "title": "DEPLOY_PLAN TaskEvent v1",
+  "allOf": [
+    { "$ref": "task_event.v1.schema.json" },
+    {
+      "type": "object",
+      "properties": {
+        "type": { "const": "DEPLOY_PLAN" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["requestId", "environment", "artifact"],
+          "properties": {
+            "requestId": { "type": "string", "minLength": 1 },
+            "environment": { "type": "string", "minLength": 1 },
+            "strategy": { "type": "string" },
+            "triggeredBy": { "type": "string" },
+            "artifact": { "$ref": "artifact.schema.json" },
+            "context": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["action", "tool", "workspaceRef", "inputsHash"],
+              "properties": {
+                "action": { "type": "string", "minLength": 1 },
+                "tool": { "type": "string", "minLength": 1 },
+                "workspaceRef": { "type": "string", "minLength": 1 },
+                "inputsHash": { "type": "string", "minLength": 1 },
+                "inputs": { "type": "object" }
+              }
+            },
+            "options": { "type": "object" }
+          }
+        }
+      }
+    }
+  ]
+}

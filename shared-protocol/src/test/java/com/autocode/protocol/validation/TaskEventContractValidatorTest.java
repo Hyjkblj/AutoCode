@@ -50,6 +50,24 @@ class TaskEventContractValidatorTest {
     }
 
     @Test
+    void deployPlan_example_resource_is_valid() throws Exception {
+        try (InputStream in = TaskEventContractValidatorTest.class.getResourceAsStream("/examples/deploy_plan.v1.example.json")) {
+            assertNotNull(in, "Missing test resource: /examples/deploy_plan.v1.example.json");
+            TaskEvent event = MAPPER.readValue(in, TaskEvent.class);
+            assertDoesNotThrow(() -> TaskEventContractValidator.validate(event));
+        }
+    }
+
+    @Test
+    void deployResult_example_resource_is_valid() throws Exception {
+        try (InputStream in = TaskEventContractValidatorTest.class.getResourceAsStream("/examples/deploy_result.v1.example.json")) {
+            assertNotNull(in, "Missing test resource: /examples/deploy_result.v1.example.json");
+            TaskEvent event = MAPPER.readValue(in, TaskEvent.class);
+            assertDoesNotThrow(() -> TaskEventContractValidator.validate(event));
+        }
+    }
+
+    @Test
     void unsupported_event_version_rejected() {
         TaskEvent event = new TaskEvent();
         event.setEventId("e1");
@@ -77,6 +95,37 @@ class TaskEventContractValidatorTest {
         artifact.put("type", "zip");
         artifact.put("build", Map.of());
         event.setPayload(Map.of("artifact", artifact));
+
+        assertThrows(ContractViolationException.class, () -> TaskEventContractValidator.validate(event));
+    }
+
+    @Test
+    void deploy_plan_requires_requestId() {
+        TaskEvent event = new TaskEvent();
+        event.setEventId("e2");
+        event.setTaskId("t2");
+        event.setType(EventType.DEPLOY_PLAN);
+        event.setTimestamp(Instant.parse("2026-04-04T00:00:00Z"));
+        event.setSeq(0);
+        event.setEventVersion(1);
+        event.setPayload(Map.of(
+                "environment", "staging",
+                "artifact", Map.of("artifactId", "a1", "type", "zip")
+        ));
+
+        assertThrows(ContractViolationException.class, () -> TaskEventContractValidator.validate(event));
+    }
+
+    @Test
+    void deploy_result_requires_status() {
+        TaskEvent event = new TaskEvent();
+        event.setEventId("e3");
+        event.setTaskId("t3");
+        event.setType(EventType.DEPLOY_RESULT);
+        event.setTimestamp(Instant.parse("2026-04-04T00:00:00Z"));
+        event.setSeq(0);
+        event.setEventVersion(1);
+        event.setPayload(Map.of("requestId", "deploy_req_001"));
 
         assertThrows(ContractViolationException.class, () -> TaskEventContractValidator.validate(event));
     }

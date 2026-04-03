@@ -14,6 +14,8 @@ This module is the single source of truth for cross-component DTOs and event sch
 - Extend `com.autocode.protocol.validation.TaskEventContractValidator` **only when** the platform must reject malformed
   payloads for that type; types that fall through the `default` branch rely on schema/documentation only.
 - Prefer **optional** payload fields so existing consumers keep working when they ignore unknown keys.
+- `DEPLOY_PLAN` captures a normalized deployment request (required keys: `requestId`, `environment`, `artifact`).
+- `DEPLOY_RESULT` reports execution outcome (required keys: `requestId`, `status`).
 
 ## Backward compatibility rules
 
@@ -22,6 +24,8 @@ This module is the single source of truth for cross-component DTOs and event sch
 - Changing an existing field's meaning is not allowed.
 - For `TaskEvent.payload` (a `Map<String, Object>`), producers should follow the JSON Schemas in
   `src/main/resources/schema/events/v1/` for event-specific required keys.
+- For deploy events in v1, statuses/strategy values are intentionally open strings; consumers should tolerate
+  unknown values and only enforce documented required keys.
 - Standalone manifests (multi-artifact exports) use `src/main/resources/schema/manifest/v1/`; `schemaVersion = 1`
   matches the same compatibility rules as event payloads (optional additive fields only).
 - For `ArtifactMetadata.build`: the `build` object is optional; when present, `command` is required (JSON Schema and

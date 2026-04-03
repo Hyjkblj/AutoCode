@@ -1,0 +1,26 @@
+{
+  "eventId": "evt_test_deploy_result_001",
+  "taskId": "task_test_123",
+  "sessionId": "sess_test_abc",
+  "assistant": "test",
+  "type": "DEPLOY_RESULT",
+  "timestamp": "2026-04-04T08:03:00Z",
+  "seq": 21,
+  "eventVersion": 1,
+  "payload": {
+    "requestId": "deploy_req_test_001",
+    "deploymentId": "dep_test_001",
+    "environment": "staging",
+    "status": "success",
+    "message": "Deployment completed.",
+    "endpointUrl": "https://autocode-demo.example.invalid",
+    "startedAt": "2026-04-04T08:01:00Z",
+    "finishedAt": "2026-04-04T08:02:45Z",
+    "resultArtifact": {
+      "artifactId": "art_deploy_report_test_001",
+      "name": "deploy-report.json",
+      "mime": "application/json",
+      "type": "deploy_report"
+    }
+  }
+}

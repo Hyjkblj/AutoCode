@@ -1,0 +1,34 @@
+{
+  "eventId": "evt_01HQ8DEPLOYPLAN001",
+  "taskId": "task_123",
+  "sessionId": "sess_abc",
+  "assistant": "gpt",
+  "type": "DEPLOY_PLAN",
+  "timestamp": "2026-04-04T08:00:00Z",
+  "seq": 60,
+  "eventVersion": 1,
+  "payload": {
+    "requestId": "deploy_req_001",
+    "environment": "staging",
+    "strategy": "rolling",
+    "triggeredBy": "user:operator_001",
+    "artifact": {
+      "artifactId": "art_export_zip_001",
+      "name": "export.zip",
+      "hash": "sha256:1b2c3d4e5f60718293a4b5c6d7e8f901234567890abcdef1234567890abcdef",
+      "size": 1048576,
+      "mime": "application/zip",
+      "type": "zip"
+    },
+    "context": {
+      "action": "app.publish",
+      "tool": "publish.run",
+      "workspaceRef": "D:/workspaces/task_123",
+      "inputsHash": "sha256:7f0f66cbf1768cb5344e8cfde7fafecdb7472a8ec95fda37ff2ec53d9a7e4fc6"
+    },
+    "options": {
+      "provider": "vercel",
+      "project": "autocode-demo"
+    }
+  }
+}

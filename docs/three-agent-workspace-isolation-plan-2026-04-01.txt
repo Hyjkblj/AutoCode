@@ -238,3 +238,32 @@ Agent-4（mobile-app）PR-3：artifacts 预览入口 + 发布入口 + 历史/版
 - 目标：展示 artifacts 列表/详情；提供预览入口与发布入口（先做入口与状态展示）；提供历史与版本查看。
 - 允许修改路径：见“五、Agent-4（移动端可视化 App）”白名单
 - 验收命令：以移动端模块自身为准（可完整跑通一次“看到产物入口”）
+
+十、2026-04-03 更新（分支修复 + PR 规划）
+1. 当前状态（以 origin/master 为准）
+- 已合并：#1 #2 #3 #4 #5 #7 #8 #9。
+- 未合并有效开发分支：feat/a4-mobile-visual-app（ahead=1）。
+- 发现串线风险：AutoCode-agent3-m2 出现 mobile-app/** 大量改动（不在 Agent-3 白名单）。
+- 发现工作区污染：AutoCode-a4 的 .gradle-local/，AutoCode-agent2 的 control-plane-spring/build/。
+
+2. 修复优先级
+- P0：先在 AutoCode-agent3-m2 执行 stash 保护，再移除 mobile-app/** 误改，恢复 Agent-3 白名单边界。
+- P1：清理构建产物目录（.gradle-local/、build/），提交前保持 git status --short 干净。
+- P1：AutoCode-a1 当前两处测试改动按“计划内提交或还原”二选一处理。
+
+3. PR 任务规划更新
+- 已完成并归档：M1、M2、M5-PR1、M5-PR2。
+- 进行中：M5-PR3（feat/a4-mobile-visual-app）。
+- 待执行（M3/M4）：
+  - fix/a1-m3-runtime-metadata-authz
+  - fix/a3-m3-minimal-run-health-reporting
+  - fix/a2-m4-deploy-plan-result-payloads
+  - fix/a1-m4-deploy-authz-audit-state
+  - fix/a3-m4-deploy-gate-execution-reporting
+
+4. 合并顺序（更新）
+- 先修复工作区隔离与污染问题，再合并 M5-PR3。
+- 之后按 M3（a1 -> a3）与 M4（a2 -> a1 -> a3）顺序推进。
+
+5. 详细执行文档
+- 详见：docs/branch-isolation-repair-and-pr-plan-update-2026-04-03.md

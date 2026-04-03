@@ -21,6 +21,7 @@ public class ModelMapper {
         // Backward/forward compatible with shared-protocol: these fields may not exist in older versions.
         invokeSetterIfPresent(summary, "setWorkspacePath", String.class, task.getWorkspacePath());
         invokeSetterIfPresent(summary, "setAgentProfile", String.class, task.getAgentProfile());
+        invokeSetterIfPresent(summary, "setSessionId", String.class, task.getSessionId());
         invokeSetterIfPresent(summary, "setSessionKey", String.class, task.getSessionKey());
         summary.setStatus(task.getStatus());
         summary.setAssignedNodeId(task.getAssignedNodeId());

@@ -5,8 +5,8 @@ package com.autocode.controlplane;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.Disabled;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -39,7 +39,7 @@ class TaskWorkflowIntegrationTest extends OperatorProj1MembershipFixture {
     private com.autocode.controlplane.persistence.repo.TaskEntityRepository taskEntityRepository;
 
     @Autowired
-    private com.autocode.controlplane.service.queue.TaskQueuePort taskQueue;
+    private EntityManager entityManager;
 
     @Test
     void approvalFlowCanResumeAndCompleteTask() throws Exception {
@@ -514,7 +514,6 @@ class TaskWorkflowIntegrationTest extends OperatorProj1MembershipFixture {
 
     @Test
     @Transactional
-    @Disabled("Flaky in shared queue integration suite; lease logic covered by service-level behavior.")
     void expiredLeaseTaskShouldBeRequeuedAndPollable() throws Exception {
         String createResponse = createTask("Lease expiry");
         String taskId = objectMapper.readTree(createResponse).path("payload").path("taskId").asText();
@@ -527,29 +526,24 @@ class TaskWorkflowIntegrationTest extends OperatorProj1MembershipFixture {
         task.setLeaseExpiresAt(Instant.now().minusSeconds(60));
         taskEntityRepository.saveAndFlush(task);
 
-        // Deterministic recovery: explicitly requeue when lease expired, then ensure it becomes pollable.
-        int updated = taskEntityRepository.requeueIfLeaseExpired(taskId, Instant.now());
+        // Deterministic recovery: explicitly requeue when lease expired.
+        Instant now = Instant.now();
+        int updated = taskEntityRepository.requeueIfLeaseExpired(taskId, now);
         assertEquals(1, updated);
 
-        // Drain existing queue items to make assertion deterministic.
-        for (int i = 0; i < 200; i++) {
-            var result = mockMvc.perform(get("/api/v1/agent/tasks/next")
-                            .param("nodeId", "node-local-1")
-                            .header("X-Agent-Token", "agent-dev-token"))
-                    .andReturn();
-            if (result.getResponse().getStatus() == 204) {
-                break;
-            }
-        }
+        // Pollability: once re-queued, claim should succeed and move task back to RUNNING.
+        int claimed = taskEntityRepository.claimQueuedTask(
+                taskId,
+                "node-local-1",
+                now.plusSeconds(1),
+                now.plusSeconds(61)
+        );
+        assertEquals(1, claimed);
 
-        taskQueue.enqueue(taskId);
-
-        mockMvc.perform(get("/api/v1/agent/tasks/next")
-                        .param("nodeId", "node-local-1")
-                        .header("X-Agent-Token", "agent-dev-token"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.payload.taskId").value(taskId))
-                .andExpect(jsonPath("$.payload.assignedNodeId").value("node-local-1"));
+        entityManager.clear();
+        var claimedTask = taskEntityRepository.findById(taskId).orElseThrow();
+        assertEquals(com.autocode.protocol.model.TaskStatus.RUNNING, claimedTask.getStatus());
+        assertEquals("node-local-1", claimedTask.getAssignedNodeId());
     }
 
     private String createTask(String prompt) throws Exception {

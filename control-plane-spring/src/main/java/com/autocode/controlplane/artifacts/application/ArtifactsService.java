@@ -62,12 +62,30 @@ public class ArtifactsService {
      */
     @Transactional
     public ArtifactContent download(String taskId, String artifactId, String token) {
+        return openWithSharedToken(taskId, artifactId, token, "artifact.download", "download forbidden");
+    }
+
+    /**
+     * Inline preview of stored bytes (same shared-token gate as download).
+     */
+    @Transactional
+    public ArtifactContent preview(String taskId, String artifactId, String token) {
+        return openWithSharedToken(taskId, artifactId, token, "artifact.preview", "preview forbidden");
+    }
+
+    private ArtifactContent openWithSharedToken(
+            String taskId,
+            String artifactId,
+            String token,
+            String auditEventType,
+            String forbiddenMessage
+    ) {
         requireTaskExists(taskId);
         if (!downloadAuthzPort.canDownload(taskId, artifactId, token)) {
-            throw new ArtifactForbiddenException("download forbidden");
+            throw new ArtifactForbiddenException(forbiddenMessage);
         }
         ArtifactContent content = artifactsPort.open(taskId, artifactId);
-        auditPort.append(taskId, actorOrSystem(), "artifact.download", Map.of(
+        auditPort.append(taskId, actorOrSystem(), auditEventType, Map.of(
                 "artifactId", artifactId,
                 "name", content.record().name(),
                 "sha256", content.record().sha256(),

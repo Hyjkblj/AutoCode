@@ -45,6 +45,39 @@ class TaskControllerIntegrationTest extends OperatorProj1MembershipFixture {
     }
 
     @Test
+    void nonApiEndpointsShouldNotBePermitAllInTokenMode() throws Exception {
+        mockMvc.perform(get("/api/v1/agent/nodes"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void agentEndpointShouldRejectOperatorBearerToken() throws Exception {
+        mockMvc.perform(get("/api/v1/agent/tasks/next")
+                        .param("nodeId", "node-a")
+                        .header("Authorization", "Bearer op-a"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.ok").value(false));
+    }
+
+    @Test
+    void operatorEndpointShouldRejectAgentTokenOnly() throws Exception {
+        String payload = """
+                {
+                  "projectId": "proj-1",
+                  "assistant": "codex",
+                  "prompt": "should fail with agent token"
+                }
+                """;
+
+        mockMvc.perform(post("/api/v1/tasks")
+                        .header("X-Agent-Token", "ag-a")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.ok").value(false));
+    }
+
+    @Test
     void operatorTokenRotationShouldAcceptAnyConfiguredToken() throws Exception {
         String payload = """
                 {
@@ -118,6 +151,14 @@ class TaskControllerIntegrationTest extends OperatorProj1MembershipFixture {
                         .param("lastEventId", "0"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.payload").isArray());
+    }
+
+    @Test
+    void createTaskShouldExposeSessionIdInSummary() throws Exception {
+        String response = createTask("session id field");
+        String sessionId = objectMapper.readTree(response).path("payload").path("sessionId").asText();
+
+        org.junit.jupiter.api.Assertions.assertTrue(sessionId != null && sessionId.startsWith("ses_"));
     }
 
     private String createTask(String prompt) throws Exception {

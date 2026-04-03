@@ -27,7 +27,7 @@ public class TaskController {
 
     @PostMapping
     // Use #p1 instead of named params to avoid requiring Java -parameters for SpEL.
-    @PreAuthorize("hasAnyAuthority('ROLE_OPERATOR','ROLE_ADMIN') or @projectAuthz.canAccessProject(#p1.projectId)")
+    @PreAuthorize("@projectAuthz.canAccessProject(#p1.projectId)")
     public ResponseEntity<ApiResponse<TaskSummary>> createTask(
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
             @Valid @RequestBody CreateTaskRequest request
@@ -37,7 +37,7 @@ public class TaskController {
     }
 
     @GetMapping("/{taskId}")
-    @PreAuthorize("hasAnyAuthority('ROLE_OPERATOR','ROLE_ADMIN') or @projectAuthz.canAccessTask(#p0)")
+    @PreAuthorize("@projectAuthz.canAccessTask(#p0)")
     public ResponseEntity<ApiResponse<TaskSummary>> getTask(@PathVariable("taskId") String taskId) {
         return taskService.getTaskSummary(taskId)
                 .map(summary -> ResponseEntity.ok(ApiResponse.ok(summary)))
@@ -45,7 +45,7 @@ public class TaskController {
     }
 
     @GetMapping("/{taskId}/events")
-    @PreAuthorize("hasAnyAuthority('ROLE_OPERATOR','ROLE_ADMIN') or @projectAuthz.canAccessTask(#p0)")
+    @PreAuthorize("@projectAuthz.canAccessTask(#p0)")
     public ResponseEntity<ApiResponse<List<TaskEvent>>> getTaskEvents(
             @PathVariable("taskId") String taskId,
             @RequestParam(value = "lastSeq", required = false) Long lastSeq,
@@ -58,7 +58,7 @@ public class TaskController {
     }
 
     @PostMapping("/{taskId}/approval")
-    @PreAuthorize("hasAnyAuthority('ROLE_OPERATOR','ROLE_ADMIN') or @projectAuthz.canAccessTask(#p0)")
+    @PreAuthorize("@projectAuthz.canAccessTask(#p0)")
     public ResponseEntity<ApiResponse<TaskSummary>> approveTask(
             @PathVariable("taskId") String taskId,
             @Valid @RequestBody ApprovalDecisionRequest request
@@ -69,7 +69,7 @@ public class TaskController {
     }
 
     @PostMapping("/{taskId}/cancel")
-    @PreAuthorize("hasAnyAuthority('ROLE_OPERATOR','ROLE_ADMIN') or @projectAuthz.canAccessTask(#p0)")
+    @PreAuthorize("@projectAuthz.canAccessTask(#p0)")
     public ResponseEntity<ApiResponse<TaskSummary>> cancelTask(@PathVariable("taskId") String taskId) {
         return taskService.cancelTask(taskId, "user_cancel")
                 .map(summary -> ResponseEntity.ok(ApiResponse.ok(summary)))
@@ -81,7 +81,7 @@ public class TaskController {
      * Note: This is distinct from "uploaded artifacts" (zip exports, build reports, etc.).
      */
     @GetMapping("/{taskId}/artifacts/derived")
-    @PreAuthorize("hasAnyAuthority('ROLE_OPERATOR','ROLE_ADMIN') or @projectAuthz.canAccessTask(#p0)")
+    @PreAuthorize("@projectAuthz.canAccessTask(#p0)")
     public ResponseEntity<ApiResponse<TaskArtifactsResponse>> getDerivedArtifacts(@PathVariable("taskId") String taskId) {
         TaskArtifactsResponse response = artifactQueryService.getArtifacts(taskId);
         return ResponseEntity.ok(ApiResponse.ok(response));

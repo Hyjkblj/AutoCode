@@ -216,5 +216,18 @@ class ArtifactsIntegrationTest {
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.ok").value(false))
                 .andExpect(jsonPath("$.error").value("not found"));
+
+        mockMvc.perform(get("/api/v1/tasks/{taskId}/artifacts/derived", taskId)
+                        .header("Authorization", "Bearer operator-dev-token"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.ok").value(false))
+                .andExpect(jsonPath("$.error").value("not found"));
+
+        mockMvc.perform(get("/api/v1/audits/export")
+                        .param("taskId", taskId)
+                        .header("Authorization", "Bearer operator-dev-token"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.ok").value(false))
+                .andExpect(jsonPath("$.error").value("not found"));
     }
 }

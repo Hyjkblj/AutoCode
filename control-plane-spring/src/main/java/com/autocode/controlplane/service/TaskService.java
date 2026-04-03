@@ -39,6 +39,7 @@ import org.springframework.transaction.annotation.Propagation;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -545,23 +546,42 @@ public class TaskService {
                 if (approval != null) {
                     Map<String, Object> expected = readPayload(approval.getApprovalContextJson());
                     Map<String, Object> actual = buildApprovalContext(event.getPayload());
-                    if (!expected.isEmpty() && !isApprovalContextEqual(expected, actual)) {
-                        task.setStatus(TaskStatus.FAILED);
+                    if (!expected.isEmpty() && !isApprovalContextEqualForToolStart(expected, actual)) {
+                        markFailed(task);
                         event.getPayload().put("approvalContextMismatch", true);
                         event.getPayload().put("expectedApprovalContext", expected);
                         event.getPayload().put("actualApprovalContext", actual);
                     }
                 }
             }
+        } else if (event.getType() == EventType.DEPLOY_PLAN) {
+            if (task.getApprovalId() != null && !task.getApprovalId().isBlank()) {
+                ApprovalEntity approval = approvalRepository.findById(task.getApprovalId()).orElse(null);
+                if (approval != null) {
+                    Map<String, Object> expected = readPayload(approval.getApprovalContextJson());
+                    Map<String, Object> actual = buildApprovalContext(event.getPayload());
+                    if (!expected.isEmpty() && !isApprovalContextEqualForDeployPlan(expected, actual)) {
+                        markFailed(task);
+                        event.getPayload().put("approvalContextMismatch", true);
+                        event.getPayload().put("expectedApprovalContext", expected);
+                        event.getPayload().put("actualApprovalContext", actual);
+                        auditService.log(task.getTaskId(), "control-plane", "deploy.authz.denied", Map.of(
+                                "reason", "approval_context_mismatch",
+                                "requestId", asNonBlankString(event.getPayload().get("requestId"), "")
+                        ));
+                        return;
+                    }
+                }
+            }
+            task.setStatus(TaskStatus.RUNNING);
+            auditService.log(task.getTaskId(), "agent", "deploy.plan", deployPlanAuditDetails(event.getPayload()));
+        } else if (event.getType() == EventType.DEPLOY_RESULT) {
+            applyDeployResultStatus(task, event.getPayload());
+            auditService.log(task.getTaskId(), "agent", "deploy.result", deployResultAuditDetails(event.getPayload()));
         } else if (event.getType() == EventType.TASK_DONE) {
             task.setStatus(TaskStatus.DONE);
         } else if (event.getType() == EventType.TASK_FAILED) {
-            task.setStatus(TaskStatus.FAILED);
-            // Best-effort: backoff for potential retry orchestration (kept minimal for MVP).
-            int nextRetry = Math.min(50, Math.max(0, task.getRetryCount()) + 1);
-            task.setRetryCount(nextRetry);
-            long delaySeconds = retryBaseBackoffSeconds * (1L << Math.min(6, nextRetry)); // cap growth
-            task.setNextRunAt(Instant.now().plusSeconds(delaySeconds));
+            markFailed(task);
         }
     }
 
@@ -570,20 +590,173 @@ public class TaskService {
         if (payload == null) {
             return context;
         }
-        context.put("action", payload.get("action"));
-        context.put("command", payload.get("command"));
-        context.put("cwd", payload.get("cwd"));
+        Map<String, Object> nested = extractMap(payload.get("context"));
+        Map<String, Object> legacyNested = extractMap(payload.get("approvalContext"));
+
+        context.put("action", firstNonNull(
+                payload.get("action"),
+                nested.get("action"),
+                legacyNested.get("action")
+        ));
+        context.put("tool", firstNonNull(
+                payload.get("tool"),
+                nested.get("tool"),
+                legacyNested.get("tool")
+        ));
+        context.put("workspaceRef", firstNonNull(
+                payload.get("workspaceRef"),
+                nested.get("workspaceRef"),
+                legacyNested.get("workspaceRef"),
+                payload.get("cwd"),
+                legacyNested.get("cwd")
+        ));
+        context.put("inputsHash", firstNonNull(
+                payload.get("inputsHash"),
+                nested.get("inputsHash"),
+                legacyNested.get("inputsHash")
+        ));
+        context.put("command", firstNonNull(
+                payload.get("command"),
+                nested.get("command"),
+                legacyNested.get("command")
+        ));
+        context.put("cwd", firstNonNull(
+                payload.get("cwd"),
+                nested.get("cwd"),
+                legacyNested.get("cwd")
+        ));
         return context;
     }
 
-    private boolean isApprovalContextEqual(Map<String, Object> expected, Map<String, Object> actual) {
-        return safeEquals(expected.get("action"), actual.get("action"))
-                && safeEquals(expected.get("command"), actual.get("command"))
-                && safeEquals(expected.get("cwd"), actual.get("cwd"));
+    /**
+     * command.exec runtime events don't carry inputsHash, so keep that key optional to avoid false mismatches.
+     */
+    private boolean isApprovalContextEqualForToolStart(Map<String, Object> expected, Map<String, Object> actual) {
+        return contextFieldMatches(expected, actual, "action", true)
+                && contextFieldMatches(expected, actual, "tool", true)
+                && contextFieldMatches(expected, actual, "workspaceRef", true)
+                && contextFieldMatches(expected, actual, "command", true)
+                && contextFieldMatches(expected, actual, "cwd", true)
+                && contextFieldMatches(expected, actual, "inputsHash", false);
+    }
+
+    /**
+     * Deploy plan payloads are contracted around context fields; command/cwd are not required there.
+     */
+    private boolean isApprovalContextEqualForDeployPlan(Map<String, Object> expected, Map<String, Object> actual) {
+        return contextFieldMatches(expected, actual, "action", true)
+                && contextFieldMatches(expected, actual, "tool", true)
+                && contextFieldMatches(expected, actual, "workspaceRef", true)
+                && contextFieldMatches(expected, actual, "inputsHash", true);
+    }
+
+    private boolean contextFieldMatches(
+            Map<String, Object> expected,
+            Map<String, Object> actual,
+            String key,
+            boolean requiredWhenExpectedPresent
+    ) {
+        String expectedValue = normalizeContextValue(expected.get(key));
+        if (expectedValue == null) {
+            return true;
+        }
+        String actualValue = normalizeContextValue(actual.get(key));
+        if (actualValue == null) {
+            return !requiredWhenExpectedPresent;
+        }
+        return expectedValue.equals(actualValue);
+    }
+
+    private String normalizeContextValue(Object value) {
+        if (value instanceof String s) {
+            String trimmed = s.trim();
+            return trimmed.isEmpty() ? null : trimmed;
+        }
+        return value == null ? null : value.toString();
     }
 
     private boolean safeEquals(Object a, Object b) {
         return a == null ? b == null : a.equals(b);
+    }
+
+    private Map<String, Object> extractMap(Object value) {
+        if (value instanceof Map<?, ?> map) {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> cast = (Map<String, Object>) map;
+            return cast;
+        }
+        return Map.of();
+    }
+
+    private Object firstNonNull(Object... values) {
+        for (Object value : values) {
+            if (value != null) {
+                return value;
+            }
+        }
+        return null;
+    }
+
+    private void applyDeployResultStatus(TaskEntity task, Map<String, Object> payload) {
+        String status = asNonBlankString(payload == null ? null : payload.get("status"), "")
+                .toLowerCase(Locale.ROOT);
+        switch (status) {
+            case "accepted", "running" -> task.setStatus(TaskStatus.RUNNING);
+            case "success" -> task.setStatus(TaskStatus.DONE);
+            case "failed" -> markFailed(task);
+            case "rejected", "canceled", "cancelled" -> task.setStatus(TaskStatus.CANCELED);
+            default -> {
+                // Keep existing status for unknown values to avoid accidental regressions.
+            }
+        }
+    }
+
+    private void markFailed(TaskEntity task) {
+        task.setStatus(TaskStatus.FAILED);
+        // Best-effort: backoff for potential retry orchestration (kept minimal for MVP).
+        int nextRetry = Math.min(50, Math.max(0, task.getRetryCount()) + 1);
+        task.setRetryCount(nextRetry);
+        long delaySeconds = retryBaseBackoffSeconds * (1L << Math.min(6, nextRetry)); // cap growth
+        task.setNextRunAt(Instant.now().plusSeconds(delaySeconds));
+    }
+
+    private Map<String, Object> deployPlanAuditDetails(Map<String, Object> payload) {
+        Map<String, Object> details = new HashMap<>();
+        putIfPresent(details, "requestId", asNonBlankString(payload.get("requestId"), null));
+        putIfPresent(details, "environment", asNonBlankString(payload.get("environment"), null));
+        putIfPresent(details, "strategy", asNonBlankString(payload.get("strategy"), null));
+        putIfPresent(details, "triggeredBy", asNonBlankString(payload.get("triggeredBy"), null));
+
+        Map<String, Object> artifact = extractMap(payload.get("artifact"));
+        putIfPresent(details, "artifactId", asNonBlankString(artifact.get("artifactId"), null));
+        putIfPresent(details, "artifactType", asNonBlankString(artifact.get("type"), null));
+        return details;
+    }
+
+    private Map<String, Object> deployResultAuditDetails(Map<String, Object> payload) {
+        Map<String, Object> details = new HashMap<>();
+        putIfPresent(details, "requestId", asNonBlankString(payload.get("requestId"), null));
+        putIfPresent(details, "status", asNonBlankString(payload.get("status"), null));
+        putIfPresent(details, "environment", asNonBlankString(payload.get("environment"), null));
+        putIfPresent(details, "deploymentId", asNonBlankString(payload.get("deploymentId"), null));
+        putIfPresent(details, "endpointUrl", asNonBlankString(payload.get("endpointUrl"), null));
+
+        Map<String, Object> resultArtifact = extractMap(payload.get("resultArtifact"));
+        putIfPresent(details, "resultArtifactId", asNonBlankString(resultArtifact.get("artifactId"), null));
+        return details;
+    }
+
+    private void putIfPresent(Map<String, Object> target, String key, Object value) {
+        if (value != null) {
+            target.put(key, value);
+        }
+    }
+
+    private String asNonBlankString(Object value, String fallback) {
+        if (value instanceof String s && !s.isBlank()) {
+            return s;
+        }
+        return fallback;
     }
 
     private String extractOrCreateApprovalId(TaskEvent event) {

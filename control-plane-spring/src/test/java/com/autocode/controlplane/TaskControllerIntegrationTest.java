@@ -20,7 +20,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest
 @ActiveProfiles("test")
 @AutoConfigureMockMvc
-class TaskControllerIntegrationTest {
+class TaskControllerIntegrationTest extends OperatorProj1MembershipFixture {
 
     @Autowired
     private MockMvc mockMvc;

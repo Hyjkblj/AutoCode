@@ -27,7 +27,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 @SpringBootTest
 @AutoConfigureMockMvc
-class TaskWorkflowIntegrationTest {
+class TaskWorkflowIntegrationTest extends OperatorProj1MembershipFixture {
 
     @Autowired
     private MockMvc mockMvc;
@@ -285,6 +285,231 @@ class TaskWorkflowIntegrationTest {
                         .content(toolStartEvent))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.payload.status").value("FAILED"));
+    }
+
+    @Test
+    void toolStartWithoutInputsHashShouldNotFailWhenApprovedContextMatches() throws Exception {
+        String createResponse = createTask("Approval context strict match");
+        String taskId = objectMapper.readTree(createResponse).path("payload").path("taskId").asText();
+
+        String approvalRequiredEvent = """
+                {
+                  "event": {
+                    "eventId": "evt-approval-required-input-hash-1",
+                    "type": "APPROVAL_REQUIRED",
+                    "assistant": "codex",
+                    "payload": {
+                      "approvalId": "apr-input-hash-1",
+                      "action": "run_command",
+                      "tool": "command.exec",
+                      "command": "echo ok",
+                      "cwd": "D:/repoA",
+                      "context": {
+                        "action": "run_command",
+                        "tool": "command.exec",
+                        "workspaceRef": "D:/repoA",
+                        "inputsHash": "ih_123"
+                      }
+                    }
+                  }
+                }
+                """;
+        mockMvc.perform(post("/api/v1/agent/tasks/{taskId}/events", taskId)
+                        .header("X-Agent-Token", "agent-dev-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(approvalRequiredEvent))
+                .andExpect(status().isOk());
+
+        String approvalBody = """
+                {
+                  "approvalId": "apr-input-hash-1",
+                  "decision": "approve",
+                  "comment": "approved in integration test"
+                }
+                """;
+        mockMvc.perform(post("/api/v1/tasks/{taskId}/approval", taskId)
+                        .header("Authorization", "Bearer operator-dev-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(approvalBody))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.payload.status").value("RUNNING"));
+
+        // command.exec TOOL_START currently does not carry inputsHash; this should remain compatible.
+        String toolStartEvent = """
+                {
+                  "event": {
+                    "eventId": "evt-tool-start-input-hash-1",
+                    "type": "TOOL_START",
+                    "assistant": "codex",
+                    "payload": {
+                      "tool": "command.exec",
+                      "action": "run_command",
+                      "command": "echo ok",
+                      "cwd": "D:/repoA"
+                    }
+                  }
+                }
+                """;
+        mockMvc.perform(post("/api/v1/agent/tasks/{taskId}/events", taskId)
+                        .header("X-Agent-Token", "agent-dev-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(toolStartEvent))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.payload.status").value("RUNNING"));
+    }
+
+    @Test
+    void deployPlanContextShouldNotRequireCommandAndCwdFields() throws Exception {
+        String createResponse = createTask("Deploy approval context");
+        String taskId = objectMapper.readTree(createResponse).path("payload").path("taskId").asText();
+
+        String approvalRequiredEvent = """
+                {
+                  "event": {
+                    "eventId": "evt-approval-required-deploy-1",
+                    "type": "APPROVAL_REQUIRED",
+                    "assistant": "codex",
+                    "payload": {
+                      "approvalId": "apr-deploy-1",
+                      "action": "app.generate",
+                      "tool": "deploy.execute",
+                      "command": "deploy --env staging",
+                      "cwd": "D:/repoA",
+                      "context": {
+                        "action": "app.generate",
+                        "tool": "deploy.execute",
+                        "workspaceRef": "workspace://proj-1",
+                        "inputsHash": "ih_deploy_1"
+                      }
+                    }
+                  }
+                }
+                """;
+        mockMvc.perform(post("/api/v1/agent/tasks/{taskId}/events", taskId)
+                        .header("X-Agent-Token", "agent-dev-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(approvalRequiredEvent))
+                .andExpect(status().isOk());
+
+        String approvalBody = """
+                {
+                  "approvalId": "apr-deploy-1",
+                  "decision": "approve",
+                  "comment": "deploy approved"
+                }
+                """;
+        mockMvc.perform(post("/api/v1/tasks/{taskId}/approval", taskId)
+                        .header("Authorization", "Bearer operator-dev-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(approvalBody))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.payload.status").value("RUNNING"));
+
+        // DEPLOY_PLAN payload follows deploy contract: request/environment/artifact/context, without command/cwd.
+        String deployPlanEvent = """
+                {
+                  "event": {
+                    "eventId": "evt-deploy-plan-context-1",
+                    "type": "DEPLOY_PLAN",
+                    "assistant": "codex",
+                    "payload": {
+                      "requestId": "dep_req_ctx_1",
+                      "environment": "staging",
+                      "artifact": {
+                        "artifactId": "art_deploy_ctx_1",
+                        "type": "zip"
+                      },
+                      "context": {
+                        "action": "app.generate",
+                        "tool": "deploy.execute",
+                        "workspaceRef": "workspace://proj-1",
+                        "inputsHash": "ih_deploy_1"
+                      }
+                    }
+                  }
+                }
+                """;
+        mockMvc.perform(post("/api/v1/agent/tasks/{taskId}/events", taskId)
+                        .header("X-Agent-Token", "agent-dev-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(deployPlanEvent))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.payload.status").value("RUNNING"));
+    }
+
+    @Test
+    void deployPlanAndResultShouldAdvanceStateAndWriteAudit() throws Exception {
+        String createResponse = createTask("Deploy flow");
+        String taskId = objectMapper.readTree(createResponse).path("payload").path("taskId").asText();
+
+        String deployPlanEvent = """
+                {
+                  "event": {
+                    "eventId": "evt-deploy-plan-1",
+                    "type": "DEPLOY_PLAN",
+                    "assistant": "codex",
+                    "payload": {
+                      "requestId": "dep_req_1",
+                      "environment": "staging",
+                      "strategy": "rolling",
+                      "artifact": {
+                        "artifactId": "art_deploy_1",
+                        "type": "zip"
+                      }
+                    }
+                  }
+                }
+                """;
+
+        mockMvc.perform(post("/api/v1/agent/tasks/{taskId}/events", taskId)
+                        .header("X-Agent-Token", "agent-dev-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(deployPlanEvent))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.payload.status").value("RUNNING"));
+
+        String deployResultEvent = """
+                {
+                  "event": {
+                    "eventId": "evt-deploy-result-1",
+                    "type": "DEPLOY_RESULT",
+                    "assistant": "codex",
+                    "payload": {
+                      "requestId": "dep_req_1",
+                      "status": "success",
+                      "environment": "staging",
+                      "endpointUrl": "https://example.test/app"
+                    }
+                  }
+                }
+                """;
+
+        mockMvc.perform(post("/api/v1/agent/tasks/{taskId}/events", taskId)
+                        .header("X-Agent-Token", "agent-dev-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(deployResultEvent))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.payload.status").value("DONE"));
+
+        String auditResponse = mockMvc.perform(get("/api/v1/audits/export")
+                        .param("taskId", taskId)
+                        .header("Authorization", "Bearer operator-dev-token"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        JsonNode items = objectMapper.readTree(auditResponse).path("payload").path("items");
+        boolean hasDeployPlanAudit = false;
+        boolean hasDeployResultAudit = false;
+        for (JsonNode item : items) {
+            String action = item.path("action").asText();
+            if ("deploy.plan".equals(action)) {
+                hasDeployPlanAudit = true;
+            } else if ("deploy.result".equals(action)) {
+                hasDeployResultAudit = true;
+            }
+        }
+        assertTrue(hasDeployPlanAudit, "deploy.plan audit should be recorded");
+        assertTrue(hasDeployResultAudit, "deploy.result audit should be recorded");
     }
 
     @Test

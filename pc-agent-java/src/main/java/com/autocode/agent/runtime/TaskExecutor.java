@@ -385,12 +385,29 @@ public class TaskExecutor {
         if (task != null) {
             event.setTaskId(task.getTaskId());
             event.setAssistant(task.getAssistant());
-            // shared-protocol uses sessionId; TaskSummary currently exposes sessionKey.
-            event.setSessionId(task.getSessionKey());
+            event.setSessionId(readSessionIdCompat(task));
         }
         event.setSeq(Math.max(0, seq));
         // payload is set by caller (merged with traceId/runId in send()).
         return event;
+    }
+
+    /**
+     * Prefer protocol-level sessionId; fall back to legacy sessionKey for backward compatibility.
+     */
+    private static String readSessionIdCompat(TaskSummary task) {
+        if (task == null) {
+            return null;
+        }
+        String sid = invokeStringGetter(task, "getSessionId");
+        if (sid != null && !sid.isBlank()) {
+            return sid;
+        }
+        String sk = invokeStringGetter(task, "getSessionKey");
+        if (sk != null && !sk.isBlank()) {
+            return sk;
+        }
+        return null;
     }
 
     /**
@@ -400,8 +417,16 @@ public class TaskExecutor {
         if (task == null) {
             return null;
         }
+        String value = invokeStringGetter(task, "getWorkspacePath");
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        return value;
+    }
+
+    private static String invokeStringGetter(TaskSummary task, String getterName) {
         try {
-            Method m = task.getClass().getMethod("getWorkspacePath");
+            Method m = task.getClass().getMethod(getterName);
             Object v = m.invoke(task);
             if (v == null) {
                 return null;

@@ -161,6 +161,30 @@ class TaskControllerIntegrationTest extends OperatorProj1MembershipFixture {
         org.junit.jupiter.api.Assertions.assertTrue(sessionId != null && sessionId.startsWith("ses_"));
     }
 
+    @Test
+    void createTaskShouldReturnRuntimeMetadataFields() throws Exception {
+        String payload = """
+                {
+                  "projectId": "proj-1",
+                  "assistant": "codex",
+                  "prompt": "runtime metadata roundtrip",
+                  "workspacePath": "D:/repoA",
+                  "agentProfile": "reviewer",
+                  "sessionKey": "lane-alpha"
+                }
+                """;
+
+        mockMvc.perform(post("/api/v1/tasks")
+                        .header("Authorization", "Bearer op-a")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.ok").value(true))
+                .andExpect(jsonPath("$.payload.workspacePath").value("D:/repoA"))
+                .andExpect(jsonPath("$.payload.agentProfile").value("reviewer"))
+                .andExpect(jsonPath("$.payload.sessionKey").value("lane-alpha"));
+    }
+
     private String createTask(String prompt) throws Exception {
         String payload = """
                 {

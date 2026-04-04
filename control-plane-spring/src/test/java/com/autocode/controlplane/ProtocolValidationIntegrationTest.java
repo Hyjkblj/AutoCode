@@ -1,5 +1,6 @@
 package com.autocode.controlplane;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -8,6 +9,9 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -159,6 +163,97 @@ class ProtocolValidationIntegrationTest extends OperatorProj1MembershipFixture {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.ok").value(false))
                 .andExpect(jsonPath("$.error").value(org.hamcrest.Matchers.containsString("event.payload.requestId")));
+    }
+
+    @Test
+    void artifactReadyWithInvalidRunHintsTypeShouldReturn400() throws Exception {
+        String taskId = createTask("runtime metadata hints validation");
+
+        String badEvent = """
+                {
+                  "event": {
+                    "eventId": "evt-bad-artifact-run-1",
+                    "type": "ARTIFACT_READY",
+                    "assistant": "codex",
+                    "payload": {
+                      "artifact": {
+                        "artifactId": "art_run_1",
+                        "type": "zip",
+                        "run": {
+                          "command": "npm run start",
+                          "hints": "not-an-array"
+                        }
+                      }
+                    }
+                  }
+                }
+                """;
+
+        mockMvc.perform(post("/api/v1/agent/tasks/{taskId}/events", taskId)
+                        .header("X-Agent-Token", "agent-dev-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(badEvent))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.ok").value(false))
+                .andExpect(jsonPath("$.error").value(org.hamcrest.Matchers.containsString("event.payload.artifact.run.hints")));
+    }
+
+    @Test
+    void artifactReadyRuntimeMetadataShouldRoundTripViaTaskEvents() throws Exception {
+        String taskId = createTask("runtime metadata passthrough");
+
+        String okEvent = """
+                {
+                  "event": {
+                    "eventId": "evt-runtime-meta-ok-1",
+                    "type": "ARTIFACT_READY",
+                    "assistant": "codex",
+                    "payload": {
+                      "kind": "zip",
+                      "artifact": {
+                        "artifactId": "art_runtime_1",
+                        "type": "zip",
+                        "build": {
+                          "command": "npm run build",
+                          "workingDir": "D:/repoA/web"
+                        },
+                        "run": {
+                          "command": "npm run start",
+                          "hints": ["open /health", "watch logs"]
+                        }
+                      }
+                    }
+                  }
+                }
+                """;
+
+        mockMvc.perform(post("/api/v1/agent/tasks/{taskId}/events", taskId)
+                        .header("X-Agent-Token", "agent-dev-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(okEvent))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.ok").value(true));
+
+        String eventsResp = mockMvc.perform(get("/api/v1/tasks/{taskId}/events", taskId)
+                        .header("Authorization", "Bearer operator-dev-token"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        JsonNode payload = objectMapper.readTree(eventsResp).path("payload");
+        JsonNode runtimeMetaEvent = null;
+        for (JsonNode event : payload) {
+            if ("evt-runtime-meta-ok-1".equals(event.path("eventId").asText())) {
+                runtimeMetaEvent = event;
+                break;
+            }
+        }
+        assertNotNull(runtimeMetaEvent, "ARTIFACT_READY event should be returned by /events");
+        JsonNode artifact = runtimeMetaEvent.path("payload").path("artifact");
+        assertEquals("npm run build", artifact.path("build").path("command").asText());
+        assertEquals("D:/repoA/web", artifact.path("build").path("workingDir").asText());
+        assertEquals("npm run start", artifact.path("run").path("command").asText());
+        assertEquals("open /health", artifact.path("run").path("hints").path(0).asText());
+        assertEquals("watch logs", artifact.path("run").path("hints").path(1).asText());
     }
 
     private String createTask(String prompt) throws Exception {

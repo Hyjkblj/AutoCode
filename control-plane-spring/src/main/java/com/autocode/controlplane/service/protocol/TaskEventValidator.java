@@ -6,6 +6,7 @@ import com.autocode.protocol.validation.ArtifactMetadataContractValidator;
 import com.autocode.protocol.validation.ContractViolationException;
 import org.springframework.stereotype.Component;
 
+import java.util.List;
 import java.util.Map;
 
 @Component
@@ -97,6 +98,7 @@ public class TaskEventValidator {
         } catch (ContractViolationException ex) {
             throw new ProtocolValidationException(ex.getMessage());
         }
+        validateArtifactRuntimeMetadata(artifact, "event.payload." + key);
     }
 
     private static void validateOptionalArtifact(Map<String, Object> payload, String key) {
@@ -121,6 +123,53 @@ public class TaskEventValidator {
         requireString(ctx, "tool");
         requireString(ctx, "workspaceRef");
         requireString(ctx, "inputsHash");
+    }
+
+    @SuppressWarnings("unchecked")
+    private static void validateArtifactRuntimeMetadata(Map<String, Object> artifact, String fieldPrefix) {
+        Object build = artifact.get("build");
+        if (build != null) {
+            if (!(build instanceof Map<?, ?> buildMap)) {
+                throw new ProtocolValidationException(fieldPrefix + ".build must be an object");
+            }
+            validateOptionalString((Map<String, Object>) buildMap, "workingDir", fieldPrefix + ".build.workingDir");
+        }
+
+        Object run = artifact.get("run");
+        if (run != null) {
+            if (!(run instanceof Map<?, ?> runMap)) {
+                throw new ProtocolValidationException(fieldPrefix + ".run must be an object");
+            }
+            Map<String, Object> runDescriptor = (Map<String, Object>) runMap;
+            validateOptionalString(runDescriptor, "command", fieldPrefix + ".run.command");
+            validateOptionalStringArray(runDescriptor, "hints", fieldPrefix + ".run.hints");
+        }
+    }
+
+    private static void validateOptionalString(Map<String, Object> payload, String key, String fieldPath) {
+        Object value = payload.get(key);
+        if (value == null) {
+            return;
+        }
+        if (!(value instanceof String)) {
+            throw new ProtocolValidationException(fieldPath + " must be a string");
+        }
+    }
+
+    private static void validateOptionalStringArray(Map<String, Object> payload, String key, String fieldPath) {
+        Object value = payload.get(key);
+        if (value == null) {
+            return;
+        }
+        if (!(value instanceof List<?> values)) {
+            throw new ProtocolValidationException(fieldPath + " must be an array");
+        }
+        for (int i = 0; i < values.size(); i++) {
+            Object item = values.get(i);
+            if (!(item instanceof String s) || s.isBlank()) {
+                throw new ProtocolValidationException(fieldPath + "[" + i + "] must be a non-blank string");
+            }
+        }
     }
 }
 

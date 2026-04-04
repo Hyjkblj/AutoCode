@@ -34,15 +34,20 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.lang.reflect.Method;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.MessageDigest;
 import java.time.Instant;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HexFormat;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.TreeMap;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -50,6 +55,9 @@ public class TaskExecutor {
     private static final Logger log = LoggerFactory.getLogger(TaskExecutor.class);
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final String DEFAULT_RUNTIME_DESCRIPTOR_FILE = "service_runtime_descriptor.v1.json";
+    private static final String DEFAULT_DEPLOY_ACTION = "app.publish";
+    private static final String DEFAULT_DEPLOY_TOOL = "deploy.execute";
+    private static final String DEFAULT_DEPLOY_ARTIFACT_TYPE = "zip";
 
     private final AgentApiClient client;
     private final PromptCommandExtractor promptCommandExtractor;
@@ -234,15 +242,18 @@ public class TaskExecutor {
         }
 
         // M1/M2：可选将本地产物上传并上报 ARTIFACT_READY（路径须在工作区前缀白名单内）
-        maybePublishPostSuccessArtifacts(task, traceId, runId, cwd, command);
+        List<ArtifactMetadata> postSuccessArtifacts = maybePublishPostSuccessArtifacts(task, traceId, runId, cwd, command);
         maybePublishRuntimeDescriptor(task, traceId, runId, cwd, command);
+        if (maybeReportDeployExecution(task, traceId, runId, cwd, command, postSuccessArtifacts)) {
+            return;
+        }
 
         long totalMs = (System.nanoTime() - taskStartNs) / 1_000_000;
         log.info("Task {} done total {}ms traceId={} runId={}", task.getTaskId(), totalMs, traceId, runId);
         send(task, traceId, runId, EventType.TASK_DONE, Map.of("result", "success"));
     }
 
-    private void maybePublishPostSuccessArtifacts(
+    private List<ArtifactMetadata> maybePublishPostSuccessArtifacts(
             TaskSummary task,
             String traceId,
             String runId,
@@ -262,18 +273,23 @@ public class TaskExecutor {
             rawPaths.add(single.trim());
         }
         if (rawPaths.isEmpty()) {
-            return;
+            return List.of();
         }
+        ArrayList<ArtifactMetadata> uploaded = new ArrayList<>();
         for (String raw : rawPaths) {
             try {
-                publishOnePostSuccessArtifact(task, traceId, runId, cwd, command, raw);
+                ArtifactMetadata metadata = publishOnePostSuccessArtifact(task, traceId, runId, cwd, command, raw);
+                if (metadata != null) {
+                    uploaded.add(metadata);
+                }
             } catch (Exception ex) {
                 log.warn("post-success artifact upload skipped for {}: {}", raw, ex.getMessage());
             }
         }
+        return uploaded;
     }
 
-    private void publishOnePostSuccessArtifact(
+    private ArtifactMetadata publishOnePostSuccessArtifact(
             TaskSummary task,
             String traceId,
             String runId,
@@ -287,23 +303,23 @@ public class TaskExecutor {
             artifactPath = resolveArtifactPath(raw.trim(), cwdPath);
         } catch (SecurityException e) {
             log.warn("artifact path rejected: {}", e.getMessage());
-            return;
+            return null;
         }
         if (!Files.isRegularFile(artifactPath)) {
             log.warn("post-success artifact path is not a regular file: {}", artifactPath);
-            return;
+            return null;
         }
         String normalizedArtifact = WorkspacePrefixGuard.normalizePath(artifactPath.toString());
         if (!WorkspacePrefixGuard.isPathUnderAllowedPrefixes(
                 normalizedArtifact, config.getAllowedWorkspacePrefixes())) {
             log.warn("artifact path outside MVP_ALLOWED_WORKSPACE_PREFIXES: {}", artifactPath);
-            return;
+            return null;
         }
         long maxBytes = parseArtifactUploadMaxBytes();
         long sz = Files.size(artifactPath);
         if (sz > maxBytes) {
             log.warn("artifact too large ({} bytes > {} max): {}", sz, maxBytes, artifactPath);
-            return;
+            return null;
         }
         byte[] data = Files.readAllBytes(artifactPath);
         String filename = artifactPath.getFileName().toString();
@@ -318,6 +334,377 @@ public class TaskExecutor {
             kind = LocalArtifactMapper.inferArtifactType(filename);
         }
         send(task, traceId, runId, EventType.ARTIFACT_READY, ArtifactReadyPayloads.fromMetadata(meta, kind));
+        return meta;
+    }
+
+    /**
+     * Deploy flow for M4: optional approval gate -> DEPLOY_PLAN -> local execution -> DEPLOY_RESULT.
+     *
+     * @return true when the task flow should stop without sending TASK_DONE (for example: approval rejected/timeout).
+     */
+    private boolean maybeReportDeployExecution(
+            TaskSummary task,
+            String traceId,
+            String runId,
+            String cwd,
+            String command,
+            List<ArtifactMetadata> publishedArtifacts) throws IOException, InterruptedException {
+        Map<String, String> env = System.getenv();
+        if (!isDeployEnabled(env)) {
+            return false;
+        }
+
+        String requestId = firstNonBlank(
+                readOptionalEnv(env, "MVP_DEPLOY_REQUEST_ID"),
+                "dep_req_" + UUID.randomUUID().toString().replace("-", ""));
+        String environment = readOptionalEnv(env, "MVP_DEPLOY_ENVIRONMENT");
+        if (environment == null) {
+            log.warn("deploy reporting enabled but MVP_DEPLOY_ENVIRONMENT is missing");
+            return false;
+        }
+
+        ArtifactMetadata deployArtifact = resolveDeployArtifact(publishedArtifacts, env);
+        if (deployArtifact == null) {
+            log.warn("deploy reporting enabled but no deploy artifact is available");
+            return false;
+        }
+
+        Map<String, Object> deployContext = buildDeployContext(task, cwd, requestId, deployArtifact, env);
+        String deployCommand = firstNonBlank(
+                readOptionalEnv(env, "MVP_DEPLOY_COMMAND"),
+                readOptionalEnv(env, "MVP_DEPLOY_EXEC_COMMAND"),
+                command);
+        boolean gateRequired = isTruthyOrDefault(readOptionalEnv(env, "MVP_DEPLOY_REQUIRE_APPROVAL"), true);
+        if (gateRequired) {
+            String approvalId = "apr_" + UUID.randomUUID().toString().replace("-", "");
+            send(task, traceId, runId, EventType.APPROVAL_REQUIRED, buildDeployApprovalPayload(
+                    approvalId,
+                    deployCommand,
+                    cwd,
+                    deployContext,
+                    config.getApprovalTimeoutSeconds(),
+                    env));
+
+            long approvalStartNs = System.nanoTime();
+            ApprovalDecision decision = waitForApproval(task.getTaskId());
+            long approvalWaitMs = (System.nanoTime() - approvalStartNs) / 1_000_000;
+            send(task, traceId, runId, EventType.APPROVAL_RESULT, Map.of(
+                    "approvalId", approvalId,
+                    "decision", decision.name().toLowerCase(),
+                    "waitMs", approvalWaitMs
+            ));
+
+            if (decision == ApprovalDecision.REJECT || decision == ApprovalDecision.PENDING) {
+                String rejectedStatus = decision == ApprovalDecision.REJECT ? "rejected" : "canceled";
+                String reason = decision == ApprovalDecision.REJECT ? "deploy approval rejected" : "deploy approval timeout";
+                send(task, traceId, runId, EventType.DEPLOY_RESULT, buildDeployResultPayload(
+                        requestId,
+                        environment,
+                        rejectedStatus,
+                        reason,
+                        env,
+                        null,
+                        Instant.now(),
+                        Instant.now()
+                ));
+                return true;
+            }
+        }
+
+        send(task, traceId, runId, EventType.DEPLOY_PLAN, buildDeployPlanPayload(
+                requestId,
+                environment,
+                deployArtifact,
+                deployContext,
+                env
+        ));
+
+        Instant startedAt = Instant.now();
+        String status = "success";
+        String message = readOptionalEnv(env, "MVP_DEPLOY_SUCCESS_MESSAGE");
+        ArtifactMetadata resultArtifact = resolveDeployResultArtifact(env);
+        if (deployCommand != null) {
+            Duration timeout = Duration.ofSeconds(parseLongOrDefault(readOptionalEnv(env, "MVP_DEPLOY_TIMEOUT_SECONDS"), 180L));
+            var deployExec = commandRunner.run(deployCommand, timeout, cwd);
+            if (deployExec.isTimedOut()) {
+                status = "failed";
+                message = firstNonBlank(message, "deploy command timed out");
+            } else if (deployExec.getExitCode() != 0) {
+                status = "failed";
+                message = firstNonBlank(
+                        message,
+                        "deploy command exitCode=" + deployExec.getExitCode());
+            } else {
+                message = firstNonBlank(message, "deployment completed");
+            }
+        } else {
+            message = firstNonBlank(message, "deployment reported without local execution command");
+        }
+        Instant finishedAt = Instant.now();
+        send(task, traceId, runId, EventType.DEPLOY_RESULT, buildDeployResultPayload(
+                requestId,
+                environment,
+                status,
+                message,
+                env,
+                resultArtifact,
+                startedAt,
+                finishedAt
+        ));
+
+        if ("failed".equalsIgnoreCase(status)
+                && isTruthyOrDefault(readOptionalEnv(env, "MVP_DEPLOY_FAIL_TASK_ON_FAILED_RESULT"), true)) {
+            return true;
+        }
+        return false;
+    }
+
+    static boolean isDeployEnabled(Map<String, String> env) {
+        String flag = readOptionalEnv(env, "MVP_DEPLOY_ENABLED");
+        if (flag != null) {
+            return isTruthy(flag);
+        }
+        return readOptionalEnv(env, "MVP_DEPLOY_ENVIRONMENT") != null;
+    }
+
+    private static ArtifactMetadata resolveDeployArtifact(List<ArtifactMetadata> publishedArtifacts, Map<String, String> env) {
+        String artifactId = readOptionalEnv(env, "MVP_DEPLOY_ARTIFACT_ID");
+        if (artifactId != null) {
+            ArtifactMetadata metadata = new ArtifactMetadata();
+            metadata.setArtifactId(artifactId);
+            metadata.setType(firstNonBlank(
+                    readOptionalEnv(env, "MVP_DEPLOY_ARTIFACT_TYPE"),
+                    DEFAULT_DEPLOY_ARTIFACT_TYPE));
+            metadata.setName(readOptionalEnv(env, "MVP_DEPLOY_ARTIFACT_NAME"));
+            metadata.setMime(readOptionalEnv(env, "MVP_DEPLOY_ARTIFACT_MIME"));
+            metadata.setHash(readOptionalEnv(env, "MVP_DEPLOY_ARTIFACT_HASH"));
+            metadata.setDownloadUrl(readOptionalEnv(env, "MVP_DEPLOY_ARTIFACT_DOWNLOAD_URL"));
+            metadata.setEntryPath(readOptionalEnv(env, "MVP_DEPLOY_ARTIFACT_ENTRY_PATH"));
+            Long size = parsePositiveLong(readOptionalEnv(env, "MVP_DEPLOY_ARTIFACT_SIZE"));
+            if (size != null) {
+                metadata.setSize(size);
+            }
+            return metadata;
+        }
+        if (publishedArtifacts == null || publishedArtifacts.isEmpty()) {
+            return null;
+        }
+        for (ArtifactMetadata artifact : publishedArtifacts) {
+            if (artifact != null
+                    && trimToNull(artifact.getArtifactId()) != null
+                    && trimToNull(artifact.getType()) != null) {
+                return artifact;
+            }
+        }
+        return null;
+    }
+
+    private static ArtifactMetadata resolveDeployResultArtifact(Map<String, String> env) {
+        String artifactId = readOptionalEnv(env, "MVP_DEPLOY_RESULT_ARTIFACT_ID");
+        if (artifactId == null) {
+            return null;
+        }
+        ArtifactMetadata metadata = new ArtifactMetadata();
+        metadata.setArtifactId(artifactId);
+        metadata.setType(firstNonBlank(
+                readOptionalEnv(env, "MVP_DEPLOY_RESULT_ARTIFACT_TYPE"),
+                "deploy_report"));
+        metadata.setName(readOptionalEnv(env, "MVP_DEPLOY_RESULT_ARTIFACT_NAME"));
+        metadata.setMime(readOptionalEnv(env, "MVP_DEPLOY_RESULT_ARTIFACT_MIME"));
+        metadata.setHash(readOptionalEnv(env, "MVP_DEPLOY_RESULT_ARTIFACT_HASH"));
+        metadata.setDownloadUrl(readOptionalEnv(env, "MVP_DEPLOY_RESULT_ARTIFACT_DOWNLOAD_URL"));
+        metadata.setEntryPath(readOptionalEnv(env, "MVP_DEPLOY_RESULT_ARTIFACT_ENTRY_PATH"));
+        Long size = parsePositiveLong(readOptionalEnv(env, "MVP_DEPLOY_RESULT_ARTIFACT_SIZE"));
+        if (size != null) {
+            metadata.setSize(size);
+        }
+        return metadata;
+    }
+
+    static Map<String, Object> buildDeployContext(
+            TaskSummary task,
+            String cwd,
+            String requestId,
+            ArtifactMetadata artifact,
+            Map<String, String> env) {
+        String action = firstNonBlank(readOptionalEnv(env, "MVP_DEPLOY_ACTION"), DEFAULT_DEPLOY_ACTION);
+        String tool = firstNonBlank(readOptionalEnv(env, "MVP_DEPLOY_TOOL"), DEFAULT_DEPLOY_TOOL);
+        String workspaceRef = firstNonBlank(readOptionalEnv(env, "MVP_DEPLOY_WORKSPACE_REF"), cwd);
+        String artifactId = artifact == null ? "" : firstNonBlank(artifact.getArtifactId(), "");
+        String inputsHash = firstNonBlank(
+                readOptionalEnv(env, "MVP_DEPLOY_INPUTS_HASH"),
+                buildDeployInputsHash(task, requestId, workspaceRef, artifactId));
+
+        HashMap<String, Object> context = new HashMap<>();
+        context.put("action", action);
+        context.put("tool", tool);
+        context.put("workspaceRef", workspaceRef);
+        context.put("inputsHash", inputsHash);
+        return context;
+    }
+
+    static Map<String, Object> buildDeployApprovalPayload(
+            String approvalId,
+            String deployCommand,
+            String cwd,
+            Map<String, Object> context,
+            long approvalTimeoutSeconds,
+            Map<String, String> env) {
+        HashMap<String, Object> payload = new HashMap<>();
+        payload.put("approvalId", approvalId);
+        payload.put("action", context.get("action"));
+        payload.put("tool", context.get("tool"));
+        payload.put("command", firstNonBlank(deployCommand, "deploy --dry-run"));
+        payload.put("cwd", cwd);
+        payload.put("approvalTimeoutSeconds", (int) Math.min(Integer.MAX_VALUE, approvalTimeoutSeconds));
+        payload.put("riskScore", parseDoubleOrDefault(readOptionalEnv(env, "MVP_DEPLOY_APPROVAL_RISK_SCORE"), 0.95d));
+        payload.put("reason", firstNonBlank(readOptionalEnv(env, "MVP_DEPLOY_APPROVAL_REASON"), "deploy_gate"));
+        payload.put("context", context);
+        return payload;
+    }
+
+    static Map<String, Object> buildDeployPlanPayload(
+            String requestId,
+            String environment,
+            ArtifactMetadata artifact,
+            Map<String, Object> context,
+            Map<String, String> env) {
+        HashMap<String, Object> payload = new HashMap<>();
+        payload.put("requestId", requestId);
+        payload.put("environment", environment);
+        payload.put("artifact", toArtifactPayload(artifact));
+        putIfNotBlank(payload, "strategy", readOptionalEnv(env, "MVP_DEPLOY_STRATEGY"));
+        putIfNotBlank(payload, "triggeredBy", readOptionalEnv(env, "MVP_DEPLOY_TRIGGERED_BY"));
+        if (context != null && !context.isEmpty()) {
+            payload.put("context", context);
+        }
+        String provider = readOptionalEnv(env, "MVP_DEPLOY_OPTION_PROVIDER");
+        String project = readOptionalEnv(env, "MVP_DEPLOY_OPTION_PROJECT");
+        if (provider != null || project != null) {
+            HashMap<String, Object> options = new HashMap<>();
+            putIfNotBlank(options, "provider", provider);
+            putIfNotBlank(options, "project", project);
+            if (!options.isEmpty()) {
+                payload.put("options", options);
+            }
+        }
+        return payload;
+    }
+
+    static Map<String, Object> buildDeployResultPayload(
+            String requestId,
+            String environment,
+            String status,
+            String message,
+            Map<String, String> env,
+            ArtifactMetadata resultArtifact,
+            Instant startedAt,
+            Instant finishedAt) {
+        HashMap<String, Object> payload = new HashMap<>();
+        payload.put("requestId", requestId);
+        payload.put("status", status);
+        putIfNotBlank(payload, "environment", environment);
+        putIfNotBlank(payload, "message", message);
+        putIfNotBlank(payload, "deploymentId", firstNonBlank(
+                readOptionalEnv(env, "MVP_DEPLOY_DEPLOYMENT_ID"),
+                "dep_" + UUID.randomUUID().toString().replace("-", "")));
+        putIfNotBlank(payload, "endpointUrl", readOptionalEnv(env, "MVP_DEPLOY_ENDPOINT_URL"));
+        if (startedAt != null) {
+            payload.put("startedAt", startedAt.toString());
+        }
+        if (finishedAt != null) {
+            payload.put("finishedAt", finishedAt.toString());
+        }
+        if (resultArtifact != null) {
+            payload.put("resultArtifact", toArtifactPayload(resultArtifact));
+        }
+        return payload;
+    }
+
+    private static Map<String, Object> toArtifactPayload(ArtifactMetadata metadata) {
+        Map<String, Object> payload = ArtifactReadyPayloads.fromMetadata(metadata);
+        Object artifact = payload.get("artifact");
+        if (artifact instanceof Map<?, ?> map) {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> cast = (Map<String, Object>) map;
+            return cast;
+        }
+        throw new IllegalArgumentException("artifact payload conversion failed");
+    }
+
+    private static String buildDeployInputsHash(
+            TaskSummary task,
+            String requestId,
+            String workspaceRef,
+            String artifactId) {
+        TreeMap<String, String> normalized = new TreeMap<>();
+        normalized.put("taskId", nz(task == null ? null : task.getTaskId()));
+        normalized.put("projectId", nz(task == null ? null : task.getProjectId()));
+        normalized.put("requestId", nz(requestId));
+        normalized.put("workspaceRef", nz(workspaceRef));
+        normalized.put("artifactId", nz(artifactId));
+        normalized.put("prompt", nz(task == null ? null : task.getPrompt()));
+        try {
+            byte[] json = JSON.writeValueAsString(normalized).getBytes(StandardCharsets.UTF_8);
+            byte[] digest = MessageDigest.getInstance("SHA-256").digest(json);
+            return "sha256:" + HexFormat.of().formatHex(digest);
+        } catch (Exception ex) {
+            throw new IllegalStateException("deployInputsHash", ex);
+        }
+    }
+
+    private static String nz(String value) {
+        return value == null ? "" : value;
+    }
+
+    private static void putIfNotBlank(Map<String, Object> target, String key, String value) {
+        String normalized = trimToNull(value);
+        if (normalized != null) {
+            target.put(key, normalized);
+        }
+    }
+
+    private static Long parsePositiveLong(String raw) {
+        if (raw == null) {
+            return null;
+        }
+        try {
+            long value = Long.parseLong(raw.trim());
+            return value > 0 ? value : null;
+        } catch (NumberFormatException ex) {
+            return null;
+        }
+    }
+
+    private static long parseLongOrDefault(String raw, long fallback) {
+        if (raw == null) {
+            return fallback;
+        }
+        try {
+            long value = Long.parseLong(raw.trim());
+            return value > 0 ? value : fallback;
+        } catch (NumberFormatException ex) {
+            return fallback;
+        }
+    }
+
+    private static double parseDoubleOrDefault(String raw, double fallback) {
+        if (raw == null) {
+            return fallback;
+        }
+        try {
+            double value = Double.parseDouble(raw.trim());
+            return value >= 0 ? value : fallback;
+        } catch (NumberFormatException ex) {
+            return fallback;
+        }
+    }
+
+    private static boolean isTruthyOrDefault(String raw, boolean fallback) {
+        if (raw == null) {
+            return fallback;
+        }
+        return isTruthy(raw);
     }
 
     private void maybePublishRuntimeDescriptor(

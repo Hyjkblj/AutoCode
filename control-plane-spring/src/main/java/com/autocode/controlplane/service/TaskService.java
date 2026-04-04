@@ -555,27 +555,15 @@ public class TaskService {
                 }
             }
         } else if (event.getType() == EventType.DEPLOY_PLAN) {
-            if (task.getApprovalId() != null && !task.getApprovalId().isBlank()) {
-                ApprovalEntity approval = approvalRepository.findById(task.getApprovalId()).orElse(null);
-                if (approval != null) {
-                    Map<String, Object> expected = readPayload(approval.getApprovalContextJson());
-                    Map<String, Object> actual = buildApprovalContext(event.getPayload());
-                    if (!expected.isEmpty() && !isApprovalContextEqualForDeployPlan(expected, actual)) {
-                        markFailed(task);
-                        event.getPayload().put("approvalContextMismatch", true);
-                        event.getPayload().put("expectedApprovalContext", expected);
-                        event.getPayload().put("actualApprovalContext", actual);
-                        auditService.log(task.getTaskId(), "control-plane", "deploy.authz.denied", Map.of(
-                                "reason", "approval_context_mismatch",
-                                "requestId", asNonBlankString(event.getPayload().get("requestId"), "")
-                        ));
-                        return;
-                    }
-                }
+            if (!authorizeDeployEvent(task, event, true)) {
+                return;
             }
             task.setStatus(TaskStatus.RUNNING);
             auditService.log(task.getTaskId(), "agent", "deploy.plan", deployPlanAuditDetails(event.getPayload()));
         } else if (event.getType() == EventType.DEPLOY_RESULT) {
+            if (!authorizeDeployEvent(task, event, false)) {
+                return;
+            }
             applyDeployResultStatus(task, event.getPayload());
             auditService.log(task.getTaskId(), "agent", "deploy.result", deployResultAuditDetails(event.getPayload()));
         } else if (event.getType() == EventType.TASK_DONE) {
@@ -650,6 +638,52 @@ public class TaskService {
                 && contextFieldMatches(expected, actual, "inputsHash", true);
     }
 
+    /**
+     * Deploy events are privileged actions. If a task has an approvalId bound, deploy plan/result
+     * must only be accepted after explicit APPROVE, and deploy plan must match approved context.
+     */
+    private boolean authorizeDeployEvent(TaskEntity task, TaskEvent event, boolean validateContext) {
+        if (task.getApprovalId() == null || task.getApprovalId().isBlank()) {
+            return true;
+        }
+        ApprovalEntity approval = approvalRepository.findById(task.getApprovalId()).orElse(null);
+        if (approval == null) {
+            denyDeploy(task, event, "approval_missing", null);
+            markFailed(task);
+            return false;
+        }
+
+        ApprovalDecision decision = approval.getDecision();
+        if (decision != ApprovalDecision.APPROVE) {
+            String decisionText = decision == null ? "pending" : decision.name().toLowerCase(Locale.ROOT);
+            denyDeploy(task, event, "approval_not_approved", decisionText);
+            return false;
+        }
+
+        if (validateContext) {
+            Map<String, Object> expected = readPayload(approval.getApprovalContextJson());
+            Map<String, Object> actual = buildApprovalContext(event.getPayload());
+            if (!expected.isEmpty() && !isApprovalContextEqualForDeployPlan(expected, actual)) {
+                event.getPayload().put("approvalContextMismatch", true);
+                event.getPayload().put("expectedApprovalContext", expected);
+                event.getPayload().put("actualApprovalContext", actual);
+                denyDeploy(task, event, "approval_context_mismatch", "approve");
+                markFailed(task);
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private void denyDeploy(TaskEntity task, TaskEvent event, String reason, String approvalDecision) {
+        Map<String, Object> details = new HashMap<>();
+        details.put("reason", reason);
+        String requestId = asNonBlankString(event.getPayload().get("requestId"), null);
+        putIfPresent(details, "requestId", requestId);
+        putIfPresent(details, "approvalDecision", approvalDecision);
+        auditService.log(task.getTaskId(), "control-plane", "deploy.authz.denied", details);
+    }
+
     private boolean contextFieldMatches(
             Map<String, Object> expected,
             Map<String, Object> actual,
@@ -698,6 +732,9 @@ public class TaskService {
     }
 
     private void applyDeployResultStatus(TaskEntity task, Map<String, Object> payload) {
+        if (isTerminalStatus(task.getStatus())) {
+            return;
+        }
         String status = asNonBlankString(payload == null ? null : payload.get("status"), "")
                 .toLowerCase(Locale.ROOT);
         switch (status) {
@@ -709,6 +746,10 @@ public class TaskService {
                 // Keep existing status for unknown values to avoid accidental regressions.
             }
         }
+    }
+
+    private boolean isTerminalStatus(TaskStatus status) {
+        return status == TaskStatus.DONE || status == TaskStatus.FAILED || status == TaskStatus.CANCELED;
     }
 
     private void markFailed(TaskEntity task) {

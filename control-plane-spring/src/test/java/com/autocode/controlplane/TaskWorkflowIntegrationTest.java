@@ -438,6 +438,184 @@ class TaskWorkflowIntegrationTest extends OperatorProj1MembershipFixture {
     }
 
     @Test
+    void deployPlanShouldBeDeniedBeforeApprovalDecision() throws Exception {
+        String createResponse = createTask("Deploy pending approval");
+        String taskId = objectMapper.readTree(createResponse).path("payload").path("taskId").asText();
+
+        String approvalRequiredEvent = """
+                {
+                  "event": {
+                    "eventId": "evt-approval-required-deploy-pending-1",
+                    "type": "APPROVAL_REQUIRED",
+                    "assistant": "codex",
+                    "payload": {
+                      "approvalId": "apr-deploy-pending-1",
+                      "action": "app.generate",
+                      "tool": "deploy.execute",
+                      "command": "deploy --env staging",
+                      "cwd": "D:/repoA",
+                      "context": {
+                        "action": "app.generate",
+                        "tool": "deploy.execute",
+                        "workspaceRef": "workspace://proj-1",
+                        "inputsHash": "ih_deploy_pending_1"
+                      }
+                    }
+                  }
+                }
+                """;
+        mockMvc.perform(post("/api/v1/agent/tasks/{taskId}/events", taskId)
+                        .header("X-Agent-Token", "agent-dev-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(approvalRequiredEvent))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.payload.status").value("WAITING_APPROVAL"));
+
+        String deployPlanEvent = """
+                {
+                  "event": {
+                    "eventId": "evt-deploy-plan-pending-1",
+                    "type": "DEPLOY_PLAN",
+                    "assistant": "codex",
+                    "payload": {
+                      "requestId": "dep_req_pending_1",
+                      "environment": "staging",
+                      "artifact": {
+                        "artifactId": "art_deploy_pending_1",
+                        "type": "zip"
+                      },
+                      "context": {
+                        "action": "app.generate",
+                        "tool": "deploy.execute",
+                        "workspaceRef": "workspace://proj-1",
+                        "inputsHash": "ih_deploy_pending_1"
+                      }
+                    }
+                  }
+                }
+                """;
+
+        mockMvc.perform(post("/api/v1/agent/tasks/{taskId}/events", taskId)
+                        .header("X-Agent-Token", "agent-dev-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(deployPlanEvent))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.payload.status").value("WAITING_APPROVAL"));
+
+        String auditResponse = mockMvc.perform(get("/api/v1/audits/export")
+                        .param("taskId", taskId)
+                        .header("Authorization", "Bearer operator-dev-token"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        JsonNode items = objectMapper.readTree(auditResponse).path("payload").path("items");
+        boolean hasDenied = false;
+        for (JsonNode item : items) {
+            if (!"deploy.authz.denied".equals(item.path("action").asText())) {
+                continue;
+            }
+            JsonNode details = objectMapper.readTree(item.path("detailsJson").asText("{}"));
+            if ("approval_not_approved".equals(details.path("reason").asText())) {
+                hasDenied = true;
+                assertEquals("pending", details.path("approvalDecision").asText());
+                assertEquals("dep_req_pending_1", details.path("requestId").asText());
+            }
+        }
+        assertTrue(hasDenied, "deploy.authz.denied audit should be recorded when approval is pending");
+    }
+
+    @Test
+    void deployResultShouldNotOverrideCanceledStatusAfterReject() throws Exception {
+        String createResponse = createTask("Deploy reject gate");
+        String taskId = objectMapper.readTree(createResponse).path("payload").path("taskId").asText();
+
+        String approvalRequiredEvent = """
+                {
+                  "event": {
+                    "eventId": "evt-approval-required-deploy-reject-1",
+                    "type": "APPROVAL_REQUIRED",
+                    "assistant": "codex",
+                    "payload": {
+                      "approvalId": "apr-deploy-reject-1",
+                      "action": "app.generate",
+                      "tool": "deploy.execute",
+                      "command": "deploy --env staging",
+                      "cwd": "D:/repoA",
+                      "context": {
+                        "action": "app.generate",
+                        "tool": "deploy.execute",
+                        "workspaceRef": "workspace://proj-1",
+                        "inputsHash": "ih_deploy_reject_1"
+                      }
+                    }
+                  }
+                }
+                """;
+        mockMvc.perform(post("/api/v1/agent/tasks/{taskId}/events", taskId)
+                        .header("X-Agent-Token", "agent-dev-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(approvalRequiredEvent))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.payload.status").value("WAITING_APPROVAL"));
+
+        String rejectBody = """
+                {
+                  "approvalId": "apr-deploy-reject-1",
+                  "decision": "reject",
+                  "comment": "rejected in integration test"
+                }
+                """;
+        mockMvc.perform(post("/api/v1/tasks/{taskId}/approval", taskId)
+                        .header("Authorization", "Bearer operator-dev-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(rejectBody))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.payload.status").value("CANCELED"));
+
+        String deployResultEvent = """
+                {
+                  "event": {
+                    "eventId": "evt-deploy-result-reject-1",
+                    "type": "DEPLOY_RESULT",
+                    "assistant": "codex",
+                    "payload": {
+                      "requestId": "dep_req_reject_1",
+                      "status": "success",
+                      "environment": "staging"
+                    }
+                  }
+                }
+                """;
+        mockMvc.perform(post("/api/v1/agent/tasks/{taskId}/events", taskId)
+                        .header("X-Agent-Token", "agent-dev-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(deployResultEvent))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.payload.status").value("CANCELED"));
+
+        String auditResponse = mockMvc.perform(get("/api/v1/audits/export")
+                        .param("taskId", taskId)
+                        .header("Authorization", "Bearer operator-dev-token"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        JsonNode items = objectMapper.readTree(auditResponse).path("payload").path("items");
+        boolean hasDenied = false;
+        for (JsonNode item : items) {
+            if (!"deploy.authz.denied".equals(item.path("action").asText())) {
+                continue;
+            }
+            JsonNode details = objectMapper.readTree(item.path("detailsJson").asText("{}"));
+            if ("approval_not_approved".equals(details.path("reason").asText())) {
+                hasDenied = true;
+                assertEquals("reject", details.path("approvalDecision").asText());
+                assertEquals("dep_req_reject_1", details.path("requestId").asText());
+            }
+        }
+        assertTrue(hasDenied, "deploy.authz.denied audit should be recorded when approval is rejected");
+    }
+
+    @Test
     void deployPlanAndResultShouldAdvanceStateAndWriteAudit() throws Exception {
         String createResponse = createTask("Deploy flow");
         String taskId = objectMapper.readTree(createResponse).path("payload").path("taskId").asText();

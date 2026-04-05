@@ -9,6 +9,9 @@ import com.autocode.agent.client.ArtifactReadyPayloads;
 import com.autocode.agent.config.AgentConfig;
 import com.autocode.agent.runtime.exec.CommandRunner;
 import com.autocode.agent.runtime.git.GitDiffCollector;
+import com.autocode.agent.runtime.intent.IntentRouter;
+import com.autocode.agent.runtime.intent.RoutedIntent;
+import com.autocode.agent.runtime.intent.RuleBasedIntentRouter;
 import com.autocode.agent.runtime.tool.Tool;
 import com.autocode.agent.runtime.tool.ToolCall;
 import com.autocode.agent.runtime.tool.ToolContext;
@@ -17,7 +20,6 @@ import com.autocode.agent.runtime.tool.ToolRegistry;
 import com.autocode.agent.runtime.tool.impl.CommandExecTool;
 import com.autocode.agent.security.CommandSafetyPolicy;
 import com.autocode.agent.security.WorkspacePrefixGuard;
-import com.autocode.agent.security.PromptCommandExtractor;
 import com.autocode.agent.security.policy.CompositeToolInvocationPolicy;
 import com.autocode.agent.security.policy.PolicyDecision;
 import com.autocode.agent.security.policy.WorkspaceAllowlistPolicy;
@@ -60,8 +62,8 @@ public class TaskExecutor {
     private static final String DEFAULT_DEPLOY_ARTIFACT_TYPE = "zip";
 
     private final AgentApiClient client;
-    private final PromptCommandExtractor promptCommandExtractor;
     private volatile AgentConfig config;
+    private volatile IntentRouter intentRouter;
     private final CommandRunner commandRunner;
     private final GitDiffCollector gitDiffCollector;
     private final ToolRegistry toolRegistry;
@@ -71,7 +73,6 @@ public class TaskExecutor {
     public TaskExecutor(AgentApiClient client, AgentConfig config) {
         this.client = client;
         this.config = config;
-        this.promptCommandExtractor = new PromptCommandExtractor();
         this.commandRunner = new CommandRunner();
         this.gitDiffCollector = new GitDiffCollector(this.commandRunner);
         this.toolRegistry = new ToolRegistry();
@@ -92,6 +93,7 @@ public class TaskExecutor {
                 .register(new CommandExecTool(
                         new CommandSafetyPolicy(config.getAllowedCommandPrefixes(), config.isNetworkAllowed()),
                         this.commandRunner));
+        this.intentRouter = new RuleBasedIntentRouter(config.getIntentRules(), config.getAgentProfile());
         this.invocationPolicy = CompositeToolInvocationPolicy.builder()
                 .add(new WorkspaceAllowlistPolicy(config.getAllowedWorkspacePrefixes()))
                 .build();
@@ -105,22 +107,25 @@ public class TaskExecutor {
         String runId = "run_" + UUID.randomUUID().toString().replace("-", "");
         long taskStartNs = System.nanoTime();
 
-        String command = promptCommandExtractor.extractCommand(task.getPrompt());
+        RoutedIntent intent = intentRouter.route(task);
+        String command = intent.command();
         String workspacePath = readWorkspacePathCompat(task);
         String cwd = (workspacePath == null || workspacePath.isBlank())
                 ? System.getProperty("user.dir", "")
                 : workspacePath;
-        ToolCall call = new ToolCall(
-                "command.exec",
-                "run_command",
-                Map.of(
-                        "command", command,
-                        "prompt", task.getPrompt()
-                )
-        );
+        ToolCall call = new ToolCall(intent.tool(), intent.action(), intent.toToolArgs(task.getPrompt()));
         String approvalIdForExec = null;
 
-        Tool tool = toolRegistry.getRequired(call.getTool());
+        Tool tool;
+        try {
+            tool = toolRegistry.getRequired(call.getTool());
+        } catch (IllegalArgumentException unknownTool) {
+            log.warn("Task {} routed to unknown tool {}, fallback to command.exec", task.getTaskId(), call.getTool());
+            intent = RoutedIntent.fallback(command);
+            command = intent.command();
+            call = new ToolCall(intent.tool(), intent.action(), intent.toToolArgs(task.getPrompt()));
+            tool = toolRegistry.getRequired(call.getTool());
+        }
         ToolContext preCtx = new ToolContext(task, cwd, null, config.getApprovalTimeoutSeconds());
         PolicyDecision policyDecision = invocationPolicy.evaluate(call, preCtx);
         if (!policyDecision.isAllowed()) {
@@ -141,10 +146,12 @@ public class TaskExecutor {
             return;
         }
 
-        send(task, traceId, runId, EventType.ASSISTANT_OUTPUT, Map.of(
-                "message", "Task accepted by node, preparing execution.",
-                "command", command
-        ));
+        HashMap<String, Object> assistantOutput = new HashMap<>();
+        assistantOutput.put("message", "Task accepted by node, preparing execution.");
+        assistantOutput.put("command", command);
+        assistantOutput.put("intentSkill", intent.skill());
+        assistantOutput.put("intentRoute", intent.routeSource());
+        send(task, traceId, runId, EventType.ASSISTANT_OUTPUT, assistantOutput);
 
         if (tool.policy().requiresApproval(call)) {
             String approvalId = "apr_" + UUID.randomUUID().toString().replace("-", "");
@@ -179,6 +186,8 @@ public class TaskExecutor {
         toolStart.put("command", command);
         toolStart.put("cwd", cwd);
         toolStart.put("action", call.getAction());
+        toolStart.put("intentSkill", intent.skill());
+        toolStart.put("intentRoute", intent.routeSource());
         if (approvalIdForExec != null) {
             toolStart.put("approvalId", approvalIdForExec);
         }

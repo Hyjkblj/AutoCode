@@ -3,6 +3,7 @@
  */
 package com.autocode.controlplane;
 
+import com.autocode.controlplane.persistence.repo.ProjectMembershipEntityRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -27,6 +28,9 @@ class TaskControllerIntegrationTest extends OperatorProj1MembershipFixture {
 
     @Autowired
     private ObjectMapper objectMapper;
+
+    @Autowired
+    private ProjectMembershipEntityRepository membershipRepository;
 
     @Test
     void createTaskRequiresOperatorToken() throws Exception {
@@ -183,6 +187,48 @@ class TaskControllerIntegrationTest extends OperatorProj1MembershipFixture {
                 .andExpect(jsonPath("$.payload.workspacePath").value("D:/repoA"))
                 .andExpect(jsonPath("$.payload.agentProfile").value("reviewer"))
                 .andExpect(jsonPath("$.payload.sessionKey").value("lane-alpha"));
+    }
+
+    @Test
+    void taskScopedEndpointsShouldReturn404ForNonMember() throws Exception {
+        String createResponse = createTask("non-member 404 semantics");
+        String taskId = objectMapper.readTree(createResponse).path("payload").path("taskId").asText();
+
+        // Remove project membership; task-scoped APIs must become non-enumerable.
+        membershipRepository.deleteAll();
+
+        mockMvc.perform(get("/api/v1/tasks/{taskId}", taskId)
+                        .header("Authorization", "Bearer op-a"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.ok").value(false))
+                .andExpect(jsonPath("$.error").value("not found"));
+
+        mockMvc.perform(get("/api/v1/tasks/{taskId}/events", taskId)
+                        .header("Authorization", "Bearer op-a"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.ok").value(false))
+                .andExpect(jsonPath("$.error").value("not found"));
+
+        String approvalPayload = """
+                {
+                  "approvalId": "apr_non_member_1",
+                  "decision": "approve",
+                  "comment": "should not be reachable"
+                }
+                """;
+        mockMvc.perform(post("/api/v1/tasks/{taskId}/approval", taskId)
+                        .header("Authorization", "Bearer op-a")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(approvalPayload))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.ok").value(false))
+                .andExpect(jsonPath("$.error").value("not found"));
+
+        mockMvc.perform(post("/api/v1/tasks/{taskId}/cancel", taskId)
+                        .header("Authorization", "Bearer op-a"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.ok").value(false))
+                .andExpect(jsonPath("$.error").value("not found"));
     }
 
     private String createTask(String prompt) throws Exception {

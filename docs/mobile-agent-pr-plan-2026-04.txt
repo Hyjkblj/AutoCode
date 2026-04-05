@@ -1,0 +1,380 @@
+移动端 Agent 对接升级规划
+日期：2026-04-05
+负责人：Agent-4（Mobile Visual App Agent）
+worktree：D:/Develop/Project/AutoCode-a4
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+一、当前移动端完成度基线
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+已完成（M5 PR1~PR3，已合入 origin/master）
+- 登录/会话：JWT + 离线模拟双模式，DataStore 持久化
+- 项目选择：硬编码 proj-1/2/3，可切换
+- 任务创建/列表：HTTP 创建 + 本地模拟双路径
+- 任务进度：HTTP 轮询（每 2.5s），本地模拟 ticker
+- 产物列表/详情/文本预览：调用控制平面 artifacts API
+- 发布入口：本地记录版本历史（占位，无真实 API）
+
+明确缺失（下一阶段必须补齐）
+- WebSocket 实时事件流（ASSISTANT_OUTPUT / TOOL_START / TOOL_END / FILE_PATCH_PREVIEW）
+- 审批交互卡片（APPROVAL_REQUIRED → 用户批准/拒绝 → APPROVAL_RESULT）
+- 语音输入（SpeechRecognizer）
+- 断线续流（lastSeq 增量补流）
+- 项目列表从控制平面动态拉取
+- 发布流程真实 API 对接
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+二、统一隔离规则（Agent-4 必须遵守）
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+允许修改路径（白名单）
+- mobile-app/**
+
+禁止修改路径
+- control-plane-spring/**
+- shared-protocol/**
+- pc-agent-java/**
+- python-agent/**
+- docs/**
+- scripts/**
+- pom.xml（仓库根）
+
+如移动端依赖控制平面新增 API，必须拆成 Agent-1 的 PR 先合入，再由 Agent-4 消费。
+
+提交规范
+- git status --short 必须干净
+- git add <白名单内文件>（禁止 git add .）
+- git commit -m "feat(mobile): <summary>"
+- 禁止提交 build/ .gradle/ *.apk 等构建产物
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+三、PR 规划
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+合并顺序：MOB-01 → MOB-02 → MOB-03 → MOB-04 → MOB-05 → MOB-06
+MOB-01 和 MOB-02 可并行开发（无互相依赖）。
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+MOB-01：WebSocket 实时事件流  [TODO]
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+负责人：Agent-4
+优先级：P0（AI Agent 接入后最核心的展示层）
+分支建议：feat/a4-mob-websocket-events
+依赖：无（控制平面 WebSocket 已就绪）
+
+目标
+- 替换当前 HTTP 轮询（每 2.5s），改为 WebSocket 订阅实时事件流。
+- 用户在任务详情页能实时看到 AI Agent 的每一步工作过程。
+- 断线后自动重连，并通过 lastSeq 补回断线期间的事件。
+
+技术方案
+- 使用 OkHttp WebSocket（已在 build.gradle.kts 中引入）。
+- 连接地址：ws://{baseUrl}/ws（STOMP over WebSocket）。
+- 订阅 topic：/topic/tasks/{taskId}。
+- 首次连接时携带 lastSeq=0，断线重连时携带最后收到的 seq。
+- 补流接口：GET /api/v1/tasks/{taskId}/events?lastSeq={n}（HTTP 拉取历史）。
+
+新增/变更内容
+- network/WebSocketClient.kt（新增）
+  - connect(taskId, lastSeq, onEvent, onDisconnect)
+  - disconnect()
+  - 自动重连（指数退避，最大 30s）
+- network/EventDto.kt（新增）
+  - eventId, taskId, type, payload, seq, timestamp
+- AppViewModel.kt（变更）
+  - 新增 subscribeTaskEvents(taskId)
+  - 新增 unsubscribeTaskEvents()
+  - 移除 startRemotePolling() 中的状态轮询（保留任务列表轮询）
+- AppUi.kt（变更）
+  - TaskDetailTab：进入页面时订阅，离开时取消订阅
+  - 事件流展示区：按 seq 顺序渲染每条事件
+
+事件类型展示规则
+- TASK_STARTED       → "任务已开始"
+- ASSISTANT_OUTPUT   → 显示 payload.message（AI Agent 工作日志）
+- TOOL_START         → "执行工具：{tool}  命令：{command}"
+- TOOL_END           → "工具完成：{status}  耗时：{execMs}ms"
+- FILE_PATCH_PREVIEW → "代码变更预览（点击展开）"
+- APPROVAL_REQUIRED  → 触发审批卡片弹出（MOB-02 实现）
+- APPROVAL_RESULT    → "审批结果：{decision}"
+- TASK_DONE          → "任务完成"
+- TASK_FAILED        → "任务失败：{reason}"
+
+验收
+- 连接控制平面，创建任务，任务详情页实时出现事件流
+- 断开网络后重连，事件流从断点续流（lastSeq 正确）
+- 离线模式（无 baseUrl）降级为本地模拟 ticker，不报错
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+MOB-02：审批交互卡片  [TODO]
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+负责人：Agent-4
+优先级：P0（AI Agent 执行高风险命令时必须有审批入口）
+分支建议：feat/a4-mob-approval-card
+依赖：MOB-01（依赖 WebSocket 推送 APPROVAL_REQUIRED 事件）
+
+目标
+- 收到 APPROVAL_REQUIRED 事件时，弹出审批卡片。
+- 卡片展示完整审批上下文（command / cwd / action / riskScore / reason）。
+- 用户点击批准/拒绝后，调用控制平面审批 API。
+- 审批结果通过 WebSocket 回传，卡片自动关闭。
+
+技术方案
+- 审批卡片使用 AlertDialog 或 BottomSheet（Material3）。
+- 审批 API：POST /api/v1/tasks/{taskId}/approval
+  - body: { approvalId, decision: "approve"|"reject", comment }
+- 审批超时（approvalTimeoutSeconds）倒计时展示，超时自动关闭卡片。
+
+新增/变更内容
+- AppUi.kt（变更）
+  - ApprovalCard Composable（新增）
+    - 展示：action / command / cwd / riskScore / reason
+    - 按钮：批准（绿色）/ 拒绝（红色）
+    - 倒计时进度条
+  - TaskDetailTab：监听 pendingApproval 状态，弹出 ApprovalCard
+- AppViewModel.kt（变更）
+  - 新增 pendingApproval: StateFlow<ApprovalRequest?>
+  - 新增 submitApproval(taskId, approvalId, decision, comment)
+  - 收到 APPROVAL_REQUIRED 事件时更新 pendingApproval
+  - 收到 APPROVAL_RESULT 事件时清空 pendingApproval
+- network/ControlPlaneClient.kt（变更）
+  - 新增 submitApproval(baseUrl, token, taskId, approvalId, decision, comment)
+- Models.kt（变更）
+  - 新增 ApprovalRequest(approvalId, taskId, action, command, cwd, riskScore, reason, timeoutSeconds)
+
+验收
+- AI Agent 执行 git push 等高风险命令时，移动端弹出审批卡片
+- 卡片展示 command/cwd/riskScore 等上下文信息
+- 点击批准后任务继续执行，点击拒绝后任务失败
+- 倒计时结束后卡片自动关闭（超时处理）
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+MOB-03：语音输入  [TODO]
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+负责人：Agent-4
+优先级：P1
+分支建议：feat/a4-mob-voice-input
+依赖：无（独立功能）
+
+目标
+- 在任务输入框旁增加语音按钮，长按录音，松开识别。
+- 识别结果自动填入任务描述输入框，用户可编辑后发起任务。
+- 识别失败时展示错误提示，不影响文本输入。
+
+技术方案
+- 使用 Android SpeechRecognizer + RecognizerIntent（系统级，无需第三方 SDK）。
+- 权限：RECORD_AUDIO（运行时申请）。
+- 识别语言：zh-CN（中文优先，可配置）。
+
+新增/变更内容
+- AndroidManifest.xml（变更）
+  - 新增 <uses-permission android:name="android.permission.RECORD_AUDIO" />
+- AppUi.kt（变更）
+  - TaskListTab：输入框右侧增加麦克风 IconButton
+  - VoiceInputButton Composable（新增）
+    - 长按开始录音（动画反馈）
+    - 松开触发识别
+    - 识别中显示波形动画占位
+  - 运行时权限申请流程（ActivityResultContracts.RequestPermission）
+- AppViewModel.kt（变更）
+  - 新增 startVoiceInput(context)
+  - 新增 voiceInputResult: StateFlow<String?>
+  - 识别完成后更新 voiceInputResult，UI 监听并填入输入框
+
+验收
+- 点击麦克风按钮，系统弹出权限申请（首次）
+- 说话后识别结果自动填入输入框
+- 识别失败（无网络/拒绝权限）展示友好提示，不崩溃
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+MOB-04：项目列表动态拉取  [TODO]
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+负责人：Agent-4
+优先级：P1
+分支建议：feat/a4-mob-dynamic-projects
+依赖：无（控制平面项目 API 已就绪）
+
+目标
+- 登录后从控制平面拉取用户有权限的项目列表，替换硬编码的 proj-1/2/3。
+- 离线模式保留硬编码兜底。
+- 项目列表本地缓存（DataStore），下次启动时先展示缓存再刷新。
+
+技术方案
+- 控制平面当前无独立项目列表 API，通过 ProjectMembership 关联。
+  - 方案 A：Agent-1 新增 GET /api/v1/projects（推荐，需 Agent-1 配合）
+  - 方案 B：移动端从已有任务列表中提取 projectId 去重（降级方案，无需后端改动）
+  - 本 PR 先实现方案 B，方案 A 等 Agent-1 提供接口后升级。
+
+新增/变更内容
+- network/ControlPlaneClient.kt（变更）
+  - 新增 listProjects(baseUrl, token)（方案 A 就绪后实现，当前返回空）
+- AppViewModel.kt（变更）
+  - mockProjects 改为 dynamicProjects: StateFlow<List<Project>>
+  - 登录成功后触发 refreshProjects()
+  - 离线时兜底 proj-1/2/3
+- AppUi.kt（变更）
+  - ProjectsTab：展示动态项目列表，支持下拉刷新
+
+验收
+- 连接控制平面登录后，项目列表从服务端拉取（或从任务去重）
+- 离线模式展示兜底项目列表，不报错
+- 切换项目后任务列表正确过滤
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+MOB-05：AI Agent 工作过程可视化  [TODO]
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+负责人：Agent-4
+优先级：P1（依赖 MOB-01 WebSocket）
+分支建议：feat/a4-mob-agent-visualization
+依赖：MOB-01
+
+目标
+- 任务详情页展示 AI Agent 集群的完整工作过程（不只是状态，而是每个 Agent 的思考与行动）。
+- 区分不同 Agent 的输出（IntentAgent / PlannerAgent / CoderAgent / ReviewerAgent / TesterAgent）。
+- FILE_PATCH_PREVIEW 事件展示代码 diff（高亮显示增删行）。
+- 整体体验类似 Claude Code 的流式输出界面。
+
+新增/变更内容
+- AppUi.kt（变更）
+  - AgentEventItem Composable（新增）：按事件类型渲染不同样式
+    - ASSISTANT_OUTPUT：气泡卡片，左侧显示 Agent 名称图标
+    - TOOL_START：工具调用卡片（command/cwd/tool，可折叠）
+    - TOOL_END：执行结果（exitCode/耗时/状态颜色）
+    - FILE_PATCH_PREVIEW：diff 展示（绿色增行/红色删行，Monospace）
+    - APPROVAL_REQUIRED：高亮警告卡片（触发 MOB-02 审批弹窗）
+    - TASK_DONE / TASK_FAILED：终态横幅
+  - TaskDetailTab：事件流列表替换原有 logs 文本列表
+    - LazyColumn 渲染 AgentEventItem
+    - 新事件到达时自动滚动到底部
+- Models.kt（变更）
+  - 新增 AgentEvent(eventId, type, agentName, payload, seq, timestamp)
+  - AppViewModel 中 TaskItem.logs 升级为 events: List<AgentEvent>
+
+验收
+- 任务执行时，详情页实时出现各 Agent 的工作日志气泡
+- FILE_PATCH_PREVIEW 展示绿色/红色 diff 行
+- TOOL_START/TOOL_END 展示命令和执行结果
+- 新事件到达时页面自动滚动到最新
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+MOB-06：发布流程真实 API 对接  [TODO]
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+负责人：Agent-4
+优先级：P2
+分支建议：feat/a4-mob-publish-api
+依赖：MOB-05（依赖产物展示完善）
+
+目标
+- 将"提交发布申请"从本地记录升级为真实调用控制平面部署 API。
+- 展示部署状态（DEPLOY_PLAN → DEPLOY_RESULT）。
+- 发布历史从控制平面拉取，不再只依赖本地 DataStore。
+
+技术方案
+- 部署触发：POST /api/v1/tasks（创建 deploy 类型任务，agentProfile=deployer）
+  - prompt 包含部署目标信息（artifactId / environment / version）
+- 部署状态通过 WebSocket 事件流接收（DEPLOY_PLAN / DEPLOY_RESULT）
+- 历史记录：GET /api/v1/tasks?projectId=xxx&assistant=deployer（过滤部署任务）
+
+新增/变更内容
+- network/ControlPlaneClient.kt（变更）
+  - 新增 createDeployTask(baseUrl, token, projectId, artifactId, environment, version)
+- AppViewModel.kt（变更）
+  - recordPublishEntry() 改为调用 createDeployTask()
+  - 新增 loadPublishHistory()（从控制平面拉取部署任务列表）
+- AppUi.kt（变更）
+  - ArtifactDetailScreen：发布按钮触发真实部署任务
+  - PublishHistoryScreen：展示部署任务状态（含 DEPLOY_RESULT 详情）
+  - 新增 DeployStatusCard Composable（展示 environment / status / endpointUrl）
+
+验收
+- 点击"提交发布申请"后，控制平面创建 deploy 任务
+- WebSocket 收到 DEPLOY_PLAN 事件，展示部署计划
+- 收到 DEPLOY_RESULT 事件，展示部署结果（成功/失败/endpointUrl）
+- 发布历史从控制平面拉取，重装 App 后历史不丢失
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+四、合并顺序
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+MOB-01 (WebSocket 实时事件流)  ←── P0，优先开始
+    │
+    └── MOB-02 (审批交互卡片)   ←── P0，依赖 MOB-01
+            │
+            └── MOB-05 (AI Agent 可视化)  ←── P1，依赖 MOB-01
+                        │
+                        └── MOB-06 (发布 API 对接)  ←── P2
+
+MOB-03 (语音输入)              ←── P1，独立，可与 MOB-01 并行
+MOB-04 (项目列表动态拉取)      ←── P1，独立，可与 MOB-01 并行
+
+并行开发窗口（P0 阶段）
+- Agent-4 主线：MOB-01（WebSocket）
+- Agent-4 副线：MOB-03（语音）+ MOB-04（项目列表）可同步推进
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+五、PR 分配总览
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+┌──────────────────────────────────────────────────────────────────┐
+│  PR 编号  │  标题                      │  优先级  │  依赖        │
+├──────────────────────────────────────────────────────────────────┤
+│  MOB-01  │  WebSocket 实时事件流       │   P0     │  无          │
+│  MOB-02  │  审批交互卡片               │   P0     │  MOB-01      │
+│  MOB-03  │  语音输入                   │   P1     │  无          │
+│  MOB-04  │  项目列表动态拉取           │   P1     │  无          │
+│  MOB-05  │  AI Agent 工作过程可视化    │   P1     │  MOB-01      │
+│  MOB-06  │  发布流程真实 API 对接      │   P2     │  MOB-05      │
+└──────────────────────────────────────────────────────────────────┘
+
+全部由 Agent-4 负责，白名单：mobile-app/**
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+六、总门禁
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+每个 MOB-* PR 合并前必须通过：
+
+  # 构建验证
+  cd mobile-app && .\gradlew.bat :app:assembleDebug
+
+  # 工作区干净
+  git status --short  # 必须为空
+
+  # 禁止提交构建产物
+  git status --short | grep -v "^??" | grep -v "\.kt$"  # 应为空
+
+功能验收清单：
+- [ ] MOB-01：任务详情页实时展示 WebSocket 事件流，断线后自动重连续流
+- [ ] MOB-02：AI Agent 触发审批时移动端弹出卡片，批准/拒绝后任务正确继续/终止
+- [ ] MOB-03：语音输入识别结果填入任务描述框，权限拒绝时友好降级
+- [ ] MOB-04：登录后项目列表从控制平面动态加载，离线时兜底
+- [ ] MOB-05：任务详情页展示各 Agent 气泡、diff 预览、工具调用卡片
+- [ ] MOB-06：发布申请触发真实部署任务，WebSocket 收到 DEPLOY_RESULT 展示结果
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+七、与其他 Agent 的协作依赖
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Agent-4 依赖以下 PR 先合入，再消费：
+
+1. PY-AG-01~02（Agent-3）合入后
+   - 控制平面出现 profile=ai-agent 的任务
+   - 移动端创建任务时可选 agentProfile=ai-agent
+   - MOB-05 的 ASSISTANT_OUTPUT 事件才有真实内容
+
+2. PY-AG-04（Agent-3 + Agent-2）合入后
+   - Java 沙箱执行命令，APPROVAL_REQUIRED 事件才会真实触发
+   - MOB-02 审批卡片才能端到端验证
+
+3. AG-UP-05（Agent-3 + Agent-1）合入后
+   - 控制平面记录 Agent capabilities
+   - 移动端可展示当前节点能力（可选，非阻塞）
+
+Agent-4 不需要等待上述 PR 才能开发，MOB-01~04 均可独立开发和本地验证，
+PY-AG-* 合入后做联调验收即可。

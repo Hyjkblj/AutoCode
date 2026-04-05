@@ -6,6 +6,7 @@ package com.autocode.agent.runtime;
 import com.autocode.agent.client.AgentApiClient;
 import com.autocode.agent.config.AgentConfig;
 import com.autocode.agent.config.AgentConfigFileLoader;
+import com.autocode.agent.sandbox.SandboxHttpServer;
 import com.autocode.protocol.model.TaskSummary;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -24,6 +25,7 @@ public class AgentRunner {
     private final File configFile;
     private volatile long configFileLastModified = -1;
     private final AgentConfigFileLoader configFileLoader = new AgentConfigFileLoader();
+    private volatile SandboxHttpServer sandboxHttpServer;
 
     public AgentRunner(AgentConfig config) {
         this.config = config;
@@ -42,47 +44,69 @@ public class AgentRunner {
         this.configFile = (path == null || path.isBlank()) ? null : new File(path.trim());
     }
 
-    /**
-     * Agent 主循环：注册 -> 心跳 -> 轮询任务 -> 执行 -> 上报事件。
-     */
     public void start() throws IOException, InterruptedException {
-        waitUntilRegistered();
+        startSandboxServerIfEnabled();
+        try {
+            waitUntilRegistered();
 
-        long lastHeartbeat = 0;
-        long lastConfigCheck = 0;
-        while (true) {
-            long now = System.currentTimeMillis();
-            try {
-                if (now - lastConfigCheck > 3000) {
-                    lastConfigCheck = now;
-                    reloadConfigIfChanged();
-                }
-                if (now - lastHeartbeat > config.getHeartbeatIntervalMs()) {
-                    // 定期心跳：用于控制平面判断节点在线状态
-                    apiClient.heartbeat(config.getNodeId());
-                    lastHeartbeat = now;
-                    log.info("Heartbeat sent at {}", Instant.ofEpochMilli(now));
-                }
-
-                // 轮询领取任务：服务端会从队列中分配一个 QUEUED 任务给该节点
-                Optional<TaskSummary> task = apiClient.pollNextTask(config.getNodeId());
-                if (task.isPresent()) {
-                    log.info("Received task {}", task.get().getTaskId());
-                    try {
-                        // 执行任务：会产生事件（输出/工具/审批/完成等）回传控制平面
-                        taskExecutor.execute(task.get());
-                        log.info("Task {} finished", task.get().getTaskId());
-                    } catch (Exception ex) {
-                        log.error("Task {} execution failed", task.get().getTaskId(), ex);
+            long lastHeartbeat = 0;
+            long lastConfigCheck = 0;
+            while (true) {
+                long now = System.currentTimeMillis();
+                try {
+                    if (now - lastConfigCheck > 3000) {
+                        lastConfigCheck = now;
+                        reloadConfigIfChanged();
                     }
-                    continue;
-                }
-            } catch (IOException ioException) {
-                log.warn("Control plane unavailable, retrying: {}", ioException.getMessage());
-                waitUntilRegistered();
-            }
+                    if (now - lastHeartbeat > config.getHeartbeatIntervalMs()) {
+                        apiClient.heartbeat(config.getNodeId());
+                        lastHeartbeat = now;
+                        log.info("Heartbeat sent at {}", Instant.ofEpochMilli(now));
+                    }
 
-            Thread.sleep(config.getPollIntervalMs());
+                    Optional<TaskSummary> task = apiClient.pollNextTask(config.getNodeId());
+                    if (task.isPresent()) {
+                        log.info("Received task {}", task.get().getTaskId());
+                        try {
+                            taskExecutor.execute(task.get());
+                            log.info("Task {} finished", task.get().getTaskId());
+                        } catch (Exception ex) {
+                            log.error("Task {} execution failed", task.get().getTaskId(), ex);
+                        }
+                        continue;
+                    }
+                } catch (IOException ioException) {
+                    log.warn("Control plane unavailable, retrying: {}", ioException.getMessage());
+                    waitUntilRegistered();
+                }
+
+                Thread.sleep(config.getPollIntervalMs());
+            }
+        } finally {
+            stopSandboxServerQuietly();
+        }
+    }
+
+    private void startSandboxServerIfEnabled() throws IOException {
+        if (!SandboxHttpServer.isEnabledFromEnv()) {
+            return;
+        }
+        SandboxHttpServer sandbox = SandboxHttpServer.fromEnv(apiClient, config);
+        sandbox.start();
+        this.sandboxHttpServer = sandbox;
+    }
+
+    private void stopSandboxServerQuietly() {
+        SandboxHttpServer sandbox = this.sandboxHttpServer;
+        if (sandbox == null) {
+            return;
+        }
+        try {
+            sandbox.stop();
+        } catch (Exception ex) {
+            log.warn("Sandbox HTTP server stop failed: {}", ex.getMessage());
+        } finally {
+            this.sandboxHttpServer = null;
         }
     }
 
@@ -113,7 +137,6 @@ public class AgentRunner {
         while (true) {
             try {
                 log.info("Registering node {} to {}", config.getNodeId(), config.getBaseUrl());
-                // 注册节点：用于控制平面记录 nodeId/version/capabilities 等
                 apiClient.register(config.getNodeId());
                 return;
             } catch (IOException exception) {

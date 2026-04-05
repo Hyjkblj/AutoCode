@@ -77,6 +77,24 @@ class TaskEventContractValidatorTest {
     }
 
     @Test
+    void toolStart_example_resource_is_valid() throws Exception {
+        try (InputStream in = TaskEventContractValidatorTest.class.getResourceAsStream("/examples/tool_start.v1.example.json")) {
+            assertNotNull(in, "Missing test resource: /examples/tool_start.v1.example.json");
+            TaskEvent event = MAPPER.readValue(in, TaskEvent.class);
+            assertDoesNotThrow(() -> TaskEventContractValidator.validate(event));
+        }
+    }
+
+    @Test
+    void toolEnd_example_resource_is_valid() throws Exception {
+        try (InputStream in = TaskEventContractValidatorTest.class.getResourceAsStream("/examples/tool_end.v1.example.json")) {
+            assertNotNull(in, "Missing test resource: /examples/tool_end.v1.example.json");
+            TaskEvent event = MAPPER.readValue(in, TaskEvent.class);
+            assertDoesNotThrow(() -> TaskEventContractValidator.validate(event));
+        }
+    }
+
+    @Test
     void buildStarted_example_resource_is_valid() throws Exception {
         try (InputStream in = TaskEventContractValidatorTest.class.getResourceAsStream("/examples/build_started.v1.example.json")) {
             assertNotNull(in, "Missing test resource: /examples/build_started.v1.example.json");
@@ -199,10 +217,38 @@ class TaskEventContractValidatorTest {
     }
 
     @Test
-    void build_log_requires_message() {
+    void tool_start_requires_tool() {
         TaskEvent event = new TaskEvent();
         event.setEventId("e5");
         event.setTaskId("t5");
+        event.setType(EventType.TOOL_START);
+        event.setTimestamp(Instant.parse("2026-04-05T00:00:00Z"));
+        event.setSeq(0);
+        event.setEventVersion(1);
+        event.setPayload(Map.of("action", "run_command"));
+
+        assertThrows(ContractViolationException.class, () -> TaskEventContractValidator.validate(event));
+    }
+
+    @Test
+    void tool_end_requires_status() {
+        TaskEvent event = new TaskEvent();
+        event.setEventId("e6");
+        event.setTaskId("t6");
+        event.setType(EventType.TOOL_END);
+        event.setTimestamp(Instant.parse("2026-04-05T00:00:00Z"));
+        event.setSeq(0);
+        event.setEventVersion(1);
+        event.setPayload(Map.of("tool", "command.exec"));
+
+        assertThrows(ContractViolationException.class, () -> TaskEventContractValidator.validate(event));
+    }
+
+    @Test
+    void build_log_requires_message() {
+        TaskEvent event = new TaskEvent();
+        event.setEventId("e7");
+        event.setTaskId("t7");
         event.setType(EventType.BUILD_LOG);
         event.setTimestamp(Instant.parse("2026-04-04T00:00:00Z"));
         event.setSeq(0);
@@ -215,8 +261,8 @@ class TaskEventContractValidatorTest {
     @Test
     void file_patch_preview_requires_patch_or_files() {
         TaskEvent event = new TaskEvent();
-        event.setEventId("e6");
-        event.setTaskId("t6");
+        event.setEventId("e8");
+        event.setTaskId("t8");
         event.setType(EventType.FILE_PATCH_PREVIEW);
         event.setTimestamp(Instant.parse("2026-04-04T00:00:00Z"));
         event.setSeq(0);

@@ -119,8 +119,13 @@ public class TaskExecutor {
                 )
         );
         String approvalIdForExec = null;
+        String requestedToolVersion = null;
+        Object requestedVersionArg = call.getArgs().get("toolVersion");
+        if (requestedVersionArg instanceof String s && !s.isBlank()) {
+            requestedToolVersion = s.trim();
+        }
 
-        Tool tool = toolRegistry.getRequired(call.getTool());
+        Tool tool = toolRegistry.getRequired(call.getTool(), requestedToolVersion);
         ToolContext preCtx = new ToolContext(task, cwd, null, config.getApprovalTimeoutSeconds());
         PolicyDecision policyDecision = invocationPolicy.evaluate(call, preCtx);
         if (!policyDecision.isAllowed()) {
@@ -176,6 +181,10 @@ public class TaskExecutor {
         // 开始执行：以 TOOL_START/TOOL_END 形式上报，便于前端展示工具调用过程
         HashMap<String, Object> toolStart = new HashMap<>();
         toolStart.put("tool", call.getTool());
+        String resolvedToolVersion = trimToNull(tool.version());
+        if (resolvedToolVersion != null) {
+            toolStart.put("toolVersion", resolvedToolVersion);
+        }
         toolStart.put("command", command);
         toolStart.put("cwd", cwd);
         toolStart.put("action", call.getAction());
@@ -558,6 +567,12 @@ public class TaskExecutor {
         payload.put("cwd", cwd);
         payload.put("approvalTimeoutSeconds", (int) Math.min(Integer.MAX_VALUE, approvalTimeoutSeconds));
         payload.put("riskScore", parseDoubleOrDefault(readOptionalEnv(env, "MVP_DEPLOY_APPROVAL_RISK_SCORE"), 0.95d));
+        List<String> requiredPolicies = parseCsv(readOptionalEnv(env, "MVP_DEPLOY_REQUIRED_POLICIES"));
+        if (requiredPolicies.isEmpty()) {
+            requiredPolicies = List.of("approval.gate", "deploy.context.match");
+        }
+        payload.put("requiredPolicies", requiredPolicies);
+        putIfNotBlank(payload, "toolVersion", readOptionalEnv(env, "MVP_DEPLOY_TOOL_VERSION"));
         payload.put("reason", firstNonBlank(readOptionalEnv(env, "MVP_DEPLOY_APPROVAL_REASON"), "deploy_gate"));
         payload.put("context", context);
         return payload;

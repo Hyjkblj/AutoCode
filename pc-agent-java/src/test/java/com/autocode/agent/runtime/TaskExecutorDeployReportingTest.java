@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -115,5 +116,30 @@ class TaskExecutorDeployReportingTest {
         Map<String, Object> resultArtifactPayload = (Map<String, Object>) payload.get("resultArtifact");
         assertEquals("art_result_1", resultArtifactPayload.get("artifactId"));
         assertEquals("deploy_report", resultArtifactPayload.get("type"));
+    }
+
+    @Test
+    void buildDeployApprovalPayloadContainsRiskAndRequiredPolicies() {
+        Map<String, Object> context = Map.of(
+                "action", "app.publish",
+                "tool", "deploy.execute",
+                "workspaceRef", "workspace://proj-1",
+                "inputsHash", "sha256:abc"
+        );
+
+        Map<String, Object> payload = TaskExecutor.buildDeployApprovalPayload(
+                "apr_1",
+                "deploy --env staging",
+                "D:/workspace/proj-1",
+                context,
+                120,
+                Map.of("MVP_DEPLOY_APPROVAL_RISK_SCORE", "0.99")
+        );
+
+        assertEquals("apr_1", payload.get("approvalId"));
+        assertEquals(0.99d, payload.get("riskScore"));
+        @SuppressWarnings("unchecked")
+        List<String> requiredPolicies = (List<String>) payload.get("requiredPolicies");
+        assertEquals(List.of("approval.gate", "deploy.context.match"), requiredPolicies);
     }
 }

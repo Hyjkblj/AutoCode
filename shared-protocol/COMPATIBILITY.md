@@ -26,6 +26,8 @@ This module is the single source of truth for cross-component DTOs and event sch
   `src/main/resources/schema/events/v1/` for event-specific required keys.
 - For deploy events in v1, statuses/strategy values are intentionally open strings; consumers should tolerate
   unknown values and only enforce documented required keys.
+- Tool manifests (`ToolManifest`/`ToolParamSpec`/`ToolPermissions`) are versioned by `ToolManifest.version`; runtime
+  registries may keep multiple versions and resolve latest when no explicit version is requested.
 - Standalone manifests (multi-artifact exports) use `src/main/resources/schema/manifest/v1/`; `schemaVersion = 1`
   matches the same compatibility rules as event payloads (optional additive fields only).
 - For `ArtifactMetadata.build`: the `build` object is optional; when present, `command` is required (JSON Schema and

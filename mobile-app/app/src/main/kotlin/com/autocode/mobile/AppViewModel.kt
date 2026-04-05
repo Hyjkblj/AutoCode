@@ -10,7 +10,9 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.autocode.mobile.network.ArtifactListItem
 import com.autocode.mobile.network.ControlPlaneClient
+import com.autocode.mobile.network.TaskEventDto
 import com.autocode.mobile.network.TaskSummaryDto
+import com.autocode.mobile.network.WebSocketClient
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -21,6 +23,11 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.doubleOrNull
+import kotlinx.serialization.json.longOrNull
 import kotlin.random.Random
 
 private val Application.mobileDataStore by preferencesDataStore(name = "autocode_mobile")
@@ -40,6 +47,7 @@ data class UiState(
     val session: Session? = null,
     val selectedProjectId: String? = null,
     val tasks: List<TaskItem> = emptyList(),
+    val taskEvents: Map<String, List<TaskEventDto>> = emptyMap(),
     val errorMessage: String? = null,
     /** 控制面根 URL，空表示离线模拟（PR-1/PR-2） */
     val baseUrl: String = "",
@@ -62,6 +70,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _uiState = MutableStateFlow(UiState())
     val uiState: StateFlow<UiState> = _uiState.asStateFlow()
+    private val wsClient = WebSocketClient()
+    private var subscribedTaskId: String? = null
+    private var subscribedBaseUrl: String? = null
+    private var subscribedToken: String? = null
+    private val maxTaskEventsPerTask = 300
 
     /** 与集成测试常用 projectId 对齐，便于真机连本地控制面。 */
     val mockProjects: List<Project> = listOf(
@@ -223,6 +236,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun logout() {
         viewModelScope.launch {
+            unsubscribeTaskEvents()
             val baseUrl = _uiState.value.baseUrl
             val target = _uiState.value.generationTarget
             _uiState.update {
@@ -486,6 +500,190 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun subscribeTaskEvents(taskId: String) {
+        val normalizedTaskId = taskId.trim()
+        if (normalizedTaskId.isEmpty()) return
+
+        val state = _uiState.value
+        val base = state.baseUrl.trim()
+        val token = state.session?.accessToken?.trim().orEmpty()
+        if (base.isEmpty() || token.isEmpty()) {
+            unsubscribeTaskEvents(normalizedTaskId)
+            return
+        }
+
+        val alreadySubscribed =
+            subscribedTaskId == normalizedTaskId &&
+                subscribedBaseUrl == base &&
+                subscribedToken == token
+        if (alreadySubscribed) return
+
+        unsubscribeTaskEvents()
+        subscribedTaskId = normalizedTaskId
+        subscribedBaseUrl = base
+        subscribedToken = token
+
+        viewModelScope.launch {
+            backfillTaskEvents(normalizedTaskId, lastSeq(normalizedTaskId))
+            wsClient.connect(
+                baseUrl = base,
+                bearerToken = token,
+                taskId = normalizedTaskId,
+                lastSeq = lastSeq(normalizedTaskId),
+                onEvent = { event ->
+                    if (subscribedTaskId == normalizedTaskId) {
+                        viewModelScope.launch {
+                            mergeTaskEvents(normalizedTaskId, listOf(event))
+                        }
+                    }
+                },
+                onDisconnect = {
+                    if (subscribedTaskId == normalizedTaskId) {
+                        viewModelScope.launch {
+                            backfillTaskEvents(normalizedTaskId, lastSeq(normalizedTaskId))
+                        }
+                    }
+                },
+            )
+        }
+    }
+
+    fun unsubscribeTaskEvents(taskId: String? = null) {
+        val current = subscribedTaskId ?: return
+        if (taskId != null && taskId != current) return
+        wsClient.disconnect()
+        subscribedTaskId = null
+        subscribedBaseUrl = null
+        subscribedToken = null
+    }
+
+    fun eventLine(event: TaskEventDto): String {
+        val payload = event.payload
+        return when (event.type?.uppercase()) {
+            "TASK_STARTED" -> "任务已开始"
+            "ASSISTANT_OUTPUT" ->
+                stringValue(payload, "message", "content", "text")
+                    ?: "AI 输出"
+            "TOOL_START" -> {
+                val tool = stringValue(payload, "tool", "toolName") ?: "unknown"
+                val cmd = stringValue(payload, "command", "cmd") ?: "-"
+                "执行工具：$tool  命令：$cmd"
+            }
+            "TOOL_END" -> {
+                val status = stringValue(payload, "status", "result") ?: "unknown"
+                val execMs = longValue(payload, "execMs", "elapsedMs", "durationMs")
+                if (execMs != null) {
+                    "工具完成：$status  耗时：${execMs}ms"
+                } else {
+                    "工具完成：$status"
+                }
+            }
+            "FILE_PATCH_PREVIEW" -> "代码变更预览"
+            "APPROVAL_REQUIRED" -> "等待审批"
+            "APPROVAL_RESULT" -> {
+                val decision = stringValue(payload, "decision", "result") ?: "unknown"
+                "审批结果：$decision"
+            }
+            "TASK_DONE" -> "任务完成"
+            "TASK_FAILED" -> {
+                val reason = stringValue(payload, "reason", "message", "error")
+                if (reason.isNullOrBlank()) "任务失败" else "任务失败：$reason"
+            }
+            else -> event.type ?: "EVENT"
+        }
+    }
+
+    private fun lastSeq(taskId: String): Long =
+        _uiState.value.taskEvents[taskId].orEmpty().maxOfOrNull { it.seq } ?: 0L
+
+    private suspend fun backfillTaskEvents(taskId: String, lastSeq: Long) {
+        val state = _uiState.value
+        val base = state.baseUrl.trim()
+        val token = state.session?.accessToken?.trim().orEmpty()
+        if (base.isEmpty() || token.isEmpty()) return
+        val result = ControlPlaneClient.listTaskEvents(base, token, taskId, lastSeq)
+        val events = result.getOrNull().orEmpty()
+        if (events.isNotEmpty()) {
+            mergeTaskEvents(taskId, events)
+        }
+    }
+
+    private suspend fun mergeTaskEvents(taskId: String, incoming: List<TaskEventDto>) {
+        if (incoming.isEmpty()) return
+        _uiState.update { state ->
+            val mergedEvents = mergeEventList(state.taskEvents[taskId].orEmpty(), incoming)
+            val sortedIncoming = incoming.sortedBy { it.seq }
+            val mergedTasks = sortedIncoming.fold(state.tasks) { acc, event ->
+                applyEventToTasks(acc, taskId, event)
+            }
+            state.copy(
+                taskEvents = state.taskEvents + (taskId to mergedEvents),
+                tasks = mergedTasks,
+            )
+        }
+        persistTasks(_uiState.value.tasks)
+    }
+
+    private fun mergeEventList(existing: List<TaskEventDto>, incoming: List<TaskEventDto>): List<TaskEventDto> {
+        val merged = LinkedHashMap<String, TaskEventDto>()
+        (existing + incoming).sortedBy { it.seq }.forEach { event ->
+            val key =
+                when {
+                    !event.eventId.isNullOrBlank() -> "id:${event.eventId}"
+                    event.seq > 0L -> "seq:${event.seq}"
+                    else -> "raw:${event.type}:${event.timestamp}:${event.payload}"
+                }
+            merged[key] = event
+        }
+        return merged.values.sortedBy { it.seq }.takeLast(maxTaskEventsPerTask)
+    }
+
+    private fun applyEventToTasks(tasks: List<TaskItem>, taskId: String, event: TaskEventDto): List<TaskItem> {
+        val line = eventLine(event)
+        val statusHint = eventStatusHint(event)
+        val now = System.currentTimeMillis()
+        return tasks.map { item ->
+            if (item.id != taskId) return@map item
+            val logs = if (item.logs.lastOrNull() == line) item.logs else (item.logs + line).takeLast(80)
+            val nextStatus = statusHint?.first ?: item.status
+            val nextProgress = statusHint?.second?.coerceAtLeast(item.progress) ?: item.progress
+            item.copy(
+                status = nextStatus,
+                progress = nextProgress,
+                logs = logs,
+                updatedAt = now,
+            )
+        }
+    }
+
+    private fun eventStatusHint(event: TaskEventDto): Pair<TaskStatus, Int>? =
+        when (event.type?.uppercase()) {
+            "TASK_STARTED" -> TaskStatus.RUNNING to 15
+            "APPROVAL_REQUIRED" -> TaskStatus.RUNNING to 78
+            "TASK_DONE" -> TaskStatus.SUCCEEDED to 100
+            "TASK_FAILED" -> TaskStatus.FAILED to 100
+            else -> null
+        }
+
+    private fun stringValue(payload: JsonObject, vararg keys: String): String? {
+        for (key in keys) {
+            val primitive = payload[key] as? JsonPrimitive ?: continue
+            val raw = primitive.contentOrNull?.trim().orEmpty()
+            if (raw.isNotEmpty()) return raw
+        }
+        return null
+    }
+
+    private fun longValue(payload: JsonObject, vararg keys: String): Long? {
+        for (key in keys) {
+            val primitive = payload[key] as? JsonPrimitive ?: continue
+            primitive.longOrNull?.let { return it }
+            primitive.doubleOrNull?.toLong()?.let { return it }
+            primitive.contentOrNull?.trim()?.toLongOrNull()?.let { return it }
+        }
+        return null
+    }
+
     private fun startLocalProgressTicker() {
         viewModelScope.launch {
             while (isActive) {
@@ -517,12 +715,17 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private fun startRemotePolling() {
         viewModelScope.launch {
             while (isActive) {
-                delay(2500)
+                delay(3500)
                 val st = _uiState.value
                 val base = st.baseUrl.trim()
                 val sess = st.session ?: continue
                 if (base.isEmpty()) continue
-                val remote = st.tasks.filter { it.source == TaskSource.REMOTE }
+                val activeSubscribedTask = subscribedTaskId
+                val remote =
+                    st.tasks.filter {
+                        it.source == TaskSource.REMOTE &&
+                            it.id != activeSubscribedTask
+                    }
                 if (remote.isEmpty()) continue
                 for (t in remote) {
                     val r = ControlPlaneClient.getTask(base, sess.accessToken, t.id)
@@ -558,6 +761,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             state.copy(tasks = next)
         }
         persistTasks(_uiState.value.tasks)
+    }
+
+    override fun onCleared() {
+        unsubscribeTaskEvents()
+        super.onCleared()
     }
 }
 

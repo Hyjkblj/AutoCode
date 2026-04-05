@@ -8,6 +8,7 @@ import kotlinx.serialization.json.put
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -179,6 +180,35 @@ object ControlPlaneClient {
             }
         }
 
+    suspend fun listTaskEvents(
+        baseUrl: String,
+        bearerToken: String,
+        taskId: String,
+        lastSeq: Long,
+    ): Result<List<TaskEventDto>> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val root = normalizeBaseUrl(baseUrl)
+                val seq = maxOf(0L, lastSeq)
+                val req =
+                    Request.Builder()
+                        .url("$root/api/v1/tasks/${taskId.trim()}/events?lastSeq=$seq")
+                        .header("Authorization", "Bearer ${bearerToken.trim()}")
+                        .get()
+                        .build()
+                client.newCall(req).execute().use { resp ->
+                    val text = resp.body?.string().orEmpty()
+                    if (resp.code == 404) {
+                        error("任务不存在或无权访问 (404)")
+                    }
+                    if (!resp.isSuccessful) {
+                        error("HTTP ${resp.code}: ${text.take(300)}")
+                    }
+                    parseTaskEventsEnvelope(text)
+                }
+            }
+        }
+
     private fun parseAccessToken(responseBody: String): String {
         val obj = json.parseToJsonElement(responseBody).jsonObject
         if (obj["ok"]?.jsonPrimitive?.booleanOrNull != true) {
@@ -233,6 +263,20 @@ object ControlPlaneClient {
                 sha256 = o["sha256"]?.jsonPrimitive?.contentOrNull,
             )
         }
+    }
+
+    private fun parseTaskEventsEnvelope(responseBody: String): List<TaskEventDto> {
+        val obj = json.parseToJsonElement(responseBody).jsonObject
+        if (obj["ok"]?.jsonPrimitive?.booleanOrNull != true) {
+            val err = obj["error"]?.jsonPrimitive?.contentOrNull ?: "请求失败"
+            error(err)
+        }
+        val payload = obj["payload"]?.jsonArray ?: return emptyList()
+        return payload.mapNotNull { el ->
+            runCatching {
+                json.decodeFromJsonElement(TaskEventDto.serializer(), el)
+            }.getOrNull()
+        }.sortedBy { it.seq }
     }
 
     private fun parseDownloadFilename(contentDisposition: String?): String? {

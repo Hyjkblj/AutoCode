@@ -39,6 +39,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -119,7 +120,6 @@ fun AutoCodeApp() {
         }
     }
 }
-
 @Composable
 private fun LoginRoute(vm: AppViewModel) {
     val state by vm.uiState.collectAsStateWithLifecycle()
@@ -398,6 +398,14 @@ private fun TaskDetailTab(
 ) {
     val state by vm.uiState.collectAsStateWithLifecycle()
     val task = state.tasks.find { it.id == taskId }
+    val events = state.taskEvents[taskId].orEmpty().sortedBy { it.seq }
+
+    LaunchedEffect(taskId, state.baseUrl, state.session?.accessToken) {
+        vm.subscribeTaskEvents(taskId)
+    }
+    DisposableEffect(taskId) {
+        onDispose { vm.unsubscribeTaskEvents(taskId) }
+    }
 
     Scaffold(
         topBar = {
@@ -444,8 +452,14 @@ private fun TaskDetailTab(
                 style = MaterialTheme.typography.titleSmall,
             )
             Spacer(Modifier.height(8.dp))
-            task.logs.forEach { line ->
-                Text("· $line", fontFamily = FontFamily.Monospace)
+            if (events.isNotEmpty()) {
+                events.forEach { event ->
+                    Text("[${event.seq}] ${vm.eventLine(event)}", fontFamily = FontFamily.Monospace)
+                }
+            } else {
+                task.logs.forEach { line ->
+                    Text("· $line", fontFamily = FontFamily.Monospace)
+                }
             }
             if (task.status == TaskStatus.SUCCEEDED) {
                 Spacer(Modifier.height(20.dp))
@@ -930,3 +944,4 @@ private fun AccountTab(vm: AppViewModel) {
         }
     }
 }
+

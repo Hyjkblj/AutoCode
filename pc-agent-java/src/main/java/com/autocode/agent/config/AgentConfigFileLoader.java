@@ -11,7 +11,7 @@ import java.util.Properties;
  * Loads agent configuration overrides from a simple .properties file.
  *
  * Keys reuse the same names as env vars, e.g. MVP_ALLOWED_COMMAND_PREFIXES, MVP_NETWORK_ALLOWED,
- * MVP_HTTP_*_TIMEOUT_SECONDS, MVP_AGENT_VERSION.
+ * MVP_HTTP_*_TIMEOUT_SECONDS, MVP_AGENT_VERSION, MVP_INTENT_RULES.
  */
 public class AgentConfigFileLoader {
     public AgentConfig loadOverrides(File file) {
@@ -42,6 +42,10 @@ public class AgentConfigFileLoader {
         String agentVersion = (versionProp == null || versionProp.isBlank())
                 ? base.getAgentVersion()
                 : versionProp.trim();
+        String intentRulesProp = props.getProperty("MVP_INTENT_RULES");
+        List<AgentConfig.IntentRule> intentRules = intentRulesProp == null
+                ? base.getIntentRules()
+                : AgentConfig.parseIntentRules(intentRulesProp);
 
         return new AgentConfig(
                 base.getBaseUrl(),
@@ -56,7 +60,8 @@ public class AgentConfigFileLoader {
                 networkAllowed,
                 httpTimeouts,
                 base.getClientTls(),
-                agentVersion
+                agentVersion,
+                intentRules
         );
     }
 

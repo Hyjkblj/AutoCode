@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AttachFile
@@ -32,6 +33,7 @@ import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -59,10 +61,13 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.autocode.mobile.network.ArtifactListItem
+import com.autocode.mobile.network.TaskEventDto
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.PermissionStatus
 import com.google.accompanist.permissions.isGranted
@@ -82,6 +87,10 @@ import androidx.navigation.navArgument
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.longOrNull
 
 private sealed class Tab(
     val route: String,
@@ -501,10 +510,16 @@ private fun TaskDetailTab(
     val pendingApproval by vm.pendingApproval.collectAsStateWithLifecycle()
     val task = state.tasks.find { it.id == taskId }
     val events = state.taskEvents[taskId].orEmpty().sortedBy { it.seq }
+    val eventsListState = rememberLazyListState()
     val approvalForTask = pendingApproval?.takeIf { it.taskId == taskId }
 
     LaunchedEffect(taskId, state.baseUrl, state.session?.accessToken) {
         vm.subscribeTaskEvents(taskId)
+    }
+    LaunchedEffect(events.size) {
+        if (events.isNotEmpty()) {
+            runCatching { eventsListState.animateScrollToItem(events.lastIndex) }
+        }
     }
     DisposableEffect(taskId) {
         onDispose { vm.unsubscribeTaskEvents(taskId) }
@@ -551,17 +566,34 @@ private fun TaskDetailTab(
             )
             Spacer(Modifier.height(20.dp))
             Text(
-                if (task.source == TaskSource.REMOTE) "日志（控制面轮询）" else "日志（本地模拟）",
+                if (task.source == TaskSource.REMOTE) "事件流（实时）" else "执行日志（本地模拟）",
                 style = MaterialTheme.typography.titleSmall,
             )
             Spacer(Modifier.height(8.dp))
-            if (events.isNotEmpty()) {
-                events.forEach { event ->
-                    Text("[${event.seq}] ${vm.eventLine(event)}", fontFamily = FontFamily.Monospace)
-                }
-            } else {
-                task.logs.forEach { line ->
-                    Text("· $line", fontFamily = FontFamily.Monospace)
+            LazyColumn(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                state = eventsListState,
+            ) {
+                if (events.isNotEmpty()) {
+                    items(events, key = { eventStableKey(it) }) { event ->
+                        AgentEventItem(event = event, fallbackLine = vm.eventLine(event))
+                    }
+                } else {
+                    items(task.logs) { line ->
+                        Card(
+                            colors =
+                                CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                                ),
+                        ) {
+                            Text(
+                                text = line,
+                                modifier = Modifier.padding(12.dp),
+                                fontFamily = FontFamily.Monospace,
+                            )
+                        }
+                    }
                 }
             }
             if (task.status == TaskStatus.SUCCEEDED) {
@@ -600,6 +632,244 @@ private fun TaskDetailTab(
             },
         )
     }
+}
+
+@Composable
+private fun AgentEventItem(event: TaskEventDto, fallbackLine: String) {
+    val type = event.type?.uppercase().orEmpty()
+    val payload = event.payload
+    val header = "Seq ${event.seq} · ${event.type ?: "EVENT"}"
+
+    when (type) {
+        "ASSISTANT_OUTPUT" -> {
+            val agent = payloadText(payload, "agent", "assistant", "assistantName") ?: "assistant"
+            val message = payloadText(payload, "message", "content", "text", "output") ?: fallbackLine
+            Card(
+                colors =
+                    CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                    ),
+            ) {
+                Column(Modifier.padding(12.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Filled.Person,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            text = "Agent: $agent",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer,
+                        )
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        text = message,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        text = header,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                    )
+                }
+            }
+        }
+        "TOOL_START" -> {
+            val tool = payloadText(payload, "tool", "toolName") ?: "unknown"
+            val command = payloadText(payload, "command", "cmd")
+            val cwd = payloadText(payload, "cwd", "workdir")
+            var expanded by rememberSaveable(eventStableKey(event)) { mutableStateOf(false) }
+            Card(
+                colors =
+                    CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                    ),
+            ) {
+                Column(Modifier.padding(12.dp)) {
+                    Text("工具调用: $tool", style = MaterialTheme.typography.titleSmall)
+                    Text(header, style = MaterialTheme.typography.labelSmall)
+                    if (!command.isNullOrBlank()) {
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            text = command,
+                            fontFamily = FontFamily.Monospace,
+                            maxLines = if (expanded) Int.MAX_VALUE else 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    if (expanded && !cwd.isNullOrBlank()) {
+                        Spacer(Modifier.height(6.dp))
+                        Text("cwd: $cwd", fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
+                    }
+                    if (!command.isNullOrBlank() || !cwd.isNullOrBlank()) {
+                        Spacer(Modifier.height(4.dp))
+                        TextButton(onClick = { expanded = !expanded }) {
+                            Text(if (expanded) "收起" else "展开")
+                        }
+                    }
+                }
+            }
+        }
+        "TOOL_END" -> {
+            val status = payloadText(payload, "status", "result") ?: "unknown"
+            val execMs = payloadLongValue(payload, "execMs", "elapsedMs", "durationMs")
+            val success =
+                status.equals("success", ignoreCase = true) ||
+                    status.equals("ok", ignoreCase = true) ||
+                    status.equals("done", ignoreCase = true)
+            Card(
+                colors =
+                    CardDefaults.cardColors(
+                        containerColor =
+                            if (success) MaterialTheme.colorScheme.primaryContainer
+                            else MaterialTheme.colorScheme.errorContainer,
+                    ),
+            ) {
+                Column(Modifier.padding(12.dp)) {
+                    Text(
+                        text = if (success) "工具执行完成" else "工具执行异常",
+                        style = MaterialTheme.typography.titleSmall,
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    Text("状态: $status", fontFamily = FontFamily.Monospace)
+                    execMs?.let {
+                        Text("耗时: ${it}ms", fontFamily = FontFamily.Monospace)
+                    }
+                    Spacer(Modifier.height(6.dp))
+                    Text(header, style = MaterialTheme.typography.labelSmall)
+                }
+            }
+        }
+        "FILE_PATCH_PREVIEW" -> {
+            val patch = payloadText(payload, "patch", "diff", "preview", "content")
+            val lines = patch.orEmpty().lineSequence().take(120).toList()
+            Card(
+                colors =
+                    CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                    ),
+            ) {
+                Column(Modifier.padding(12.dp)) {
+                    Text("代码变更预览", style = MaterialTheme.typography.titleSmall)
+                    Text(header, style = MaterialTheme.typography.labelSmall)
+                    Spacer(Modifier.height(8.dp))
+                    if (lines.isEmpty()) {
+                        Text(fallbackLine, fontFamily = FontFamily.Monospace)
+                    } else {
+                        lines.forEach { line ->
+                            val lineColor =
+                                when {
+                                    line.startsWith("+") -> Color(0xFF1B5E20)
+                                    line.startsWith("-") -> Color(0xFFB71C1C)
+                                    else -> MaterialTheme.colorScheme.onSurfaceVariant
+                                }
+                            Text(
+                                text = line,
+                                color = lineColor,
+                                fontFamily = FontFamily.Monospace,
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
+                        if (patch != null && patch.lines().size > lines.size) {
+                            Spacer(Modifier.height(6.dp))
+                            Text("… 预览已截断", style = MaterialTheme.typography.labelSmall)
+                        }
+                    }
+                }
+            }
+        }
+        "APPROVAL_REQUIRED" -> {
+            val action = payloadText(payload, "action")
+            val command = payloadText(payload, "command", "cmd")
+            val reason = payloadText(payload, "reason")
+            Card(
+                colors =
+                    CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer,
+                    ),
+            ) {
+                Column(Modifier.padding(12.dp)) {
+                    Text("等待审批", style = MaterialTheme.typography.titleSmall)
+                    Text(header, style = MaterialTheme.typography.labelSmall)
+                    action?.let {
+                        Spacer(Modifier.height(6.dp))
+                        Text("动作: $it")
+                    }
+                    command?.let {
+                        Spacer(Modifier.height(6.dp))
+                        Text("命令: $it", fontFamily = FontFamily.Monospace)
+                    }
+                    reason?.let {
+                        Spacer(Modifier.height(6.dp))
+                        Text("原因: $it")
+                    }
+                }
+            }
+        }
+        "TASK_DONE", "TASK_FAILED" -> {
+            val done = type == "TASK_DONE"
+            Card(
+                colors =
+                    CardDefaults.cardColors(
+                        containerColor =
+                            if (done) MaterialTheme.colorScheme.tertiaryContainer
+                            else MaterialTheme.colorScheme.errorContainer,
+                    ),
+            ) {
+                Column(Modifier.padding(12.dp)) {
+                    Text(
+                        text = if (done) "任务完成" else "任务失败",
+                        style = MaterialTheme.typography.titleSmall,
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    Text(fallbackLine)
+                    Spacer(Modifier.height(6.dp))
+                    Text(header, style = MaterialTheme.typography.labelSmall)
+                }
+            }
+        }
+        else -> {
+            Card {
+                Column(Modifier.padding(12.dp)) {
+                    Text(header, style = MaterialTheme.typography.labelSmall)
+                    Spacer(Modifier.height(6.dp))
+                    Text(fallbackLine, fontFamily = FontFamily.Monospace)
+                }
+            }
+        }
+    }
+}
+
+private fun eventStableKey(event: TaskEventDto): String =
+    when {
+        !event.eventId.isNullOrBlank() -> "id:${event.eventId}"
+        event.seq > 0L -> "seq:${event.seq}"
+        else -> "raw:${event.type}:${event.timestamp}:${event.payload}"
+    }
+
+private fun payloadText(payload: JsonObject, vararg keys: String): String? {
+    keys.forEach { key ->
+        val value =
+            payload[key]
+                ?.jsonPrimitive
+                ?.contentOrNull
+                ?.trim()
+        if (!value.isNullOrEmpty()) return value
+    }
+    return null
+}
+
+private fun payloadLongValue(payload: JsonObject, vararg keys: String): Long? {
+    keys.forEach { key ->
+        val value = payload[key]?.jsonPrimitive?.longOrNull
+        if (value != null) return value
+    }
+    return null
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

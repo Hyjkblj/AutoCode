@@ -2,6 +2,8 @@ package com.autocode.agent.sandbox;
 
 import com.autocode.agent.client.AgentApiClient;
 import com.autocode.agent.config.AgentConfig;
+import com.autocode.protocol.model.SandboxExecuteRequest;
+import com.autocode.protocol.model.SandboxExecuteResponse;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;

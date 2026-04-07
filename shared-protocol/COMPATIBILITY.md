@@ -44,6 +44,8 @@ This module is the single source of truth for cross-component DTOs and event sch
   `name`, `version`, and `action`, while additive optional fields remain v1-compatible.
 - Standalone manifests (multi-artifact exports) use `src/main/resources/schema/manifest/v1/`; `schemaVersion = 1`
   matches the same compatibility rules as event payloads (optional additive fields only).
+- Sandbox execute HTTP DTOs use `src/main/resources/schema/sandbox/v1/`; required request keys are `taskId` and
+  `command`, and required response keys are `ok`, `status`, `retryable`.
 - For `ArtifactMetadata.build`: the `build` object is optional; when present, `command` is required (JSON Schema and
   `ArtifactMetadataContractValidator` agree). `ArtifactManifest` lists must not contain duplicate `artifactId` values.
 - Service runtime descriptions (ports, health checks, env hints, startup) use `src/main/resources/schema/runtime/v1/`;
@@ -69,3 +71,6 @@ same minimal required-field approach.
 
 `com.autocode.protocol.validation.ToolManifestContractValidator` validates `ToolManifest` documents (v1) for required fields
 (`name`/`version`/`action`), param shape, and permission constraints (for example `riskScore` in `[0,1]`).
+
+`com.autocode.protocol.validation.SandboxExecuteContractValidator` validates sandbox execute request/response documents
+(v1) using minimal required-field checks for cross-language compatibility.

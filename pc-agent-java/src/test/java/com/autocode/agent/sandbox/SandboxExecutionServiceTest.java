@@ -4,6 +4,8 @@ import com.autocode.agent.client.AgentApiClient;
 import com.autocode.agent.config.AgentConfig;
 import com.autocode.protocol.model.ApprovalDecision;
 import com.autocode.protocol.model.EventType;
+import com.autocode.protocol.model.SandboxExecuteRequest;
+import com.autocode.protocol.model.SandboxExecuteResponse;
 import com.autocode.protocol.model.TaskEvent;
 import org.junit.jupiter.api.Test;
 

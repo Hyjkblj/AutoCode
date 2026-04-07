@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autocode.example/schema/sandbox/v1/sandbox_execute_response.v1.schema.json",
+  "title": "SandboxExecuteResponse v1",
+  "type": "object",
+  "required": ["ok", "status", "retryable"],
+  "properties": {
+    "ok": { "type": "boolean" },
+    "status": { "type": "string", "minLength": 1 },
+    "exitCode": { "type": "integer" },
+    "output": { "type": "string" },
+    "retryable": { "type": "boolean" },
+    "reason": { "type": "string" },
+    "tool": { "type": "string" },
+    "toolVersion": { "type": "string" },
+    "traceId": { "type": "string" },
+    "runId": { "type": "string" },
+    "approvalId": { "type": "string" }
+  },
+  "additionalProperties": true
+}

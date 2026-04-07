@@ -93,3 +93,16 @@ data class ArtifactPreview(
     val truncated: Boolean,
     val byteSize: Int,
 )
+
+data class ApprovalRequest(
+    val approvalId: String,
+    val taskId: String,
+    val action: String? = null,
+    val tool: String? = null,
+    val command: String? = null,
+    val cwd: String? = null,
+    val riskScore: Double? = null,
+    val reason: String? = null,
+    val timeoutSeconds: Int = 120,
+    val createdAtMillis: Long = System.currentTimeMillis(),
+)

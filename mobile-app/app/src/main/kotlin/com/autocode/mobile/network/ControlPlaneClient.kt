@@ -209,6 +209,42 @@ object ControlPlaneClient {
             }
         }
 
+    suspend fun submitApproval(
+        baseUrl: String,
+        bearerToken: String,
+        taskId: String,
+        approvalId: String,
+        decision: String,
+        comment: String?,
+    ): Result<TaskSummaryDto> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val root = normalizeBaseUrl(baseUrl)
+                val body =
+                    buildJsonObject {
+                        put("approvalId", approvalId.trim())
+                        put("decision", decision.trim())
+                        comment?.trim()?.takeIf { it.isNotEmpty() }?.let { put("comment", it) }
+                    }.toString()
+                val req =
+                    Request.Builder()
+                        .url("$root/api/v1/tasks/${taskId.trim()}/approval")
+                        .header("Authorization", "Bearer ${bearerToken.trim()}")
+                        .post(body.toRequestBody(mediaJson))
+                        .build()
+                client.newCall(req).execute().use { resp ->
+                    val text = resp.body?.string().orEmpty()
+                    if (resp.code == 404) {
+                        error("任务不存在、审批单不存在或无权访问 (404)")
+                    }
+                    if (!resp.isSuccessful) {
+                        error("HTTP ${resp.code}: ${text.take(300)}")
+                    }
+                    parseTaskSummaryEnvelope(text)
+                }
+            }
+        }
+
     private fun parseAccessToken(responseBody: String): String {
         val obj = json.parseToJsonElement(responseBody).jsonObject
         if (obj["ok"]?.jsonPrimitive?.booleanOrNull != true) {

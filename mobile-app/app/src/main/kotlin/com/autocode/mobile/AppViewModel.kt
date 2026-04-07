@@ -70,6 +70,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _uiState = MutableStateFlow(UiState())
     val uiState: StateFlow<UiState> = _uiState.asStateFlow()
+    private val _pendingApproval = MutableStateFlow<ApprovalRequest?>(null)
+    val pendingApproval: StateFlow<ApprovalRequest?> = _pendingApproval.asStateFlow()
     private val wsClient = WebSocketClient()
     private var subscribedTaskId: String? = null
     private var subscribedBaseUrl: String? = null
@@ -237,6 +239,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun logout() {
         viewModelScope.launch {
             unsubscribeTaskEvents()
+            _pendingApproval.value = null
             val baseUrl = _uiState.value.baseUrl
             val target = _uiState.value.generationTarget
             _uiState.update {
@@ -557,6 +560,63 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         subscribedToken = null
     }
 
+    fun submitApproval(
+        taskId: String,
+        approvalId: String,
+        decision: String,
+        comment: String? = null,
+    ) {
+        val normalizedTaskId = taskId.trim()
+        val normalizedApprovalId = approvalId.trim()
+        val normalizedDecision =
+            when (decision.trim().lowercase()) {
+                "approve", "approved" -> "approve"
+                "reject", "rejected", "deny", "denied" -> "reject"
+                else -> ""
+            }
+        if (normalizedTaskId.isEmpty() || normalizedApprovalId.isEmpty() || normalizedDecision.isEmpty()) {
+            _uiState.update { it.copy(errorMessage = "审批参数无效") }
+            return
+        }
+        viewModelScope.launch {
+            val state = _uiState.value
+            val base = state.baseUrl.trim()
+            val token = state.session?.accessToken?.trim().orEmpty()
+            if (base.isEmpty() || token.isEmpty()) {
+                _uiState.update { it.copy(errorMessage = "当前为离线模式，无法提交审批") }
+                return@launch
+            }
+            val result =
+                ControlPlaneClient.submitApproval(
+                    baseUrl = base,
+                    bearerToken = token,
+                    taskId = normalizedTaskId,
+                    approvalId = normalizedApprovalId,
+                    decision = normalizedDecision,
+                    comment = comment,
+                )
+            if (result.isSuccess) {
+                _pendingApproval.update { pending ->
+                    if (pending?.approvalId == normalizedApprovalId) null else pending
+                }
+                mergeRemoteTask(result.getOrThrow())
+            } else {
+                _uiState.update {
+                    it.copy(errorMessage = result.exceptionOrNull()?.message ?: "审批提交失败")
+                }
+            }
+        }
+    }
+
+    fun dismissPendingApproval(taskId: String? = null, approvalId: String? = null) {
+        _pendingApproval.update { current ->
+            if (current == null) return@update null
+            if (taskId != null && current.taskId != taskId) return@update current
+            if (approvalId != null && current.approvalId != approvalId) return@update current
+            null
+        }
+    }
+
     fun eventLine(event: TaskEventDto): String {
         val payload = event.payload
         return when (event.type?.uppercase()) {
@@ -610,9 +670,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     private suspend fun mergeTaskEvents(taskId: String, incoming: List<TaskEventDto>) {
         if (incoming.isEmpty()) return
+        val sortedIncoming = incoming.sortedBy { it.seq }
         _uiState.update { state ->
-            val mergedEvents = mergeEventList(state.taskEvents[taskId].orEmpty(), incoming)
-            val sortedIncoming = incoming.sortedBy { it.seq }
+            val mergedEvents = mergeEventList(state.taskEvents[taskId].orEmpty(), sortedIncoming)
             val mergedTasks = sortedIncoming.fold(state.tasks) { acc, event ->
                 applyEventToTasks(acc, taskId, event)
             }
@@ -621,6 +681,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 tasks = mergedTasks,
             )
         }
+        syncPendingApprovalFromEvents(taskId, sortedIncoming)
         persistTasks(_uiState.value.tasks)
     }
 
@@ -665,11 +726,57 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             else -> null
         }
 
+    private fun syncPendingApprovalFromEvents(taskId: String, incoming: List<TaskEventDto>) {
+        incoming.forEach { event ->
+            when (event.type?.uppercase()) {
+                "APPROVAL_REQUIRED" -> {
+                    val request = toApprovalRequest(taskId, event) ?: return@forEach
+                    _pendingApproval.value = request
+                }
+                "APPROVAL_RESULT", "TASK_DONE", "TASK_FAILED" -> {
+                    dismissPendingApproval(taskId = taskId)
+                }
+            }
+        }
+    }
+
+    private fun toApprovalRequest(taskId: String, event: TaskEventDto): ApprovalRequest? {
+        val payload = event.payload
+        val approvalId = stringValue(payload, "approvalId") ?: return null
+        val timeout =
+            longValue(payload, "approvalTimeoutSeconds", "timeoutSeconds")
+                ?.coerceAtLeast(1L)
+                ?.coerceAtMost(3600L)
+                ?.toInt()
+                ?: 120
+        return ApprovalRequest(
+            approvalId = approvalId,
+            taskId = taskId,
+            action = stringValue(payload, "action"),
+            tool = stringValue(payload, "tool"),
+            command = stringValue(payload, "command", "cmd"),
+            cwd = stringValue(payload, "cwd"),
+            riskScore = doubleValue(payload, "riskScore"),
+            reason = stringValue(payload, "reason"),
+            timeoutSeconds = timeout,
+        )
+    }
+
     private fun stringValue(payload: JsonObject, vararg keys: String): String? {
         for (key in keys) {
             val primitive = payload[key] as? JsonPrimitive ?: continue
             val raw = primitive.contentOrNull?.trim().orEmpty()
             if (raw.isNotEmpty()) return raw
+        }
+        return null
+    }
+
+    private fun doubleValue(payload: JsonObject, vararg keys: String): Double? {
+        for (key in keys) {
+            val primitive = payload[key] as? JsonPrimitive ?: continue
+            primitive.doubleOrNull?.let { return it }
+            primitive.longOrNull?.toDouble()?.let { return it }
+            primitive.contentOrNull?.trim()?.toDoubleOrNull()?.let { return it }
         }
         return null
     }
@@ -765,6 +872,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     override fun onCleared() {
         unsubscribeTaskEvents()
+        _pendingApproval.value = null
         super.onCleared()
     }
 }

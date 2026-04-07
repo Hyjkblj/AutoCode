@@ -47,6 +47,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -301,7 +302,7 @@ private fun MainShell(vm: AppViewModel) {
 @Composable
 private fun HomeTab(vm: AppViewModel) {
     val state by vm.uiState.collectAsStateWithLifecycle()
-    val project = vm.mockProjects.find { it.id == state.selectedProjectId }
+    val project = state.dynamicProjects.find { it.id == state.selectedProjectId }
     val mode =
         if (state.baseUrl.isBlank()) {
             "离线模拟（未配置控制面 URL）"
@@ -342,7 +343,7 @@ private fun TaskListTab(vm: AppViewModel, nav: NavHostController) {
     var askedAudioPermission by rememberSaveable { mutableStateOf(false) }
     var voiceHint by rememberSaveable { mutableStateOf<String?>(null) }
     val list = vm.tasksForCurrentProject()
-    val project = vm.mockProjects.find { it.id == state.selectedProjectId }
+    val project = state.dynamicProjects.find { it.id == state.selectedProjectId }
     val permissionRationale =
         (audioPermissionState.status as? PermissionStatus.Denied)?.shouldShowRationale == true
     val voiceInputLauncher =
@@ -1065,26 +1066,34 @@ private fun formatTimestamp(millis: Long): String =
         SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date(millis))
     }.getOrElse { millis.toString() }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ProjectsTab(vm: AppViewModel) {
     val state by vm.uiState.collectAsStateWithLifecycle()
-    Column(Modifier.padding(20.dp)) {
-        Text("选择项目", style = MaterialTheme.typography.headlineSmall)
-        Spacer(Modifier.height(8.dp))
-        Text(
-            "projectId 须与控制面一致（默认 proj-1 与后端测试数据对齐）。",
-            style = MaterialTheme.typography.bodySmall,
-        )
-        Spacer(Modifier.height(16.dp))
-        vm.mockProjects.forEach { p ->
-            val active = p.id == state.selectedProjectId
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 6.dp)
-                    .clickable { vm.selectProject(p.id) },
-            ) {
-                RowWithProject(name = p.name, active = active)
+    val projects = if (state.dynamicProjects.isEmpty()) vm.mockProjects else state.dynamicProjects
+    PullToRefreshBox(
+        isRefreshing = state.isRefreshingProjects,
+        onRefresh = { vm.refreshProjects() },
+        modifier = Modifier.fillMaxSize(),
+    ) {
+        Column(Modifier.padding(20.dp).verticalScroll(rememberScrollState())) {
+            Text("选择项目", style = MaterialTheme.typography.headlineSmall)
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "projectId 须与控制面一致（默认 proj-1 与后端测试数据对齐）。",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Spacer(Modifier.height(16.dp))
+            projects.forEach { p ->
+                val active = p.id == state.selectedProjectId
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 6.dp)
+                        .clickable { vm.selectProject(p.id) },
+                ) {
+                    RowWithProject(name = p.name, active = active)
+                }
             }
         }
     }
@@ -1185,4 +1194,3 @@ private fun AccountTab(vm: AppViewModel) {
         }
     }
 }
-

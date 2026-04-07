@@ -46,6 +46,8 @@ data class UiState(
     val isLoading: Boolean = true,
     val session: Session? = null,
     val selectedProjectId: String? = null,
+    val dynamicProjects: List<Project> = emptyList(),
+    val isRefreshingProjects: Boolean = false,
     val tasks: List<TaskItem> = emptyList(),
     val taskEvents: Map<String, List<TaskEventDto>> = emptyMap(),
     val errorMessage: String? = null,
@@ -77,6 +79,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private var subscribedBaseUrl: String? = null
     private var subscribedToken: String? = null
     private val maxTaskEventsPerTask = 300
+    private val fallbackProjectMap: Map<String, Project> by lazy {
+        mockProjects.associateBy { it.id }
+    }
 
     /** 与集成测试常用 projectId 对齐，便于真机连本地控制面。 */
     val mockProjects: List<Project> = listOf(
@@ -88,6 +93,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     init {
         viewModelScope.launch {
             loadFromStore()
+            refreshProjectsInternal()
             _uiState.update { it.copy(isLoading = false) }
             startLocalProgressTicker()
             startRemotePolling()
@@ -121,7 +127,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             if (token.isNotBlank() && display.isNotBlank()) Session(accessToken = token, displayName = display)
             else null
 
-        val effectiveProject = projectId ?: mockProjects.first().id
+        val initialProjects = deriveProjectsFromTasks(tasks = tasks, selectedProjectId = projectId)
+        val effectiveProject =
+            when {
+                session == null -> null
+                !projectId.isNullOrBlank() -> projectId
+                else -> initialProjects.firstOrNull()?.id ?: mockProjects.first().id
+            }
         val normalizedTasks = tasks.map { t ->
             if (t.source == TaskSource.LOCAL && t.status == TaskStatus.QUEUED) {
                 t.copy(
@@ -138,7 +150,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.update {
             it.copy(
                 session = session,
-                selectedProjectId = if (session != null) effectiveProject else null,
+                selectedProjectId = effectiveProject,
+                dynamicProjects = initialProjects,
                 tasks = normalizedTasks,
                 baseUrl = baseUrl,
                 generationTarget = generationTarget,
@@ -196,6 +209,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 )
             }
             persistAll()
+            refreshProjectsInternal()
         }
     }
 
@@ -221,6 +235,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                         )
                     }
                     persistAll()
+                    refreshProjectsInternal()
                 } else {
                     val msg = r.exceptionOrNull()?.message ?: "登录失败"
                     _uiState.update { it.copy(errorMessage = msg) }
@@ -232,6 +247,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     it.copy(session = session, selectedProjectId = projectId, errorMessage = null)
                 }
                 persistAll()
+                refreshProjectsInternal()
             }
         }
     }
@@ -247,6 +263,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     isLoading = false,
                     session = null,
                     selectedProjectId = null,
+                    dynamicProjects = mockProjects,
+                    isRefreshingProjects = false,
                     tasks = emptyList(),
                     baseUrl = baseUrl,
                     generationTarget = target,
@@ -269,6 +287,50 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             persistAll()
         }
     }
+
+    fun refreshProjects() {
+        viewModelScope.launch {
+            refreshProjectsInternal()
+        }
+    }
+
+    private suspend fun refreshProjectsInternal() {
+        val before = _uiState.value
+        _uiState.update { it.copy(isRefreshingProjects = true) }
+        val projects = deriveProjectsFromTasks(before.tasks, before.selectedProjectId)
+        val selected =
+            when {
+                before.session == null -> null
+                !before.selectedProjectId.isNullOrBlank() && projects.any { it.id == before.selectedProjectId } ->
+                    before.selectedProjectId
+                else -> projects.firstOrNull()?.id
+            }
+        _uiState.update {
+            it.copy(
+                dynamicProjects = projects,
+                selectedProjectId = selected,
+                isRefreshingProjects = false,
+            )
+        }
+        persistAll()
+    }
+
+    private fun deriveProjectsFromTasks(tasks: List<TaskItem>, selectedProjectId: String?): List<Project> {
+        val ids = LinkedHashSet<String>()
+        selectedProjectId?.trim()?.takeIf { it.isNotEmpty() }?.let { ids += it }
+        tasks
+            .asSequence()
+            .map { it.projectId.trim() }
+            .filter { it.isNotEmpty() }
+            .forEach { ids += it }
+        if (ids.isEmpty()) {
+            mockProjects.forEach { ids += it.id }
+        }
+        return ids.map { projectFromId(it) }
+    }
+
+    private fun projectFromId(projectId: String): Project =
+        fallbackProjectMap[projectId] ?: Project(projectId, "项目 $projectId")
 
     /**
      * PR-2：有控制面 URL 时走 HTTP 创建并轮询；否则本地模拟。
@@ -297,6 +359,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 val mapped = mapServerToTaskItem(dto, projectId, text)
                 _uiState.update { st -> st.copy(tasks = listOf(mapped) + st.tasks, errorMessage = null) }
                 persistAll()
+                refreshProjectsInternal()
                 return dto.taskId
             } else {
                 val msg = r.exceptionOrNull()?.message ?: "创建任务失败"
@@ -865,7 +928,17 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                         updatedAt = System.currentTimeMillis(),
                     )
                 }
-            state.copy(tasks = next)
+            val incomingProjectId = dto.projectId?.trim().orEmpty()
+            val hasIncomingProject =
+                incomingProjectId.isNotEmpty() &&
+                    state.dynamicProjects.none { it.id == incomingProjectId }
+            val mergedProjects =
+                if (hasIncomingProject) {
+                    state.dynamicProjects + projectFromId(incomingProjectId)
+                } else {
+                    state.dynamicProjects
+                }
+            state.copy(tasks = next, dynamicProjects = mergedProjects)
         }
         persistTasks(_uiState.value.tasks)
     }

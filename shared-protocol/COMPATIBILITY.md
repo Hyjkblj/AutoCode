@@ -16,6 +16,7 @@ This module is the single source of truth for cross-component DTOs and event sch
 - Prefer **optional** payload fields so existing consumers keep working when they ignore unknown keys.
 - `APPROVAL_REQUIRED` requires `approvalId` + `context` (strong-binding context fields stay mandatory).
 - `APPROVAL_RESULT` requires `approvalId` + `decision`; consumers should tolerate lowercase/uppercase decision strings.
+- `BUILD_LOG` requires `message`; `buildId`/`level` are optional in v1.
 - `DEPLOY_PLAN` captures a normalized deployment request (required keys: `requestId`, `environment`, `artifact`).
 - `DEPLOY_RESULT` reports execution outcome (required keys: `requestId`, `status`).
 
@@ -54,4 +55,3 @@ platform's key event types (v1). It is intended to be used by both control plane
 same minimal required-field approach.
 
 `com.autocode.protocol.validation.ServiceRuntimeDescriptorContractValidator` validates `ServiceRuntimeDescriptor` documents (v1).
-

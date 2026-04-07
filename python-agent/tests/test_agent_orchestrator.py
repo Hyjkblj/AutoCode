@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from agents.reviewer_agent import ReviewResult
+from agents.tester_agent import TesterResult as RunResult
 from orchestrator.agent_orchestrator import AgentOrchestrator
 from tools.exec_tool import ExecResult
 
@@ -27,6 +29,42 @@ class _FakeExecTool:
                 "command": command,
                 "prompt": prompt,
                 "intent": intent,
+            }
+        )
+        return self.result
+
+
+class _FakeReviewerAgent:
+    def __init__(self, result: ReviewResult) -> None:
+        self.result = result
+        self.calls: list[dict[str, Any]] = []
+
+    def review(self, task, client, plan, publish_event):  # noqa: ANN001
+        self.calls.append({"task": task, "plan": plan.plan_name})
+        publish_event(
+            {
+                "stage": "ReviewerAgent",
+                "message": "Code review completed.",
+                "approved": self.result.approved,
+                "summary": self.result.summary,
+            }
+        )
+        return self.result
+
+
+class _FakeTesterAgent:
+    def __init__(self, result: RunResult) -> None:
+        self.result = result
+        self.calls: list[dict[str, Any]] = []
+
+    def execute(self, task, client, plan, publish_event):  # noqa: ANN001
+        self.calls.append({"task": task, "plan": plan.plan_name})
+        publish_event(
+            {
+                "stage": "TesterAgent",
+                "message": "Validation completed.",
+                "status": self.result.status,
+                "attempts": self.result.attempts,
             }
         )
         return self.result
@@ -67,13 +105,74 @@ def test_orchestrator_routes_code_change_to_coder_and_emits_patch_preview(monkey
         "workspacePath": str(workspace),
     }
     client = _FakeClient()
+    reviewer = _FakeReviewerAgent(ReviewResult(approved=True, summary="review passed", issues=[]))
+    tester = _FakeTesterAgent(
+        RunResult(
+            success=True,
+            attempts=1,
+            retries=0,
+            command="echo test",
+            status="ok",
+            reason=None,
+            trace_id="trc_task_101",
+            run_id="run_task_101",
+        )
+    )
 
-    AgentOrchestrator().handle_task(task, client)
+    AgentOrchestrator(reviewer_agent=reviewer, tester_agent=tester).handle_task(task, client)
 
     types = [event["type"] for _, event in client.events]
-    assert types == ["ASSISTANT_OUTPUT", "ASSISTANT_OUTPUT", "ASSISTANT_OUTPUT", "FILE_PATCH_PREVIEW", "TASK_DONE"]
+    assert types == [
+        "ASSISTANT_OUTPUT",
+        "ASSISTANT_OUTPUT",
+        "ASSISTANT_OUTPUT",
+        "FILE_PATCH_PREVIEW",
+        "ASSISTANT_OUTPUT",
+        "ASSISTANT_OUTPUT",
+        "TASK_DONE",
+    ]
     assert client.events[3][1]["payload"]["files"] == [{"path": "README.md", "changeType": "modify"}]
-    assert client.events[4][1]["payload"]["result"] == "coded"
+    assert client.events[6][1]["payload"]["result"] == "coded_reviewed_tested"
+    assert reviewer.calls[0]["plan"] == "code_change_pipeline"
+    assert tester.calls[0]["plan"] == "code_change_pipeline"
+
+
+def test_orchestrator_marks_code_change_failed_when_tests_fail(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("LLM_BACKEND", "openai")
+    monkeypatch.setenv("OPENAI_API_KEY", "dummy")
+    workspace = tmp_path / "workspace"
+    workspace.mkdir(parents=True, exist_ok=True)
+    (workspace / "README.md").write_text("TODO: patch me\n", encoding="utf-8")
+    monkeypatch.setenv("MVP_ALLOWED_WORKSPACE_PREFIXES", str(workspace))
+
+    task = {
+        "taskId": "task_104",
+        "assistant": "ai-agent",
+        "sessionKey": "sess_104",
+        "prompt": "fix readme and implement update",
+        "workspacePath": str(workspace),
+    }
+    client = _FakeClient()
+    reviewer = _FakeReviewerAgent(ReviewResult(approved=True, summary="review passed", issues=[]))
+    tester = _FakeTesterAgent(
+        RunResult(
+            success=False,
+            attempts=4,
+            retries=3,
+            command="echo test",
+            status="failed",
+            reason="test_failed",
+            trace_id="trc_task_104",
+            run_id="run_task_104",
+        )
+    )
+
+    AgentOrchestrator(reviewer_agent=reviewer, tester_agent=tester).handle_task(task, client)
+
+    types = [event["type"] for _, event in client.events]
+    assert types[-1] == "TASK_FAILED"
+    assert client.events[-1][1]["payload"]["reason"] == "test_failed"
+    assert client.events[-1][1]["payload"]["attempts"] == 4
 
 
 def test_orchestrator_routes_deploy_to_exec_tool_and_marks_task_done(monkeypatch) -> None:

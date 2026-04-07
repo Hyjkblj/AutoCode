@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -1156,6 +1157,9 @@ private fun ArtifactDetailScreen(
     var previewErr by remember { mutableStateOf<String?>(null) }
     var previewLoading by remember { mutableStateOf(false) }
     var versionLabel by rememberSaveable(taskId, artifactId) { mutableStateOf(defaultVersionLabel()) }
+    var environment by rememberSaveable(taskId, artifactId) { mutableStateOf("staging") }
+    var publishSubmitting by remember { mutableStateOf(false) }
+    var publishError by remember { mutableStateOf<String?>(null) }
     var publishHint by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(taskId, artifactId) {
         loading = true
@@ -1165,6 +1169,9 @@ private fun ArtifactDetailScreen(
         previewErr = null
         previewLoading = false
         versionLabel = defaultVersionLabel()
+        environment = "staging"
+        publishSubmitting = false
+        publishError = null
         publishHint = null
         vm.loadArtifactsForTask(taskId).fold(
             onSuccess = { list ->
@@ -1274,16 +1281,49 @@ private fun ArtifactDetailScreen(
                 modifier = Modifier.fillMaxWidth(),
             )
             Spacer(Modifier.height(8.dp))
+            OutlinedTextField(
+                value = environment,
+                onValueChange = { environment = it },
+                label = { Text("Environment (default staging)") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(Modifier.height(8.dp))
             Button(
                 onClick = {
-                    val version = versionLabel.trim()
-                    vm.recordPublishEntry(taskId, a.artifactId, a.name, version)
-                    publishHint = "已记录发布申请：$version"
+                    scope.launch {
+                        val version = versionLabel.trim()
+                        if (version.isEmpty()) return@launch
+                        publishSubmitting = true
+                        publishError = null
+                        publishHint = null
+                        vm.recordPublishEntry(
+                            taskId = taskId,
+                            artifactId = a.artifactId,
+                            artifactName = a.name,
+                            versionLabel = version,
+                            environment = environment,
+                        ).fold(
+                            onSuccess = { entry ->
+                                publishHint = "Publish task submitted: ${entry.taskId} (${entry.status})"
+                                versionLabel = defaultVersionLabel()
+                                vm.subscribeTaskEvents(entry.taskId)
+                            },
+                            onFailure = { ex ->
+                                publishError = ex.message ?: "Failed to submit publish request"
+                            },
+                        )
+                        publishSubmitting = false
+                    }
                 },
-                enabled = versionLabel.trim().isNotEmpty(),
+                enabled = versionLabel.trim().isNotEmpty() && !publishSubmitting,
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                Text("提交发布申请")
+                Text(if (publishSubmitting) "Submitting..." else "Submit Publish Request")
+            }
+            publishError?.let {
+                Spacer(Modifier.height(8.dp))
+                Text(it, color = MaterialTheme.colorScheme.error)
             }
             publishHint?.let {
                 Spacer(Modifier.height(8.dp))
@@ -1298,37 +1338,50 @@ private fun ArtifactDetailScreen(
 private fun PublishHistoryScreen(vm: AppViewModel, onBack: () -> Unit) {
     val state by vm.uiState.collectAsStateWithLifecycle()
     val sorted = state.publishHistory.sortedByDescending { it.createdAt }
+    LaunchedEffect(state.baseUrl, state.session?.accessToken) {
+        vm.refreshPublishHistory()
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("历史与版本") },
+                title = { Text("Publish History") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                actions = {
+                    IconButton(
+                        onClick = { vm.refreshPublishHistory() },
+                        enabled = !state.isRefreshingPublishHistory,
+                    ) {
+                        Icon(Icons.Filled.Refresh, contentDescription = "Refresh")
                     }
                 },
             )
         },
     ) { pad ->
-        LazyColumn(
+        PullToRefreshBox(
+            isRefreshing = state.isRefreshingPublishHistory,
+            onRefresh = { vm.refreshPublishHistory() },
             modifier =
                 Modifier
                     .padding(pad)
-                    .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+                    .fillMaxSize(),
         ) {
-            if (sorted.isEmpty()) {
-                item { Text("暂无记录。在产物详情页使用「提交发布申请」。") }
-            } else {
-                items(sorted, key = { it.id }) { e ->
-                    Card(Modifier.fillMaxWidth()) {
-                        Column(Modifier.padding(14.dp)) {
-                            Text("版本 ${e.versionLabel}", style = MaterialTheme.typography.titleSmall)
-                            Text("任务 ${e.taskId}", style = MaterialTheme.typography.bodySmall)
-                            Text("产物 ${e.artifactName ?: e.artifactId ?: "—"}")
-                            Text("状态 ${e.status}", style = MaterialTheme.typography.bodySmall)
-                            Text("时间 ${formatTimestamp(e.createdAt)}", style = MaterialTheme.typography.bodySmall)
-                        }
+            LazyColumn(
+                modifier =
+                    Modifier
+                        .fillMaxSize()
+                        .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                if (sorted.isEmpty()) {
+                    item { Text("No publish records yet. Submit one from Artifact Detail.") }
+                } else {
+                    items(sorted, key = { it.id }) { entry ->
+                        DeployStatusCard(entry)
                     }
                 }
             }
@@ -1336,6 +1389,34 @@ private fun PublishHistoryScreen(vm: AppViewModel, onBack: () -> Unit) {
     }
 }
 
+@Composable
+private fun DeployStatusCard(entry: PublishHistoryEntry) {
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(14.dp)) {
+            Text("Version ${entry.versionLabel}", style = MaterialTheme.typography.titleSmall)
+            Text("Deploy Task ${entry.taskId}", style = MaterialTheme.typography.bodySmall)
+            entry.sourceTaskId?.takeIf { it.isNotBlank() }?.let {
+                Text("Source Task $it", style = MaterialTheme.typography.bodySmall)
+            }
+            Text("Artifact ${entry.artifactName ?: entry.artifactId ?: "-"}")
+            entry.environment?.takeIf { it.isNotBlank() }?.let {
+                Text("Environment $it", style = MaterialTheme.typography.bodySmall)
+            }
+            Text("Status: ${entry.status}", style = MaterialTheme.typography.bodySmall)
+            entry.endpointUrl?.takeIf { it.isNotBlank() }?.let {
+                Text(
+                    text = "Endpoint $it",
+                    style = MaterialTheme.typography.bodySmall,
+                    fontFamily = FontFamily.Monospace,
+                )
+            }
+            entry.deployRequestId?.takeIf { it.isNotBlank() }?.let {
+                Text("Request ID $it", style = MaterialTheme.typography.bodySmall)
+            }
+            Text("Time ${formatTimestamp(entry.createdAt)}", style = MaterialTheme.typography.bodySmall)
+        }
+    }
+}
 private fun defaultVersionLabel(): String =
     "v" + SimpleDateFormat("yyyyMMdd-HHmmss", Locale.getDefault()).format(Date())
 

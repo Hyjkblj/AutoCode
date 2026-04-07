@@ -56,6 +56,7 @@ data class UiState(
     val generationTarget: GenerationTarget = GenerationTarget.WEB,
     /** PR-3：发布/版本历史（本地持久化） */
     val publishHistory: List<PublishHistoryEntry> = emptyList(),
+    val isRefreshingPublishHistory: Boolean = false,
 )
 
 class AppViewModel(application: Application) : AndroidViewModel(application) {
@@ -94,6 +95,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             loadFromStore()
             refreshProjectsInternal()
+            refreshPublishHistoryInternal()
             _uiState.update { it.copy(isLoading = false) }
             startLocalProgressTicker()
             startRemotePolling()
@@ -292,6 +294,44 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             refreshProjectsInternal()
         }
+    }
+
+    fun refreshPublishHistory() {
+        viewModelScope.launch {
+            refreshPublishHistoryInternal()
+        }
+    }
+
+    private suspend fun refreshPublishHistoryInternal() {
+        val before = _uiState.value
+        val base = before.baseUrl.trim()
+        val token = before.session?.accessToken?.trim().orEmpty()
+        if (base.isEmpty() || token.isEmpty()) return
+        val entries = before.publishHistory
+        if (entries.isEmpty()) return
+
+        _uiState.update { it.copy(isRefreshingPublishHistory = true) }
+        var merged = entries
+        entries.forEach { entry ->
+            val taskId = entry.taskId.trim()
+            if (taskId.isEmpty()) return@forEach
+            val summary = ControlPlaneClient.getTask(base, token, taskId).getOrNull()
+            if (summary != null) {
+                merged = updatePublishHistoryFromSummary(merged, summary)
+            }
+            if (merged.firstOrNull { it.id == entry.id }?.endpointUrl.isNullOrBlank()) {
+                val events = ControlPlaneClient.listTaskEvents(base, token, taskId, 0L).getOrNull().orEmpty()
+                merged = updatePublishHistoryFromEvents(merged, taskId, events)
+            }
+        }
+
+        _uiState.update {
+            it.copy(
+                publishHistory = merged,
+                isRefreshingPublishHistory = false,
+            )
+        }
+        persistAll()
     }
 
     private suspend fun refreshProjectsInternal() {
@@ -542,28 +582,86 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         return suffixes.any { s -> name.endsWith(s) }
     }
 
-    fun recordPublishEntry(
+    suspend fun recordPublishEntry(
         taskId: String,
         artifactId: String?,
         artifactName: String?,
         versionLabel: String,
-        status: String = "submitted_mock",
-    ) {
-        viewModelScope.launch {
-            val normalizedVersion = versionLabel.trim().ifEmpty { "v-${System.currentTimeMillis()}" }
-            val e =
+        environment: String = "staging",
+    ): Result<PublishHistoryEntry> {
+        val state = _uiState.value
+        val normalizedVersion = versionLabel.trim().ifEmpty { "v-${System.currentTimeMillis()}" }
+        val normalizedEnvironment = environment.trim().ifEmpty { "staging" }
+        val sourceTaskId = taskId.trim().ifEmpty { null }
+        val base = state.baseUrl.trim()
+        val token = state.session?.accessToken?.trim().orEmpty()
+
+        if (base.isNotEmpty() && token.isNotEmpty()) {
+            val projectId =
+                taskById(taskId)?.projectId ?: state.selectedProjectId
+                    ?: return Result.failure(IllegalStateException("无法确定发布项目"))
+            val deployResult =
+                ControlPlaneClient.createDeployTask(
+                    baseUrl = base,
+                    bearerToken = token,
+                    projectId = projectId,
+                    artifactId = artifactId,
+                    environment = normalizedEnvironment,
+                    versionLabel = normalizedVersion,
+                    sourceTaskId = sourceTaskId,
+                )
+            if (deployResult.isFailure) {
+                return Result.failure(deployResult.exceptionOrNull() ?: IllegalStateException("发布任务创建失败"))
+            }
+            val dto = deployResult.getOrThrow()
+            val deployPrompt =
+                dto.prompt ?: "Deploy artifact ${artifactId ?: "unknown-artifact"} to $normalizedEnvironment"
+            val mappedTask = mapServerToTaskItem(dto, projectId, deployPrompt)
+            val entry =
                 PublishHistoryEntry(
-                    id = "pub_${System.currentTimeMillis()}",
-                    taskId = taskId,
+                    id = "pub_${dto.taskId}",
+                    taskId = dto.taskId,
                     artifactId = artifactId,
                     artifactName = artifactName,
+                    sourceTaskId = sourceTaskId,
                     versionLabel = normalizedVersion,
-                    status = status,
+                    status = normalizePublishStatus(dto.status),
+                    environment = normalizedEnvironment,
                     createdAt = System.currentTimeMillis(),
                 )
-            _uiState.update { it.copy(publishHistory = listOf(e) + it.publishHistory) }
+            _uiState.update { st ->
+                val tasks =
+                    if (st.tasks.any { it.id == mappedTask.id }) st.tasks else listOf(mappedTask) + st.tasks
+                st.copy(
+                    tasks = tasks,
+                    publishHistory = upsertPublishHistory(st.publishHistory, entry),
+                    errorMessage = null,
+                )
+            }
             persistAll()
+            return Result.success(entry)
         }
+
+        val fallbackEntry =
+            PublishHistoryEntry(
+                id = "pub_${System.currentTimeMillis()}",
+                taskId = taskId,
+                artifactId = artifactId,
+                artifactName = artifactName,
+                sourceTaskId = sourceTaskId,
+                versionLabel = normalizedVersion,
+                status = "submitted_mock",
+                environment = normalizedEnvironment,
+                createdAt = System.currentTimeMillis(),
+            )
+        _uiState.update { st ->
+            st.copy(
+                publishHistory = upsertPublishHistory(st.publishHistory, fallbackEntry),
+                errorMessage = null,
+            )
+        }
+        persistAll()
+        return Result.success(fallbackEntry)
     }
 
     fun subscribeTaskEvents(taskId: String) {
@@ -707,6 +805,19 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 val decision = stringValue(payload, "decision", "result") ?: "unknown"
                 "审批结果：$decision"
             }
+            "DEPLOY_PLAN" -> {
+                val env = stringValue(payload, "environment", "env") ?: "unknown"
+                "部署计划：environment=$env"
+            }
+            "DEPLOY_RESULT" -> {
+                val status = normalizePublishStatus(stringValue(payload, "status")).ifBlank { "unknown" }
+                val endpoint = stringValue(payload, "endpointUrl", "endpoint", "url")
+                if (endpoint.isNullOrBlank()) {
+                    "部署结果：$status"
+                } else {
+                    "部署结果：$status -> $endpoint"
+                }
+            }
             "TASK_DONE" -> "任务完成"
             "TASK_FAILED" -> {
                 val reason = stringValue(payload, "reason", "message", "error")
@@ -734,18 +845,26 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private suspend fun mergeTaskEvents(taskId: String, incoming: List<TaskEventDto>) {
         if (incoming.isEmpty()) return
         val sortedIncoming = incoming.sortedBy { it.seq }
+        var publishHistoryChanged = false
         _uiState.update { state ->
             val mergedEvents = mergeEventList(state.taskEvents[taskId].orEmpty(), sortedIncoming)
             val mergedTasks = sortedIncoming.fold(state.tasks) { acc, event ->
                 applyEventToTasks(acc, taskId, event)
             }
+            val mergedHistory = updatePublishHistoryFromEvents(state.publishHistory, taskId, sortedIncoming)
+            publishHistoryChanged = mergedHistory != state.publishHistory
             state.copy(
                 taskEvents = state.taskEvents + (taskId to mergedEvents),
                 tasks = mergedTasks,
+                publishHistory = mergedHistory,
             )
         }
         syncPendingApprovalFromEvents(taskId, sortedIncoming)
-        persistTasks(_uiState.value.tasks)
+        if (publishHistoryChanged) {
+            persistAll()
+        } else {
+            persistTasks(_uiState.value.tasks)
+        }
     }
 
     private fun mergeEventList(existing: List<TaskEventDto>, incoming: List<TaskEventDto>): List<TaskEventDto> {
@@ -784,6 +903,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         when (event.type?.uppercase()) {
             "TASK_STARTED" -> TaskStatus.RUNNING to 15
             "APPROVAL_REQUIRED" -> TaskStatus.RUNNING to 78
+            "DEPLOY_PLAN" -> TaskStatus.RUNNING to 88
+            "DEPLOY_RESULT" -> {
+                when (normalizePublishStatus(stringValue(event.payload, "status"))) {
+                    "success" -> TaskStatus.SUCCEEDED to 100
+                    "failed", "canceled", "rejected" -> TaskStatus.FAILED to 100
+                    else -> TaskStatus.RUNNING to 95
+                }
+            }
             "TASK_DONE" -> TaskStatus.SUCCEEDED to 100
             "TASK_FAILED" -> TaskStatus.FAILED to 100
             else -> null
@@ -823,6 +950,93 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             reason = stringValue(payload, "reason"),
             timeoutSeconds = timeout,
         )
+    }
+
+    private fun upsertPublishHistory(
+        history: List<PublishHistoryEntry>,
+        incoming: PublishHistoryEntry,
+    ): List<PublishHistoryEntry> {
+        val replaced = history.map { if (it.id == incoming.id) incoming else it }
+        return if (replaced.any { it.id == incoming.id }) replaced else listOf(incoming) + history
+    }
+
+    private fun normalizePublishStatus(raw: String?): String {
+        val status = raw?.trim().orEmpty()
+        if (status.isEmpty()) return "unknown"
+        return when (status.uppercase()) {
+            "QUEUED" -> "queued"
+            "RUNNING" -> "running"
+            "WAITING_APPROVAL", "PAUSED" -> "waiting_approval"
+            "DONE", "SUCCEEDED", "SUCCESS" -> "success"
+            "FAILED", "ERROR" -> "failed"
+            "CANCELED", "CANCELLED" -> "canceled"
+            "REJECTED", "REJECT" -> "rejected"
+            else -> status.lowercase()
+        }
+    }
+
+    private fun updatePublishHistoryFromSummary(
+        history: List<PublishHistoryEntry>,
+        dto: TaskSummaryDto,
+    ): List<PublishHistoryEntry> {
+        if (history.isEmpty()) return history
+        val normalized = normalizePublishStatus(dto.status)
+        return history.map { entry ->
+            if (entry.taskId != dto.taskId) return@map entry
+            entry.copy(status = normalized)
+        }
+    }
+
+    private fun updatePublishHistoryFromEvents(
+        history: List<PublishHistoryEntry>,
+        taskId: String,
+        events: List<TaskEventDto>,
+    ): List<PublishHistoryEntry> {
+        if (history.isEmpty() || events.isEmpty()) return history
+        return events.fold(history) { acc, event ->
+            updatePublishHistoryFromEvent(acc, taskId, event)
+        }
+    }
+
+    private fun updatePublishHistoryFromEvent(
+        history: List<PublishHistoryEntry>,
+        taskId: String,
+        event: TaskEventDto,
+    ): List<PublishHistoryEntry> {
+        val type = event.type?.uppercase().orEmpty()
+        if (type.isEmpty()) return history
+        return history.map { entry ->
+            if (entry.taskId != taskId) return@map entry
+            when (type) {
+                "DEPLOY_PLAN" -> {
+                    val payload = event.payload
+                    entry.copy(
+                        status = "deploy_planned",
+                        environment = stringValue(payload, "environment", "env") ?: entry.environment,
+                        deployRequestId =
+                            stringValue(payload, "requestId", "deployRequestId", "request_id") ?: entry.deployRequestId,
+                    )
+                }
+                "DEPLOY_RESULT" -> {
+                    val payload = event.payload
+                    val deployStatus = normalizePublishStatus(stringValue(payload, "status"))
+                    entry.copy(
+                        status = if (deployStatus == "unknown") entry.status else deployStatus,
+                        environment = stringValue(payload, "environment", "env") ?: entry.environment,
+                        endpointUrl = stringValue(payload, "endpointUrl", "endpoint", "url") ?: entry.endpointUrl,
+                        deployRequestId =
+                            stringValue(payload, "requestId", "deployRequestId", "request_id") ?: entry.deployRequestId,
+                    )
+                }
+                "TASK_FAILED" -> {
+                    entry.copy(status = "failed")
+                }
+                "TASK_DONE" -> {
+                    if (entry.status != "success") entry.copy(status = "success") else entry
+                }
+                else -> entry
+            }
+        }
     }
 
     private fun stringValue(payload: JsonObject, vararg keys: String): String? {
@@ -891,14 +1105,21 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 val sess = st.session ?: continue
                 if (base.isEmpty()) continue
                 val activeSubscribedTask = subscribedTaskId
-                val remote =
-                    st.tasks.filter {
-                        it.source == TaskSource.REMOTE &&
-                            it.id != activeSubscribedTask
-                    }
-                if (remote.isEmpty()) continue
-                for (t in remote) {
-                    val r = ControlPlaneClient.getTask(base, sess.accessToken, t.id)
+                val remoteTaskIds = LinkedHashSet<String>()
+                st.tasks
+                    .asSequence()
+                    .filter { it.source == TaskSource.REMOTE }
+                    .map { it.id.trim() }
+                    .filter { it.isNotEmpty() && it != activeSubscribedTask }
+                    .forEach { remoteTaskIds += it }
+                st.publishHistory
+                    .asSequence()
+                    .map { it.taskId.trim() }
+                    .filter { it.isNotEmpty() && it != activeSubscribedTask }
+                    .forEach { remoteTaskIds += it }
+                if (remoteTaskIds.isEmpty()) continue
+                for (taskId in remoteTaskIds) {
+                    val r = ControlPlaneClient.getTask(base, sess.accessToken, taskId)
                     if (r.isSuccess) {
                         mergeRemoteTask(r.getOrThrow())
                     }
@@ -909,24 +1130,36 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     private suspend fun mergeRemoteTask(dto: TaskSummaryDto) {
         val (st, prog) = mapServerStatus(dto.status)
+        var publishHistoryChanged = false
         _uiState.update { state ->
+            val taskExists = state.tasks.any { it.id == dto.taskId }
             val next =
-                state.tasks.map { t ->
-                    if (t.id != dto.taskId) return@map t
-                    val statusLine = "控制面: ${dto.status}"
-                    val newLogs =
-                        if (t.logs.lastOrNull() == statusLine) {
-                            t.logs
-                        } else {
-                            (t.logs + statusLine).takeLast(40)
-                        }
-                    t.copy(
-                        status = st,
-                        progress = prog,
-                        prompt = dto.prompt ?: t.prompt,
-                        logs = newLogs,
-                        updatedAt = System.currentTimeMillis(),
-                    )
+                if (taskExists) {
+                    state.tasks.map { t ->
+                        if (t.id != dto.taskId) return@map t
+                        val statusLine = "Control-plane status: ${dto.status}"
+                        val newLogs =
+                            if (t.logs.lastOrNull() == statusLine) {
+                                t.logs
+                            } else {
+                                (t.logs + statusLine).takeLast(40)
+                            }
+                        t.copy(
+                            status = st,
+                            progress = prog,
+                            prompt = dto.prompt ?: t.prompt,
+                            logs = newLogs,
+                            updatedAt = System.currentTimeMillis(),
+                        )
+                    }
+                } else {
+                    val fallbackProjectId =
+                        dto.projectId?.trim()?.takeIf { it.isNotEmpty() }
+                            ?: state.selectedProjectId
+                            ?: state.dynamicProjects.firstOrNull()?.id
+                            ?: mockProjects.first().id
+                    val fallbackPrompt = dto.prompt?.trim()?.takeIf { it.isNotEmpty() } ?: "Remote task ${dto.taskId}"
+                    listOf(mapServerToTaskItem(dto, fallbackProjectId, fallbackPrompt)) + state.tasks
                 }
             val incomingProjectId = dto.projectId?.trim().orEmpty()
             val hasIncomingProject =
@@ -938,9 +1171,19 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 } else {
                     state.dynamicProjects
                 }
-            state.copy(tasks = next, dynamicProjects = mergedProjects)
+            val mergedHistory = updatePublishHistoryFromSummary(state.publishHistory, dto)
+            publishHistoryChanged = mergedHistory != state.publishHistory
+            state.copy(
+                tasks = next,
+                dynamicProjects = mergedProjects,
+                publishHistory = mergedHistory,
+            )
         }
-        persistTasks(_uiState.value.tasks)
+        if (publishHistoryChanged) {
+            persistAll()
+        } else {
+            persistTasks(_uiState.value.tasks)
+        }
     }
 
     override fun onCleared() {

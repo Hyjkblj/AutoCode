@@ -42,6 +42,18 @@ public final class TaskEventContractValidator {
 
         EventType type = event.getType();
         switch (type) {
+            case TASK_CREATED -> {
+                requireMap(payload, "payload");
+                requireString(payload, "projectId");
+            }
+            case TASK_STARTED -> {
+                requireMap(payload, "payload");
+                requireString(payload, "nodeId");
+            }
+            case ASSISTANT_OUTPUT -> {
+                requireMap(payload, "payload");
+                requireString(payload, "message");
+            }
             case SPEC_PROPOSED -> {
                 requireMap(payload, "payload");
                 requireArtifact(payload, "artifact");
@@ -108,6 +120,7 @@ public final class TaskEventContractValidator {
                 requireMap(payload, "payload");
                 requireString(payload, "reason");
             }
+            case HEARTBEAT -> requireMap(payload, "payload");
             default -> {
                 // legacy/other events: no additional constraints here
             }

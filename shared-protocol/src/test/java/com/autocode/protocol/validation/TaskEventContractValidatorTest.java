@@ -172,6 +172,42 @@ class TaskEventContractValidatorTest {
     }
 
     @Test
+    void taskCreated_example_resource_is_valid() throws Exception {
+        try (InputStream in = TaskEventContractValidatorTest.class.getResourceAsStream("/examples/task_created.v1.example.json")) {
+            assertNotNull(in, "Missing test resource: /examples/task_created.v1.example.json");
+            TaskEvent event = MAPPER.readValue(in, TaskEvent.class);
+            assertDoesNotThrow(() -> TaskEventContractValidator.validate(event));
+        }
+    }
+
+    @Test
+    void taskStarted_example_resource_is_valid() throws Exception {
+        try (InputStream in = TaskEventContractValidatorTest.class.getResourceAsStream("/examples/task_started.v1.example.json")) {
+            assertNotNull(in, "Missing test resource: /examples/task_started.v1.example.json");
+            TaskEvent event = MAPPER.readValue(in, TaskEvent.class);
+            assertDoesNotThrow(() -> TaskEventContractValidator.validate(event));
+        }
+    }
+
+    @Test
+    void assistantOutput_example_resource_is_valid() throws Exception {
+        try (InputStream in = TaskEventContractValidatorTest.class.getResourceAsStream("/examples/assistant_output.v1.example.json")) {
+            assertNotNull(in, "Missing test resource: /examples/assistant_output.v1.example.json");
+            TaskEvent event = MAPPER.readValue(in, TaskEvent.class);
+            assertDoesNotThrow(() -> TaskEventContractValidator.validate(event));
+        }
+    }
+
+    @Test
+    void heartbeat_example_resource_is_valid() throws Exception {
+        try (InputStream in = TaskEventContractValidatorTest.class.getResourceAsStream("/examples/heartbeat.v1.example.json")) {
+            assertNotNull(in, "Missing test resource: /examples/heartbeat.v1.example.json");
+            TaskEvent event = MAPPER.readValue(in, TaskEvent.class);
+            assertDoesNotThrow(() -> TaskEventContractValidator.validate(event));
+        }
+    }
+
+    @Test
     void unsupported_event_version_rejected() {
         TaskEvent event = new TaskEvent();
         event.setEventId("e1");
@@ -328,6 +364,48 @@ class TaskEventContractValidatorTest {
         event.setSeq(0);
         event.setEventVersion(1);
         event.setPayload(Map.of("status", "error"));
+
+        assertThrows(ContractViolationException.class, () -> TaskEventContractValidator.validate(event));
+    }
+
+    @Test
+    void task_created_requires_projectId() {
+        TaskEvent event = new TaskEvent();
+        event.setEventId("e12");
+        event.setTaskId("t12");
+        event.setType(EventType.TASK_CREATED);
+        event.setTimestamp(Instant.parse("2026-04-08T00:00:00Z"));
+        event.setSeq(0);
+        event.setEventVersion(1);
+        event.setPayload(Map.of("assistant", "gpt"));
+
+        assertThrows(ContractViolationException.class, () -> TaskEventContractValidator.validate(event));
+    }
+
+    @Test
+    void task_started_requires_nodeId() {
+        TaskEvent event = new TaskEvent();
+        event.setEventId("e13");
+        event.setTaskId("t13");
+        event.setType(EventType.TASK_STARTED);
+        event.setTimestamp(Instant.parse("2026-04-08T00:00:00Z"));
+        event.setSeq(0);
+        event.setEventVersion(1);
+        event.setPayload(Map.of("stage", "lease_acquired"));
+
+        assertThrows(ContractViolationException.class, () -> TaskEventContractValidator.validate(event));
+    }
+
+    @Test
+    void assistant_output_requires_message() {
+        TaskEvent event = new TaskEvent();
+        event.setEventId("e14");
+        event.setTaskId("t14");
+        event.setType(EventType.ASSISTANT_OUTPUT);
+        event.setTimestamp(Instant.parse("2026-04-08T00:00:00Z"));
+        event.setSeq(0);
+        event.setEventVersion(1);
+        event.setPayload(Map.of("stage", "PlannerAgent"));
 
         assertThrows(ContractViolationException.class, () -> TaskEventContractValidator.validate(event));
     }

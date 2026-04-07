@@ -1,0 +1,17 @@
+{
+  "eventId": "evt_test_assistant_output_001",
+  "taskId": "task_test_123",
+  "sessionId": "sess_test_abc",
+  "assistant": "test",
+  "type": "ASSISTANT_OUTPUT",
+  "timestamp": "2026-04-08T09:00:10Z",
+  "seq": 3,
+  "eventVersion": 1,
+  "payload": {
+    "message": "Task accepted by node, preparing execution.",
+    "stage": "Orchestrator",
+    "command": "echo test",
+    "traceId": "trc_task_test_123",
+    "runId": "run_test_001"
+  }
+}

@@ -22,6 +22,10 @@ This module is the single source of truth for cross-component DTOs and event sch
 - `FILE_PATCH_PREVIEW` requires at least one of `patch` or `files` (either representation is valid in v1).
 - `TASK_DONE` requires `result`; additional completion metadata remains optional.
 - `TASK_FAILED` requires `reason`; additional diagnostics (status/detail/exitCode/traceId/runId) are optional.
+- `TASK_CREATED` requires `projectId`; `assistant`/`riskPolicy` remain optional in v1.
+- `TASK_STARTED` requires `nodeId`; additional lease/runtime metadata remains optional.
+- `ASSISTANT_OUTPUT` requires `message`; `stage`/`command`/`traceId`/`runId` are optional.
+- `HEARTBEAT` requires `payload` object only; all current keys (`nodeId`/`status`/`uptimeMs`) are optional for compatibility.
 - `DEPLOY_PLAN` captures a normalized deployment request (required keys: `requestId`, `environment`, `artifact`).
 - `DEPLOY_RESULT` reports execution outcome (required keys: `requestId`, `status`).
 

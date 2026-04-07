@@ -1,0 +1,21 @@
+{
+  "eventId": "evt_01HQ9TASKFAILED001",
+  "taskId": "task_123",
+  "sessionId": "sess_abc",
+  "assistant": "gpt",
+  "type": "TASK_FAILED",
+  "timestamp": "2026-04-08T10:13:00Z",
+  "seq": 71,
+  "eventVersion": 1,
+  "payload": {
+    "reason": "exec_nonzero_exit",
+    "status": "error",
+    "detail": "command failed",
+    "exitCode": 1,
+    "retryable": false,
+    "tool": "command.exec",
+    "cwd": "D:/Develop/Project/AutoCode",
+    "traceId": "trc_task_123",
+    "runId": "run_01HQ9TASK001"
+  }
+}

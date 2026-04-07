@@ -20,6 +20,8 @@ This module is the single source of truth for cross-component DTOs and event sch
 - `TOOL_END` requires `tool` + `status`; output/error/exitCode remain optional for compatibility.
 - `BUILD_LOG` requires `message`; `buildId`/`level` are optional in v1.
 - `FILE_PATCH_PREVIEW` requires at least one of `patch` or `files` (either representation is valid in v1).
+- `TASK_DONE` requires `result`; additional completion metadata remains optional.
+- `TASK_FAILED` requires `reason`; additional diagnostics (status/detail/exitCode/traceId/runId) are optional.
 - `DEPLOY_PLAN` captures a normalized deployment request (required keys: `requestId`, `environment`, `artifact`).
 - `DEPLOY_RESULT` reports execution outcome (required keys: `requestId`, `status`).
 

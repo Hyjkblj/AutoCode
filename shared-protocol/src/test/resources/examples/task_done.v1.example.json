@@ -1,0 +1,20 @@
+{
+  "eventId": "evt_test_task_done_001",
+  "taskId": "task_test_123",
+  "sessionId": "sess_test_abc",
+  "assistant": "test",
+  "type": "TASK_DONE",
+  "timestamp": "2026-04-08T10:12:00Z",
+  "seq": 70,
+  "eventVersion": 1,
+  "payload": {
+    "result": "executed",
+    "status": "ok",
+    "tool": "command.exec",
+    "toolVersion": "1.0.0",
+    "exitCode": 0,
+    "retryable": false,
+    "traceId": "trc_task_test_123",
+    "runId": "run_test_001"
+  }
+}

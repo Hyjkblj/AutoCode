@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autocode.example/schema/events/v1/task_done.v1.schema.json",
+  "title": "TASK_DONE TaskEvent v1",
+  "allOf": [
+    { "$ref": "task_event.v1.schema.json" },
+    {
+      "type": "object",
+      "properties": {
+        "type": { "const": "TASK_DONE" },
+        "payload": {
+          "type": "object",
+          "required": ["result"],
+          "properties": {
+            "result": { "type": "string", "minLength": 1 },
+            "status": { "type": "string" },
+            "tool": { "type": "string" },
+            "toolVersion": { "type": "string" },
+            "exitCode": { "type": "integer" },
+            "retryable": { "type": "boolean" },
+            "output": { "type": "string" },
+            "traceId": { "type": "string" },
+            "runId": { "type": "string" }
+          },
+          "additionalProperties": true
+        }
+      }
+    }
+  ]
+}

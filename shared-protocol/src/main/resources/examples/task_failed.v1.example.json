@@ -1,0 +1,15 @@
+{
+  "eventId": "evt_01HQ9TASKFAIL001",
+  "taskId": "task_123",
+  "sessionId": "sess_abc",
+  "assistant": "gpt",
+  "type": "TASK_FAILED",
+  "timestamp": "2026-04-07T10:20:00Z",
+  "seq": 90,
+  "eventVersion": 1,
+  "payload": {
+    "reason": "exec_failed",
+    "detail": "Command exited with non-zero status",
+    "errorCode": "COMMAND_EXIT_NON_ZERO"
+  }
+}

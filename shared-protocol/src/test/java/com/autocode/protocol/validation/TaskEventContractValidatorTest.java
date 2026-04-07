@@ -154,6 +154,15 @@ class TaskEventContractValidatorTest {
     }
 
     @Test
+    void taskFailed_example_resource_is_valid() throws Exception {
+        try (InputStream in = TaskEventContractValidatorTest.class.getResourceAsStream("/examples/task_failed.v1.example.json")) {
+            assertNotNull(in, "Missing test resource: /examples/task_failed.v1.example.json");
+            TaskEvent event = MAPPER.readValue(in, TaskEvent.class);
+            assertDoesNotThrow(() -> TaskEventContractValidator.validate(event));
+        }
+    }
+
+    @Test
     void unsupported_event_version_rejected() {
         TaskEvent event = new TaskEvent();
         event.setEventId("e1");
@@ -268,6 +277,20 @@ class TaskEventContractValidatorTest {
         event.setSeq(0);
         event.setEventVersion(1);
         event.setPayload(Map.of("buildId", "build_001", "level", "info"));
+
+        assertThrows(ContractViolationException.class, () -> TaskEventContractValidator.validate(event));
+    }
+
+    @Test
+    void task_failed_requires_reason() {
+        TaskEvent event = new TaskEvent();
+        event.setEventId("e10");
+        event.setTaskId("t10");
+        event.setType(EventType.TASK_FAILED);
+        event.setTimestamp(Instant.parse("2026-04-07T00:00:00Z"));
+        event.setSeq(0);
+        event.setEventVersion(1);
+        event.setPayload(Map.of("detail", "command exited with non-zero status"));
 
         assertThrows(ContractViolationException.class, () -> TaskEventContractValidator.validate(event));
     }

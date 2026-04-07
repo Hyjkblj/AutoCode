@@ -70,6 +70,10 @@ public final class TaskEventContractValidator {
                 requireString(payload, "message");
             }
             case BUILD_DONE -> requireMap(payload, "payload");
+            case TASK_FAILED -> {
+                requireMap(payload, "payload");
+                requireString(payload, "reason");
+            }
             case APPROVAL_REQUIRED -> {
                 requireMap(payload, "payload");
                 requireString(payload, "approvalId");

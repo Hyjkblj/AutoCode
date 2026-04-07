@@ -19,6 +19,7 @@ This module is the single source of truth for cross-component DTOs and event sch
 - `TOOL_START` keeps `tool` as the only required payload key (other fields like `action`/`command`/`cwd` are optional).
 - `TOOL_END` requires `tool` + `status`; output/error/exitCode remain optional for compatibility.
 - `BUILD_LOG` requires `message`; `buildId`/`level` are optional in v1.
+- `TASK_FAILED` requires a machine-readable `reason`; optional `detail` and `errorCode` may be attached.
 - `FILE_PATCH_PREVIEW` requires at least one of `patch` or `files` (either representation is valid in v1).
 - `DEPLOY_PLAN` captures a normalized deployment request (required keys: `requestId`, `environment`, `artifact`).
 - `DEPLOY_RESULT` reports execution outcome (required keys: `requestId`, `status`).

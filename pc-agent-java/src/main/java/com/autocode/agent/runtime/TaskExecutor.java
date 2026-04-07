@@ -214,20 +214,17 @@ public class TaskExecutor {
             }
         }
 
-        HashMap<String, Object> toolStart = new HashMap<>();
-        toolStart.put("tool", call.getTool());
         String resolvedToolVersion = trimToNull(tool.version());
-        if (resolvedToolVersion != null) {
-            toolStart.put("toolVersion", resolvedToolVersion);
-        }
-        toolStart.put("command", command);
-        toolStart.put("cwd", cwd);
-        toolStart.put("action", call.getAction());
-        toolStart.put("intentSkill", routedIntent.skill());
-        toolStart.put("intentRoute", routedIntent.routeSource());
-        if (approvalIdForExec != null) {
-            toolStart.put("approvalId", approvalIdForExec);
-        }
+        Map<String, Object> toolStart = buildToolStartPayload(
+                call.getTool(),
+                resolvedToolVersion,
+                command,
+                cwd,
+                call.getAction(),
+                routedIntent.skill(),
+                routedIntent.routeSource(),
+                approvalIdForExec
+        );
         send(task, traceId, runId, EventType.TOOL_START, toolStart);
 
         ToolExecutionResult exec;
@@ -616,6 +613,32 @@ public class TaskExecutor {
         context.put("workspaceRef", workspaceRef);
         context.put("inputsHash", inputsHash);
         return context;
+    }
+
+    static Map<String, Object> buildToolStartPayload(
+            String tool,
+            String toolVersion,
+            String command,
+            String cwd,
+            String action,
+            String intentSkill,
+            String intentRoute,
+            String approvalId) {
+        HashMap<String, Object> payload = new HashMap<>();
+        payload.put("tool", tool);
+        if (trimToNull(toolVersion) != null) {
+            payload.put("toolVersion", toolVersion);
+        }
+        payload.put("command", command);
+        payload.put("cwd", cwd);
+        payload.put("workspaceRef", normalizeWorkspaceRef(cwd));
+        payload.put("action", action);
+        payload.put("intentSkill", intentSkill);
+        payload.put("intentRoute", intentRoute);
+        if (trimToNull(approvalId) != null) {
+            payload.put("approvalId", approvalId);
+        }
+        return payload;
     }
 
     static Map<String, Object> buildDeployApprovalPayload(

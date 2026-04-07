@@ -96,6 +96,62 @@ object ControlPlaneClient {
             }
         }
 
+    suspend fun createDeployTask(
+        baseUrl: String,
+        bearerToken: String,
+        projectId: String,
+        artifactId: String?,
+        environment: String,
+        versionLabel: String,
+        sourceTaskId: String?,
+    ): Result<TaskSummaryDto> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val root = normalizeBaseUrl(baseUrl)
+                val normalizedProjectId = projectId.trim()
+                val normalizedArtifactId = artifactId?.trim().orEmpty().ifBlank { "unknown-artifact" }
+                val normalizedEnvironment = environment.trim().ifBlank { "staging" }
+                val normalizedVersion = versionLabel.trim().ifBlank { "v-${System.currentTimeMillis()}" }
+                val prompt =
+                    buildString {
+                        append("Deploy artifact ")
+                        append(normalizedArtifactId)
+                        append(" to ")
+                        append(normalizedEnvironment)
+                        append(" with version ")
+                        append(normalizedVersion)
+                        sourceTaskId?.trim()?.takeIf { it.isNotEmpty() }?.let {
+                            append(" (sourceTaskId=")
+                            append(it)
+                            append(')')
+                        }
+                    }
+                val body =
+                    buildJsonObject {
+                        put("projectId", normalizedProjectId)
+                        put("prompt", prompt)
+                        put("assistant", "deployer")
+                        put("agentProfile", "deployer")
+                        put("inputMode", "publish")
+                        put("riskPolicy", "strict_approval")
+                        put("sessionKey", "deploy:$normalizedProjectId")
+                    }.toString()
+                val req =
+                    Request.Builder()
+                        .url("$root/api/v1/tasks")
+                        .header("Authorization", "Bearer ${bearerToken.trim()}")
+                        .post(body.toRequestBody(mediaJson))
+                        .build()
+                client.newCall(req).execute().use { resp ->
+                    val text = resp.body?.string().orEmpty()
+                    if (!resp.isSuccessful) {
+                        error("HTTP ${resp.code}: ${text.take(300)}")
+                    }
+                    parseTaskSummaryEnvelope(text)
+                }
+            }
+        }
+
     suspend fun listArtifacts(
         baseUrl: String,
         bearerToken: String,
@@ -277,6 +333,8 @@ object ControlPlaneClient {
             projectId = o["projectId"]?.jsonPrimitive?.contentOrNull,
             prompt = o["prompt"]?.jsonPrimitive?.contentOrNull,
             status = status,
+            assistant = o["assistant"]?.jsonPrimitive?.contentOrNull,
+            agentProfile = o["agentProfile"]?.jsonPrimitive?.contentOrNull,
         )
     }
 
@@ -333,6 +391,8 @@ data class TaskSummaryDto(
     val projectId: String?,
     val prompt: String?,
     val status: String,
+    val assistant: String? = null,
+    val agentProfile: String? = null,
 )
 
 data class ArtifactListItem(

@@ -80,8 +80,12 @@ data class PublishHistoryEntry(
     val taskId: String,
     val artifactId: String? = null,
     val artifactName: String? = null,
+    val sourceTaskId: String? = null,
     val versionLabel: String,
     val status: String,
+    val environment: String? = null,
+    val endpointUrl: String? = null,
+    val deployRequestId: String? = null,
     val createdAt: Long,
 )
 

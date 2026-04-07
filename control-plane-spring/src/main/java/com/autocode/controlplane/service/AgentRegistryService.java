@@ -32,16 +32,20 @@ public class AgentRegistryService {
     }
 
     public AgentNode register(AgentRegisterRequest request) {
-        AgentNodeEntity saved = upsertNode(request.getNodeId(), node -> {
-            node.setVersion(request.getVersion());
-            node.setCapabilities(request.getCapabilities());
+        String nodeId = normalizeRequired(request.getNodeId(), "nodeId");
+        String version = normalizeOptional(request.getVersion());
+        String capabilities = normalizeOptional(request.getCapabilities());
+        AgentNodeEntity saved = upsertNode(nodeId, node -> {
+            node.setVersion(version);
+            node.setCapabilities(capabilities);
             node.setLastHeartbeatAt(Instant.now());
         });
         return modelMapper.toAgentNode(saved, true);
     }
 
     public AgentNode heartbeat(AgentHeartbeatRequest request) {
-        AgentNodeEntity saved = upsertNode(request.getNodeId(), node -> node.setLastHeartbeatAt(Instant.now()));
+        String nodeId = normalizeRequired(request.getNodeId(), "nodeId");
+        AgentNodeEntity saved = upsertNode(nodeId, node -> node.setLastHeartbeatAt(Instant.now()));
         return modelMapper.toAgentNode(saved, true);
     }
 
@@ -75,5 +79,21 @@ public class AgentRegistryService {
             mutator.accept(existing);
             return agentNodeRepository.save(existing);
         }
+    }
+
+    private static String normalizeRequired(String value, String fieldName) {
+        String normalized = normalizeOptional(value);
+        if (normalized == null) {
+            throw new IllegalArgumentException(fieldName + " must not be blank");
+        }
+        return normalized;
+    }
+
+    private static String normalizeOptional(String value) {
+        if (value == null) {
+            return null;
+        }
+        String normalized = value.trim();
+        return normalized.isEmpty() ? null : normalized;
     }
 }

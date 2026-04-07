@@ -1,0 +1,23 @@
+{
+  "eventId": "evt_test_build_done_001",
+  "taskId": "task_test_123",
+  "sessionId": "sess_test_abc",
+  "assistant": "test",
+  "type": "BUILD_DONE",
+  "timestamp": "2026-04-05T10:11:00Z",
+  "seq": 52,
+  "eventVersion": 1,
+  "payload": {
+    "buildId": "build_test_001",
+    "status": "success",
+    "durationMs": 9000,
+    "reportArtifact": {
+      "artifactId": "art_build_report_test_001",
+      "name": "build-report.json",
+      "hash": "sha256:1b2c3d4e5f60718293a4b5c6d7e8f901234567890abcdef1234567890abcdef",
+      "size": 2048,
+      "mime": "application/json",
+      "type": "build_report"
+    }
+  }
+}

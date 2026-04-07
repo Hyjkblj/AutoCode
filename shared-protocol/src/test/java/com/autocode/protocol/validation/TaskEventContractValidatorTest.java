@@ -68,6 +68,33 @@ class TaskEventContractValidatorTest {
     }
 
     @Test
+    void buildStarted_example_resource_is_valid() throws Exception {
+        try (InputStream in = TaskEventContractValidatorTest.class.getResourceAsStream("/examples/build_started.v1.example.json")) {
+            assertNotNull(in, "Missing test resource: /examples/build_started.v1.example.json");
+            TaskEvent event = MAPPER.readValue(in, TaskEvent.class);
+            assertDoesNotThrow(() -> TaskEventContractValidator.validate(event));
+        }
+    }
+
+    @Test
+    void buildLog_example_resource_is_valid() throws Exception {
+        try (InputStream in = TaskEventContractValidatorTest.class.getResourceAsStream("/examples/build_log.v1.example.json")) {
+            assertNotNull(in, "Missing test resource: /examples/build_log.v1.example.json");
+            TaskEvent event = MAPPER.readValue(in, TaskEvent.class);
+            assertDoesNotThrow(() -> TaskEventContractValidator.validate(event));
+        }
+    }
+
+    @Test
+    void buildDone_example_resource_is_valid() throws Exception {
+        try (InputStream in = TaskEventContractValidatorTest.class.getResourceAsStream("/examples/build_done.v1.example.json")) {
+            assertNotNull(in, "Missing test resource: /examples/build_done.v1.example.json");
+            TaskEvent event = MAPPER.readValue(in, TaskEvent.class);
+            assertDoesNotThrow(() -> TaskEventContractValidator.validate(event));
+        }
+    }
+
+    @Test
     void deployPlan_example_resource_is_valid() throws Exception {
         try (InputStream in = TaskEventContractValidatorTest.class.getResourceAsStream("/examples/deploy_plan.v1.example.json")) {
             assertNotNull(in, "Missing test resource: /examples/deploy_plan.v1.example.json");
@@ -158,6 +185,20 @@ class TaskEventContractValidatorTest {
         event.setSeq(0);
         event.setEventVersion(1);
         event.setPayload(Map.of("approvalId", "apr_001"));
+
+        assertThrows(ContractViolationException.class, () -> TaskEventContractValidator.validate(event));
+    }
+
+    @Test
+    void build_log_requires_message() {
+        TaskEvent event = new TaskEvent();
+        event.setEventId("e5");
+        event.setTaskId("t5");
+        event.setType(EventType.BUILD_LOG);
+        event.setTimestamp(Instant.parse("2026-04-04T00:00:00Z"));
+        event.setSeq(0);
+        event.setEventVersion(1);
+        event.setPayload(Map.of("buildId", "build_001", "level", "info"));
 
         assertThrows(ContractViolationException.class, () -> TaskEventContractValidator.validate(event));
     }

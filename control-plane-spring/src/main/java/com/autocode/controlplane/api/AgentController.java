@@ -9,7 +9,10 @@ import com.autocode.controlplane.service.TaskService;
 import com.autocode.protocol.model.ApprovalDecision;
 import com.autocode.protocol.model.TaskSummary;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
 import org.springframework.http.ResponseEntity;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -17,6 +20,7 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/api/v1/agent")
+@Validated
 public class AgentController {
     private final AgentRegistryService agentRegistryService;
     private final TaskService taskService;
@@ -38,10 +42,18 @@ public class AgentController {
 
     @GetMapping("/tasks/next")
     public ResponseEntity<ApiResponse<TaskSummary>> getNextTask(
-            @RequestParam("nodeId") String nodeId,
+            @RequestParam("nodeId")
+            @NotBlank(message = "nodeId must not be blank")
+            @Size(max = 64, message = "nodeId size must be between 0 and 64")
+            String nodeId,
             @RequestParam(value = "profile", required = false) String profile
     ) {
-        return taskService.pollNextTaskForNode(nodeId, profile)
+        String normalizedNodeId = nodeId.trim();
+        String normalizedProfile = profile == null ? null : profile.trim();
+        if (normalizedProfile != null && normalizedProfile.isEmpty()) {
+            normalizedProfile = null;
+        }
+        return taskService.pollNextTaskForNode(normalizedNodeId, normalizedProfile)
                 .map(task -> ResponseEntity.ok(ApiResponse.ok(task)))
                 .orElseGet(() -> ResponseEntity.noContent().build());
     }

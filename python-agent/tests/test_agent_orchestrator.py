@@ -4,6 +4,7 @@ from typing import Any
 
 from agents.reviewer_agent import ReviewResult
 from agents.tester_agent import TesterResult as RunResult
+from memory.redis_memory import RedisMemory
 from orchestrator.agent_orchestrator import AgentOrchestrator
 from tools.exec_tool import ExecResult
 
@@ -122,17 +123,15 @@ def test_orchestrator_routes_code_change_to_coder_and_emits_patch_preview(monkey
     AgentOrchestrator(reviewer_agent=reviewer, tester_agent=tester).handle_task(task, client)
 
     types = [event["type"] for _, event in client.events]
-    assert types == [
-        "ASSISTANT_OUTPUT",
-        "ASSISTANT_OUTPUT",
-        "ASSISTANT_OUTPUT",
-        "FILE_PATCH_PREVIEW",
-        "ASSISTANT_OUTPUT",
-        "ASSISTANT_OUTPUT",
-        "TASK_DONE",
-    ]
+    assert types[0:5] == ["ASSISTANT_OUTPUT", "ASSISTANT_OUTPUT", "ASSISTANT_OUTPUT", "FILE_PATCH_PREVIEW", "ASSISTANT_OUTPUT"]
+    assert types[-1] == "TASK_DONE"
+    assert types.count("ASSISTANT_OUTPUT") == 6
     assert client.events[3][1]["payload"]["files"] == [{"path": "README.md", "changeType": "modify"}]
-    assert client.events[6][1]["payload"]["result"] == "coded_reviewed_tested"
+    assert client.events[-1][1]["payload"]["result"] == "coded_reviewed_tested"
+    stages = [event["payload"].get("stage") for _, event in client.events if event["type"] == "ASSISTANT_OUTPUT"]
+    assert "Orchestrator" in stages
+    assert "ReviewerAgent" in stages
+    assert "TesterAgent" in stages
     assert reviewer.calls[0]["plan"] == "code_change_pipeline"
     assert tester.calls[0]["plan"] == "code_change_pipeline"
 
@@ -245,3 +244,67 @@ def test_orchestrator_marks_task_failed_when_exec_tool_returns_failure(monkeypat
     assert types == ["ASSISTANT_OUTPUT", "ASSISTANT_OUTPUT", "ASSISTANT_OUTPUT", "ASSISTANT_OUTPUT", "TASK_FAILED"]
     assert exec_tool.calls[0]["command"] == "echo deploy_now"
     assert client.events[4][1]["payload"]["reason"] == "approval_rejected"
+
+
+def test_orchestrator_reuses_memory_context_for_second_code_change(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("LLM_BACKEND", "openai")
+    monkeypatch.setenv("OPENAI_API_KEY", "dummy")
+    workspace = tmp_path / "workspace"
+    workspace.mkdir(parents=True, exist_ok=True)
+    (workspace / "README.md").write_text("TODO: patch me\n", encoding="utf-8")
+    monkeypatch.setenv("MVP_ALLOWED_WORKSPACE_PREFIXES", str(workspace))
+
+    class _MemoryAwareTester:
+        def __init__(self) -> None:
+            self.seen_test_commands: list[str] = []
+
+        def execute(self, task, client, plan, publish_event):  # noqa: ANN001
+            test_command = str(task.get("testCommand", "")).strip()
+            self.seen_test_commands.append(test_command)
+            publish_event({"stage": "TesterAgent", "message": "Validation completed.", "status": "ok", "attempts": 1})
+            return RunResult(
+                success=True,
+                attempts=1,
+                retries=0,
+                command=test_command or "echo test_from_python_agent",
+                status="ok",
+                reason=None,
+                trace_id="trc_memory",
+                run_id="run_memory",
+            )
+
+    reviewer = _FakeReviewerAgent(ReviewResult(approved=True, summary="review passed", issues=[]))
+    tester = _MemoryAwareTester()
+    memory = RedisMemory(backend="memory", namespace="test:memory:reuse")
+    orchestrator = AgentOrchestrator(reviewer_agent=reviewer, tester_agent=tester, memory_store=memory)
+
+    task_one = {
+        "taskId": "task_201",
+        "assistant": "ai-agent",
+        "sessionKey": "sess_201",
+        "prompt": "fix readme and implement update",
+        "workspacePath": str(workspace),
+        "testCommand": "echo first_test_command",
+    }
+    client_one = _FakeClient()
+    orchestrator.handle_task(task_one, client_one)
+
+    task_two = {
+        "taskId": "task_202",
+        "assistant": "ai-agent",
+        "sessionKey": "sess_202",
+        "prompt": "fix readme again",
+        "workspacePath": str(workspace),
+    }
+    client_two = _FakeClient()
+    orchestrator.handle_task(task_two, client_two)
+
+    assert tester.seen_test_commands[0] == "echo first_test_command"
+    assert tester.seen_test_commands[1] == "echo first_test_command"
+    memory_events = [
+        event["payload"]
+        for _, event in client_two.events
+        if event["type"] == "ASSISTANT_OUTPUT" and event["payload"].get("stage") == "Memory"
+    ]
+    assert memory_events
+    assert memory_events[0]["lastTestCommand"] == "echo first_test_command"

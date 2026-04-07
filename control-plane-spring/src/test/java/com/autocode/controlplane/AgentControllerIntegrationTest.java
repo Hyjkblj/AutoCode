@@ -226,4 +226,15 @@ class AgentControllerIntegrationTest {
                 .andExpect(jsonPath("$.ok").value(false))
                 .andExpect(jsonPath("$.error").value(org.hamcrest.Matchers.containsString("nodeId")));
     }
+
+    @Test
+    void nextTaskShouldRejectUnregisteredNode() throws Exception {
+        String nodeId = "node_unregistered_" + System.nanoTime();
+        mockMvc.perform(get("/api/v1/agent/tasks/next")
+                        .header("X-Agent-Token", "ag-a")
+                        .param("nodeId", nodeId))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.ok").value(false))
+                .andExpect(jsonPath("$.error").value("node not registered"));
+    }
 }

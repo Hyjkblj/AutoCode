@@ -11,6 +11,7 @@ import com.autocode.protocol.model.TaskSummary;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
@@ -52,6 +53,10 @@ public class AgentController {
         String normalizedProfile = profile == null ? null : profile.trim();
         if (normalizedProfile != null && normalizedProfile.isEmpty()) {
             normalizedProfile = null;
+        }
+        if (!agentRegistryService.isNodeRegistered(normalizedNodeId)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(ApiResponse.error("node not registered"));
         }
         return taskService.pollNextTaskForNode(normalizedNodeId, normalizedProfile)
                 .map(task -> ResponseEntity.ok(ApiResponse.ok(task)))

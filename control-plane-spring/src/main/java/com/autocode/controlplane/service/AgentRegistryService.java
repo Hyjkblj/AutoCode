@@ -65,19 +65,25 @@ public class AgentRegistryService {
     }
 
     /**
-     * 幂等 upsert：在并发 register/heartbeat 下避免主键冲突。
+     * Idempotent upsert to avoid duplicate key failures under concurrent register/heartbeat.
      */
     private AgentNodeEntity upsertNode(String nodeId, Consumer<AgentNodeEntity> mutator) {
-        AgentNodeEntity node = new AgentNodeEntity();
-        node.setNodeId(nodeId);
-        mutator.accept(node);
-        try {
-            // saveAndFlush：尽早触发唯一键冲突，便于捕获后走更新路径
-            return agentNodeRepository.saveAndFlush(node);
-        } catch (DataIntegrityViolationException ex) {
-            AgentNodeEntity existing = agentNodeRepository.findById(nodeId).orElseThrow();
+        AgentNodeEntity existing = agentNodeRepository.findById(nodeId).orElse(null);
+        if (existing != null) {
             mutator.accept(existing);
             return agentNodeRepository.save(existing);
+        }
+
+        AgentNodeEntity created = new AgentNodeEntity();
+        created.setNodeId(nodeId);
+        mutator.accept(created);
+        try {
+            return agentNodeRepository.saveAndFlush(created);
+        } catch (DataIntegrityViolationException ex) {
+            // Another concurrent writer inserted same nodeId first; update that row.
+            AgentNodeEntity collided = agentNodeRepository.findById(nodeId).orElseThrow();
+            mutator.accept(collided);
+            return agentNodeRepository.save(collided);
         }
     }
 

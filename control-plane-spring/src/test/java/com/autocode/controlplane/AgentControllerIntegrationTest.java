@@ -156,6 +156,39 @@ class AgentControllerIntegrationTest {
     }
 
     @Test
+    void heartbeatShouldKeepExistingVersionAndCapabilities() throws Exception {
+        String capabilities = "{\"profiles\":[\"ai-agent\"]}";
+        String registerPayload = """
+                {
+                  "nodeId": "node_keep_1",
+                  "version": "9.9.9",
+                  "capabilities": "%s"
+                }
+                """.formatted(capabilities.replace("\"", "\\\""));
+
+        mockMvc.perform(post("/api/v1/agent/register")
+                        .header("X-Agent-Token", "ag-a")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(registerPayload))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.ok").value(true));
+
+        String heartbeatPayload = """
+                {
+                  "nodeId": "node_keep_1"
+                }
+                """;
+        mockMvc.perform(post("/api/v1/agent/heartbeat")
+                        .header("X-Agent-Token", "ag-a")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(heartbeatPayload))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.ok").value(true))
+                .andExpect(jsonPath("$.payload.version").value("9.9.9"))
+                .andExpect(jsonPath("$.payload.capabilities").value(capabilities));
+    }
+
+    @Test
     void heartbeatShouldRejectTooLongNodeId() throws Exception {
         String nodeId = "h".repeat(65);
         String payload = """

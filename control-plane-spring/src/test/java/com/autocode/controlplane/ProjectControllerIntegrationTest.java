@@ -16,6 +16,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import java.time.Instant;
 
+import static org.hamcrest.Matchers.hasItem;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -82,6 +83,20 @@ class ProjectControllerIntegrationTest extends OperatorProj1MembershipFixture {
                 .andExpect(jsonPath("$.payload[1].projectId").value("proj-9"))
                 .andExpect(jsonPath("$.payload[1].name").value(org.hamcrest.Matchers.nullValue()))
                 .andExpect(jsonPath("$.payload[1].roleName").value("OPERATOR"));
+    }
+
+    @Test
+    void listProjectsShouldAllowNullProjectNameFromProjectRow() throws Exception {
+        UserEntity operator = userRepository.findByUsername("operator").orElseThrow();
+        saveProject("proj-8", null);
+        saveMembership("proj-8", operator.getUserId(), "VIEWER");
+
+        mockMvc.perform(get("/api/v1/projects")
+                        .header("Authorization", "Bearer op-a"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.ok").value(true))
+                .andExpect(jsonPath("$.payload[?(@.projectId=='proj-8')].name", hasItem(org.hamcrest.Matchers.nullValue())))
+                .andExpect(jsonPath("$.payload[?(@.projectId=='proj-8')].roleName", hasItem("VIEWER")));
     }
 
     @Test

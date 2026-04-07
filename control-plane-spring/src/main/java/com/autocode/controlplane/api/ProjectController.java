@@ -13,10 +13,10 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/v1/projects")
@@ -56,12 +56,11 @@ public class ProjectController {
                 .map(ProjectMembershipEntity::getProjectId)
                 .distinct()
                 .toList();
-        Map<String, String> projectNameById = projectRepository.findByProjectIdIn(projectIds).stream()
-                .collect(Collectors.toMap(
-                        p -> p.getProjectId(),
-                        p -> p.getName(),
-                        (a, b) -> a
-                ));
+        // toMap rejects null values, while project.name is nullable in schema.
+        // Keep null as-is so API can still return memberships without 500.
+        Map<String, String> projectNameById = new HashMap<>();
+        projectRepository.findByProjectIdIn(projectIds)
+                .forEach(project -> projectNameById.putIfAbsent(project.getProjectId(), project.getName()));
 
         List<ProjectSummary> projects = memberships.stream()
                 .map(m -> new ProjectSummary(

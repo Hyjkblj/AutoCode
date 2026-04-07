@@ -10,6 +10,10 @@ import com.autocode.agent.runtime.tool.ToolRegistry;
 import com.autocode.agent.runtime.tool.impl.CommandExecTool;
 import com.autocode.agent.security.CommandSafetyPolicy;
 import com.autocode.agent.security.policy.CompositeToolInvocationPolicy;
+import com.autocode.agent.security.policy.ElevationDetectionPolicy;
+import com.autocode.agent.security.policy.EnvVarAccessPolicy;
+import com.autocode.agent.security.policy.FileReadWritePolicy;
+import com.autocode.agent.security.policy.NetworkAccessPolicy;
 import com.autocode.agent.security.policy.PolicyDecision;
 import com.autocode.agent.security.policy.WorkspaceAllowlistPolicy;
 import com.autocode.protocol.model.ApprovalDecision;
@@ -47,6 +51,10 @@ public class SandboxExecutionService {
                 new com.autocode.agent.runtime.exec.CommandRunner()
         ));
         this.invocationPolicy = CompositeToolInvocationPolicy.builder()
+                .add(new ElevationDetectionPolicy())
+                .add(new EnvVarAccessPolicy())
+                .add(new NetworkAccessPolicy(config.isNetworkAllowed()))
+                .add(new FileReadWritePolicy(config.getAllowedWorkspacePrefixes()))
                 .add(new WorkspaceAllowlistPolicy(config.getAllowedWorkspacePrefixes()))
                 .build();
     }

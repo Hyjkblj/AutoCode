@@ -38,7 +38,7 @@ public class AgentMtlsEnforcementFilter extends OncePerRequestFilter {
         Object attr = request.getAttribute("jakarta.servlet.request.X509Certificate");
         X509Certificate[] chain = (attr instanceof X509Certificate[]) ? (X509Certificate[]) attr : null;
         if (chain == null || chain.length == 0) {
-            response.setStatus(HttpStatus.UNAUTHORIZED.value());
+            response.setStatus(HttpStatus.FORBIDDEN.value());
             response.getWriter().write("{\"ok\":false,\"error\":\"mtls required for agent\"}");
             return;
         }

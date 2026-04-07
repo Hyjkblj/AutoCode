@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autocode.example/schema/sandbox/v1/sandbox_error_response.v1.schema.json",
+  "title": "SandboxErrorResponse v1",
+  "type": "object",
+  "required": ["ok", "status", "error"],
+  "properties": {
+    "ok": { "type": "boolean" },
+    "status": { "type": "string", "minLength": 1 },
+    "error": { "type": "string", "minLength": 1 }
+  },
+  "additionalProperties": true
+}

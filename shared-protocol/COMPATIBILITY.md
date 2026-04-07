@@ -46,6 +46,8 @@ This module is the single source of truth for cross-component DTOs and event sch
   matches the same compatibility rules as event payloads (optional additive fields only).
 - Sandbox execute HTTP DTOs use `src/main/resources/schema/sandbox/v1/`; required request keys are `taskId` and
   `command`, and required response keys are `ok`, `status`, `retryable`.
+- Sandbox health/error HTTP DTOs also use `src/main/resources/schema/sandbox/v1/`; health requires `ok` + `status`,
+  and error responses require `ok` + `status` + `error`.
 - For `ArtifactMetadata.build`: the `build` object is optional; when present, `command` is required (JSON Schema and
   `ArtifactMetadataContractValidator` agree). `ArtifactManifest` lists must not contain duplicate `artifactId` values.
 - Service runtime descriptions (ports, health checks, env hints, startup) use `src/main/resources/schema/runtime/v1/`;
@@ -74,3 +76,6 @@ same minimal required-field approach.
 
 `com.autocode.protocol.validation.SandboxExecuteContractValidator` validates sandbox execute request/response documents
 (v1) using minimal required-field checks for cross-language compatibility.
+
+`com.autocode.protocol.validation.SandboxHttpContractValidator` validates sandbox health/error response documents (v1)
+using the same minimal required-field approach.

@@ -857,13 +857,19 @@ public class TaskExecutor {
         descriptor.setServiceId(serviceId);
         descriptor.setDisplayName(readOptionalEnv(env, "MVP_RUNTIME_DISPLAY_NAME"));
 
-        Integer port = parsePositivePort(readOptionalEnv(env, "MVP_RUNTIME_PORT"));
-        if (port != null) {
-            ServiceRuntimeDescriptor.PortBinding binding = new ServiceRuntimeDescriptor.PortBinding();
-            binding.setName(firstNonBlank(readOptionalEnv(env, "MVP_RUNTIME_PORT_NAME"), "http"));
-            binding.setProtocol(firstNonBlank(readOptionalEnv(env, "MVP_RUNTIME_PORT_PROTOCOL"), "http"));
-            binding.setPort(port);
-            descriptor.setPorts(List.of(binding));
+        List<ServiceRuntimeDescriptor.PortBinding> portBindings = parseRuntimePorts(env);
+        if (portBindings.isEmpty()) {
+            Integer port = parsePositivePort(readOptionalEnv(env, "MVP_RUNTIME_PORT"));
+            if (port != null) {
+                ServiceRuntimeDescriptor.PortBinding binding = new ServiceRuntimeDescriptor.PortBinding();
+                binding.setName(firstNonBlank(readOptionalEnv(env, "MVP_RUNTIME_PORT_NAME"), "http"));
+                binding.setProtocol(firstNonBlank(readOptionalEnv(env, "MVP_RUNTIME_PORT_PROTOCOL"), "http"));
+                binding.setPort(port);
+                portBindings = List.of(binding);
+            }
+        }
+        if (!portBindings.isEmpty()) {
+            descriptor.setPorts(portBindings);
         }
 
         String healthPath = normalizeHealthPath(readOptionalEnv(env, "MVP_RUNTIME_HEALTH_PATH"));
@@ -969,6 +975,7 @@ public class TaskExecutor {
         return readOptionalEnv(env, "MVP_RUNTIME_SERVICE_ID") != null
                 || readOptionalEnv(env, "MVP_RUNTIME_DISPLAY_NAME") != null
                 || readOptionalEnv(env, "MVP_RUNTIME_PORT") != null
+                || readOptionalEnv(env, "MVP_RUNTIME_PORTS") != null
                 || readOptionalEnv(env, "MVP_RUNTIME_HEALTH_PATH") != null
                 || readOptionalEnv(env, "MVP_RUNTIME_HEALTH_URL") != null
                 || readOptionalEnv(env, "MVP_RUNTIME_START_COMMAND") != null
@@ -978,7 +985,7 @@ public class TaskExecutor {
     }
 
     private static String buildHealthBaseUrl(Map<String, String> env) {
-        Integer port = parsePositivePort(readOptionalEnv(env, "MVP_RUNTIME_PORT"));
+        Integer port = resolvePrimaryRuntimePort(env);
         if (port == null) {
             return null;
         }
@@ -988,6 +995,18 @@ public class TaskExecutor {
                 "http");
         String host = firstNonBlank(readOptionalEnv(env, "MVP_RUNTIME_HEALTH_HOST"), "127.0.0.1");
         return scheme + "://" + host + ":" + port;
+    }
+
+    private static Integer resolvePrimaryRuntimePort(Map<String, String> env) {
+        Integer single = parsePositivePort(readOptionalEnv(env, "MVP_RUNTIME_PORT"));
+        if (single != null) {
+            return single;
+        }
+        List<ServiceRuntimeDescriptor.PortBinding> ports = parseRuntimePorts(env);
+        if (ports.isEmpty()) {
+            return null;
+        }
+        return ports.get(0).getPort();
     }
 
     private static Integer parsePositivePort(String value) {
@@ -1003,6 +1022,63 @@ public class TaskExecutor {
         } catch (NumberFormatException ex) {
             return null;
         }
+    }
+
+    /**
+     * Parse {@code MVP_RUNTIME_PORTS} tokens separated by comma/semicolon.
+     * Supported token shapes:
+     * - {@code 8080}
+     * - {@code http:8080}
+     * - {@code http:8080:http}
+     * - {@code 8080:http}
+     */
+    private static List<ServiceRuntimeDescriptor.PortBinding> parseRuntimePorts(Map<String, String> env) {
+        String raw = readOptionalEnv(env, "MVP_RUNTIME_PORTS");
+        if (raw == null) {
+            return List.of();
+        }
+        ArrayList<ServiceRuntimeDescriptor.PortBinding> ports = new ArrayList<>();
+        String[] entries = raw.split("[,;]");
+        int autoIndex = 1;
+        for (String entryRaw : entries) {
+            String entry = trimToNull(entryRaw);
+            if (entry == null) {
+                continue;
+            }
+            String[] parts = entry.split(":");
+            ServiceRuntimeDescriptor.PortBinding binding = new ServiceRuntimeDescriptor.PortBinding();
+            String name = null;
+            String protocol = "http";
+            Integer port = null;
+            if (parts.length == 1) {
+                port = parsePositivePort(parts[0].trim());
+            } else if (parts.length == 2) {
+                Integer firstPort = parsePositivePort(parts[0].trim());
+                Integer secondPort = parsePositivePort(parts[1].trim());
+                if (firstPort != null && secondPort == null) {
+                    port = firstPort;
+                    protocol = firstNonBlank(parts[1], "http");
+                } else {
+                    name = trimToNull(parts[0]);
+                    port = secondPort;
+                }
+            } else {
+                name = trimToNull(parts[0]);
+                port = parsePositivePort(parts[1].trim());
+                protocol = firstNonBlank(parts[2], "http");
+            }
+            if (port == null) {
+                continue;
+            }
+            if (name == null) {
+                name = "p" + autoIndex++;
+            }
+            binding.setName(name);
+            binding.setPort(port);
+            binding.setProtocol(protocol);
+            ports.add(binding);
+        }
+        return ports.isEmpty() ? List.of() : List.copyOf(ports);
     }
 
     private static String normalizeHealthPath(String path) {

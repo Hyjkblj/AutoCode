@@ -1429,7 +1429,13 @@ private fun formatTimestamp(millis: Long): String =
 @Composable
 private fun ProjectsTab(vm: AppViewModel) {
     val state by vm.uiState.collectAsStateWithLifecycle()
-    val projects = if (state.dynamicProjects.isEmpty()) vm.mockProjects else state.dynamicProjects
+    val shouldUseMockFallback = state.baseUrl.isBlank() || state.session == null
+    val projects =
+        if (state.dynamicProjects.isEmpty() && shouldUseMockFallback) {
+            vm.mockProjects
+        } else {
+            state.dynamicProjects
+        }
     PullToRefreshBox(
         isRefreshing = state.isRefreshingProjects,
         onRefresh = { vm.refreshProjects() },
@@ -1443,6 +1449,13 @@ private fun ProjectsTab(vm: AppViewModel) {
                 style = MaterialTheme.typography.bodySmall,
             )
             Spacer(Modifier.height(16.dp))
+            if (projects.isEmpty()) {
+                Text(
+                    "No projects available. Pull down to refresh from control-plane.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Spacer(Modifier.height(10.dp))
+            }
             projects.forEach { p ->
                 val active = p.id == state.selectedProjectId
                 Card(

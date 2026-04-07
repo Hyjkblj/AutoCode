@@ -1,0 +1,17 @@
+{
+  "eventId": "evt_01HQAASSISTOUT001",
+  "taskId": "task_123",
+  "sessionId": "sess_abc",
+  "assistant": "gpt",
+  "type": "ASSISTANT_OUTPUT",
+  "timestamp": "2026-04-08T09:00:10Z",
+  "seq": 3,
+  "eventVersion": 1,
+  "payload": {
+    "message": "Task accepted by node, preparing execution.",
+    "stage": "Orchestrator",
+    "command": "mvn -pl shared-protocol test",
+    "traceId": "trc_task_123",
+    "runId": "run_01HQA001"
+  }
+}

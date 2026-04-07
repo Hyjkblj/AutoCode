@@ -319,15 +319,20 @@ public class AgentApiClient {
 
         String runtimeServiceId = trimToNull(env == null ? null : env.get("MVP_RUNTIME_SERVICE_ID"));
         String runtimePort = trimToNull(env == null ? null : env.get("MVP_RUNTIME_PORT"));
+        List<String> runtimePorts = parseRuntimePorts(env == null ? null : env.get("MVP_RUNTIME_PORTS"));
         String runtimeHealthPath = normalizeHealthPath(trimToNull(env == null ? null : env.get("MVP_RUNTIME_HEALTH_PATH")));
         String runtimeHealthUrl = trimToNull(env == null ? null : env.get("MVP_RUNTIME_HEALTH_URL"));
-        if (runtimeServiceId != null || runtimePort != null || runtimeHealthPath != null || runtimeHealthUrl != null) {
+        if (runtimeServiceId != null || runtimePort != null || !runtimePorts.isEmpty()
+                || runtimeHealthPath != null || runtimeHealthUrl != null) {
             capabilities.add("runtime.descriptor.v1");
             if (runtimeServiceId != null) {
                 capabilities.add("runtime.service:" + sanitizeCapabilityValue(runtimeServiceId));
             }
             if (runtimePort != null) {
                 capabilities.add("runtime.port:" + sanitizeCapabilityValue(runtimePort));
+            } else if (!runtimePorts.isEmpty()) {
+                capabilities.add("runtime.port:" + sanitizeCapabilityValue(runtimePorts.get(0)));
+                capabilities.add("runtime.ports.count:" + runtimePorts.size());
             }
             if (runtimeHealthPath != null) {
                 capabilities.add("runtime.health.path:" + sanitizeCapabilityValue(runtimeHealthPath));
@@ -337,6 +342,47 @@ public class AgentApiClient {
             }
         }
         return String.join(",", new ArrayList<>(capabilities));
+    }
+
+    private static List<String> parseRuntimePorts(String raw) {
+        String value = trimToNull(raw);
+        if (value == null) {
+            return List.of();
+        }
+        ArrayList<String> ports = new ArrayList<>();
+        for (String tokenRaw : value.split("[,;]")) {
+            String token = trimToNull(tokenRaw);
+            if (token == null) {
+                continue;
+            }
+            String[] parts = token.split(":");
+            if (parts.length == 1) {
+                if (isPort(parts[0])) {
+                    ports.add(parts[0].trim());
+                }
+                continue;
+            }
+            for (String part : parts) {
+                if (isPort(part)) {
+                    ports.add(part.trim());
+                    break;
+                }
+            }
+        }
+        return ports.isEmpty() ? List.of() : List.copyOf(ports);
+    }
+
+    private static boolean isPort(String value) {
+        String v = trimToNull(value);
+        if (v == null) {
+            return false;
+        }
+        try {
+            int p = Integer.parseInt(v);
+            return p >= 1 && p <= 65535;
+        } catch (NumberFormatException ex) {
+            return false;
+        }
     }
 
     private static String sanitizeCapabilityValue(String value) {

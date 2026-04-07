@@ -1,0 +1,18 @@
+{
+  "eventId": "evt_test_task_failed_001",
+  "taskId": "task_test_123",
+  "sessionId": "sess_test_abc",
+  "assistant": "test",
+  "type": "TASK_FAILED",
+  "timestamp": "2026-04-08T10:13:00Z",
+  "seq": 71,
+  "eventVersion": 1,
+  "payload": {
+    "reason": "sandbox_request_failed",
+    "detail": "connection refused",
+    "status": "error",
+    "retryable": true,
+    "traceId": "trc_task_test_123",
+    "runId": "run_test_001"
+  }
+}

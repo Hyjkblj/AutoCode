@@ -100,6 +100,14 @@ public final class TaskEventContractValidator {
                 requireMap(payload, "payload");
                 requireArtifact(payload, "artifact");
             }
+            case TASK_DONE -> {
+                requireMap(payload, "payload");
+                requireString(payload, "result");
+            }
+            case TASK_FAILED -> {
+                requireMap(payload, "payload");
+                requireString(payload, "reason");
+            }
             default -> {
                 // legacy/other events: no additional constraints here
             }

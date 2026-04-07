@@ -14,6 +14,8 @@ This module is the single source of truth for cross-component DTOs and event sch
 - Extend `com.autocode.protocol.validation.TaskEventContractValidator` **only when** the platform must reject malformed
   payloads for that type; types that fall through the `default` branch rely on schema/documentation only.
 - Prefer **optional** payload fields so existing consumers keep working when they ignore unknown keys.
+- `APPROVAL_REQUIRED` requires `approvalId` + `context` (strong-binding context fields stay mandatory).
+- `APPROVAL_RESULT` requires `approvalId` + `decision`; consumers should tolerate lowercase/uppercase decision strings.
 - `DEPLOY_PLAN` captures a normalized deployment request (required keys: `requestId`, `environment`, `artifact`).
 - `DEPLOY_RESULT` reports execution outcome (required keys: `requestId`, `status`).
 

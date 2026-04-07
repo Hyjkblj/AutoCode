@@ -161,6 +161,47 @@ public class AgentConfig {
                     readEnv("MVP_AGENT_TLS_TRUSTSTORE_TYPE", "JKS"));
         }
 
+        /**
+         * Override TLS settings from a {@code .properties} file (same keys as env). Unset keys keep {@code base} values.
+         * Blank {@code MVP_AGENT_TLS_KEYSTORE_PATH} explicitly disables mTLS key material.
+         */
+        public static ClientTls mergeFromProperties(ClientTls base, Properties props) {
+            ClientTls b = base != null ? base : DISABLED;
+            if (props == null) {
+                return b;
+            }
+
+            String keyStorePath = overridePath(props, "MVP_AGENT_TLS_KEYSTORE_PATH", b.keyStorePath);
+            if (keyStorePath == null || keyStorePath.isBlank()) {
+                return DISABLED;
+            }
+
+            return new ClientTls(
+                    keyStorePath,
+                    overrideText(props, "MVP_AGENT_TLS_KEYSTORE_PASSWORD", b.keyStorePassword),
+                    overrideText(props, "MVP_AGENT_TLS_KEYSTORE_TYPE", b.keyStoreType),
+                    overridePath(props, "MVP_AGENT_TLS_TRUSTSTORE_PATH", b.trustStorePath),
+                    overrideText(props, "MVP_AGENT_TLS_TRUSTSTORE_PASSWORD", b.trustStorePassword),
+                    overrideText(props, "MVP_AGENT_TLS_TRUSTSTORE_TYPE", b.trustStoreType));
+        }
+
+        private static String overridePath(Properties props, String key, String fallback) {
+            String raw = props.getProperty(key);
+            if (raw == null) {
+                return fallback;
+            }
+            String trimmed = raw.trim();
+            return trimmed.isEmpty() ? null : trimmed;
+        }
+
+        private static String overrideText(Properties props, String key, String fallback) {
+            String raw = props.getProperty(key);
+            if (raw == null) {
+                return fallback;
+            }
+            return raw;
+        }
+
         private static String readEnv(String key, String fallback) {
             String value = System.getenv(key);
             if (value == null) {

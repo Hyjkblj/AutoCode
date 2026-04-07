@@ -55,6 +55,15 @@ public final class TaskEventContractValidator {
                     throw new ContractViolationException("FILE_PATCH_PREVIEW requires payload.patch or payload.files");
                 }
             }
+            case TOOL_START -> {
+                requireMap(payload, "payload");
+                requireString(payload, "tool");
+            }
+            case TOOL_END -> {
+                requireMap(payload, "payload");
+                requireString(payload, "tool");
+                requireString(payload, "status");
+            }
             case BUILD_STARTED -> requireMap(payload, "payload");
             case BUILD_LOG -> {
                 requireMap(payload, "payload");

@@ -95,4 +95,81 @@ class AgentControllerIntegrationTest {
                 .andExpect(jsonPath("$.ok").value(false))
                 .andExpect(jsonPath("$.error").value("invalid agent token"));
     }
+
+    @Test
+    void registerShouldRejectTooLongNodeId() throws Exception {
+        String nodeId = "n".repeat(65);
+        String payload = """
+                {
+                  "nodeId": "%s",
+                  "version": "1.0.0"
+                }
+                """.formatted(nodeId);
+
+        mockMvc.perform(post("/api/v1/agent/register")
+                        .header("X-Agent-Token", "ag-a")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.ok").value(false))
+                .andExpect(jsonPath("$.error").value(org.hamcrest.Matchers.containsString("nodeId")));
+    }
+
+    @Test
+    void registerShouldRejectTooLargeCapabilitiesPayload() throws Exception {
+        String oversized = "x".repeat(8193);
+        String payload = """
+                {
+                  "nodeId": "node_cap_4",
+                  "capabilities": "%s"
+                }
+                """.formatted(oversized);
+
+        mockMvc.perform(post("/api/v1/agent/register")
+                        .header("X-Agent-Token", "ag-a")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.ok").value(false))
+                .andExpect(jsonPath("$.error").value(org.hamcrest.Matchers.containsString("capabilities")));
+    }
+
+    @Test
+    void registerShouldTrimNodeVersionAndCapabilities() throws Exception {
+        String payload = """
+                {
+                  "nodeId": "  node_cap_5  ",
+                  "version": "  5.0.0  ",
+                  "capabilities": "  cap-a,cap-b  "
+                }
+                """;
+
+        mockMvc.perform(post("/api/v1/agent/register")
+                        .header("X-Agent-Token", "ag-a")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.ok").value(true))
+                .andExpect(jsonPath("$.payload.nodeId").value("node_cap_5"))
+                .andExpect(jsonPath("$.payload.version").value("5.0.0"))
+                .andExpect(jsonPath("$.payload.capabilities").value("cap-a,cap-b"));
+    }
+
+    @Test
+    void heartbeatShouldRejectTooLongNodeId() throws Exception {
+        String nodeId = "h".repeat(65);
+        String payload = """
+                {
+                  "nodeId": "%s"
+                }
+                """.formatted(nodeId);
+
+        mockMvc.perform(post("/api/v1/agent/heartbeat")
+                        .header("X-Agent-Token", "ag-a")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.ok").value(false))
+                .andExpect(jsonPath("$.error").value(org.hamcrest.Matchers.containsString("nodeId")));
+    }
 }

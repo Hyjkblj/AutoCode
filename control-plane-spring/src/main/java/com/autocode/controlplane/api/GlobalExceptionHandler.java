@@ -1,6 +1,7 @@
 package com.autocode.controlplane.api;
 
 import com.autocode.controlplane.service.protocol.ProtocolValidationException;
+import jakarta.validation.ConstraintViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
@@ -22,6 +23,22 @@ public class GlobalExceptionHandler {
         String error = ex.getBindingResult().getFieldErrors().stream()
                 .findFirst()
                 .map(fieldError -> fieldError.getField() + " " + fieldError.getDefaultMessage())
+                .orElse("validation failed");
+        return ResponseEntity.badRequest().body(ApiResponse.error(error));
+    }
+
+    @ExceptionHandler(ConstraintViolationException.class)
+    public ResponseEntity<ApiResponse<Object>> handleConstraintViolation(ConstraintViolationException ex) {
+        String error = ex.getConstraintViolations().stream()
+                .findFirst()
+                .map(violation -> {
+                    String path = violation.getPropertyPath() == null ? "" : violation.getPropertyPath().toString();
+                    String field = path.substring(path.lastIndexOf('.') + 1);
+                    if (field.isBlank()) {
+                        field = "request";
+                    }
+                    return field + " " + violation.getMessage();
+                })
                 .orElse("validation failed");
         return ResponseEntity.badRequest().body(ApiResponse.error(error));
     }

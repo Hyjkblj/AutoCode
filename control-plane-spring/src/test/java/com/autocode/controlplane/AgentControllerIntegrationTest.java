@@ -205,4 +205,25 @@ class AgentControllerIntegrationTest {
                 .andExpect(jsonPath("$.ok").value(false))
                 .andExpect(jsonPath("$.error").value(org.hamcrest.Matchers.containsString("nodeId")));
     }
+
+    @Test
+    void nextTaskShouldRejectBlankNodeIdParam() throws Exception {
+        mockMvc.perform(get("/api/v1/agent/tasks/next")
+                        .header("X-Agent-Token", "ag-a")
+                        .param("nodeId", "   "))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.ok").value(false))
+                .andExpect(jsonPath("$.error").value(org.hamcrest.Matchers.containsString("nodeId")));
+    }
+
+    @Test
+    void nextTaskShouldRejectTooLongNodeIdParam() throws Exception {
+        String nodeId = "n".repeat(65);
+        mockMvc.perform(get("/api/v1/agent/tasks/next")
+                        .header("X-Agent-Token", "ag-a")
+                        .param("nodeId", nodeId))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.ok").value(false))
+                .andExpect(jsonPath("$.error").value(org.hamcrest.Matchers.containsString("nodeId")));
+    }
 }

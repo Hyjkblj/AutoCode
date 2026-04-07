@@ -50,6 +50,20 @@ class TaskEventContractValidatorTest {
     }
 
     @Test
+    void specProposed_requires_artifact() {
+        TaskEvent event = new TaskEvent();
+        event.setEventId("e9");
+        event.setTaskId("t9");
+        event.setType(EventType.SPEC_PROPOSED);
+        event.setTimestamp(Instant.parse("2026-04-06T00:00:00Z"));
+        event.setSeq(0);
+        event.setEventVersion(1);
+        event.setPayload(Map.of("path", "spec.json"));
+
+        assertThrows(ContractViolationException.class, () -> TaskEventContractValidator.validate(event));
+    }
+
+    @Test
     void filePatchPreview_example_resource_is_valid() throws Exception {
         try (InputStream in = TaskEventContractValidatorTest.class.getResourceAsStream("/examples/file_patch_preview.v1.example.json")) {
             assertNotNull(in, "Missing test resource: /examples/file_patch_preview.v1.example.json");

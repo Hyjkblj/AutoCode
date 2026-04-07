@@ -1,0 +1,24 @@
+{
+  "eventId": "evt_01HQ9APRREQ001",
+  "taskId": "task_123",
+  "sessionId": "sess_abc",
+  "assistant": "gpt",
+  "type": "APPROVAL_REQUIRED",
+  "timestamp": "2026-04-05T10:00:00Z",
+  "seq": 40,
+  "eventVersion": 1,
+  "payload": {
+    "approvalId": "apr_01HQ9APR001",
+    "reason": "publish requires human approval",
+    "context": {
+      "action": "app.publish",
+      "tool": "publish.run",
+      "workspaceRef": "D:/Develop/Project/AutoCode",
+      "inputsHash": "sha256:13d1746e51afcf6962ec8f0fc70823ea89993f31708bcfb5f4f2467f7af450f9",
+      "inputs": {
+        "target": "staging",
+        "artifactId": "art_export_zip_001"
+      }
+    }
+  }
+}

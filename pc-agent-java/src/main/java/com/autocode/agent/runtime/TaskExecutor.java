@@ -12,6 +12,10 @@ import com.autocode.agent.runtime.git.GitDiffCollector;
 import com.autocode.agent.runtime.intent.IntentRouter;
 import com.autocode.agent.runtime.intent.RoutedIntent;
 import com.autocode.agent.runtime.intent.RuleBasedIntentRouter;
+import com.autocode.agent.runtime.skill.Skill;
+import com.autocode.agent.runtime.skill.SkillRegistry;
+import com.autocode.agent.runtime.skill.impl.CodeExecSkill;
+import com.autocode.agent.runtime.skill.impl.DeployExecuteSkill;
 import com.autocode.agent.runtime.tool.Tool;
 import com.autocode.agent.runtime.tool.ToolCall;
 import com.autocode.agent.runtime.tool.ToolContext;
@@ -67,6 +71,7 @@ public class TaskExecutor {
     private final CommandRunner commandRunner;
     private final GitDiffCollector gitDiffCollector;
     private final ToolRegistry toolRegistry;
+    private final SkillRegistry skillRegistry;
     private volatile CompositeToolInvocationPolicy invocationPolicy;
     private final AtomicLong seq = new AtomicLong(0);
 
@@ -76,6 +81,7 @@ public class TaskExecutor {
         this.commandRunner = new CommandRunner();
         this.gitDiffCollector = new GitDiffCollector(this.commandRunner);
         this.toolRegistry = new ToolRegistry();
+        this.skillRegistry = new SkillRegistry();
         rebuildFromConfig(config);
     }
 
@@ -93,6 +99,14 @@ public class TaskExecutor {
                 .register(new CommandExecTool(
                         new CommandSafetyPolicy(config.getAllowedCommandPrefixes(), config.isNetworkAllowed()),
                         this.commandRunner));
+        skillRegistry.clear()
+                .register(new CodeExecSkill(),
+                        "command.exec",
+                        "skill.code.author")
+                .register(new DeployExecuteSkill(),
+                        "deploy.execute",
+                        "skill.deploy.pipeline")
+                .setDefaultSkill(CodeExecSkill.NAME);
         this.intentRouter = new RuleBasedIntentRouter(config.getIntentRules(), config.getAgentProfile());
         this.invocationPolicy = CompositeToolInvocationPolicy.builder()
                 .add(new WorkspaceAllowlistPolicy(config.getAllowedWorkspacePrefixes()))
@@ -100,20 +114,27 @@ public class TaskExecutor {
     }
 
     /**
-     * 执行单个任务：先做命令提取/白名单校验，再按策略触发审批，最后执行命令并上报事件。
+     * 鎵ц鍗曚釜浠诲姟锛氬厛鍋氬懡浠ゆ彁鍙?鐧藉悕鍗曟牎楠岋紝鍐嶆寜绛栫暐瑙﹀彂瀹℃壒锛屾渶鍚庢墽琛屽懡浠ゅ苟涓婃姤浜嬩欢銆?
      */
     public void execute(TaskSummary task) throws IOException, InterruptedException {
+        RoutedIntent intent = intentRouter.route(task);
+        Skill skill = skillRegistry.resolve(intent.skill());
+        skill.execute(new RoutedSkillContext(task, intent));
+    }
+
+    private void executeRoutedIntent(TaskSummary task, RoutedIntent intent, boolean forceDeploySkill)
+            throws IOException, InterruptedException {
         String traceId = "trc_" + task.getTaskId();
         String runId = "run_" + UUID.randomUUID().toString().replace("-", "");
         long taskStartNs = System.nanoTime();
 
-        RoutedIntent intent = intentRouter.route(task);
-        String command = intent.command();
+        RoutedIntent routedIntent = intent;
+        String command = routedIntent.command();
         String workspacePath = readWorkspacePathCompat(task);
         String cwd = (workspacePath == null || workspacePath.isBlank())
                 ? System.getProperty("user.dir", "")
                 : workspacePath;
-        ToolCall call = new ToolCall(intent.tool(), intent.action(), intent.toToolArgs(task.getPrompt()));
+        ToolCall call = new ToolCall(routedIntent.tool(), routedIntent.action(), routedIntent.toToolArgs(task.getPrompt()));
         String approvalIdForExec = null;
         String requestedToolVersion = null;
         Object requestedVersionArg = call.getArgs().get("toolVersion");
@@ -129,9 +150,9 @@ public class TaskExecutor {
                     task.getTaskId(),
                     call.getTool(),
                     requestedToolVersion);
-            intent = RoutedIntent.fallback(command);
-            command = intent.command();
-            call = new ToolCall(intent.tool(), intent.action(), intent.toToolArgs(task.getPrompt()));
+            routedIntent = RoutedIntent.fallback(command);
+            command = routedIntent.command();
+            call = new ToolCall(routedIntent.tool(), routedIntent.action(), routedIntent.toToolArgs(task.getPrompt()));
             tool = toolRegistry.getRequired(call.getTool(), null);
         }
         ToolContext preCtx = new ToolContext(task, cwd, null, config.getApprovalTimeoutSeconds());
@@ -146,7 +167,6 @@ public class TaskExecutor {
             return;
         }
         if (!tool.policy().isAllowed(call)) {
-            // 不在允许范围内：直接失败并上报原因（控制平面会落库/广播）
             send(task, traceId, runId, EventType.TASK_FAILED, Map.of(
                     "reason", "command_not_allowed",
                     "command", command
@@ -157,18 +177,16 @@ public class TaskExecutor {
         HashMap<String, Object> assistantOutput = new HashMap<>();
         assistantOutput.put("message", "Task accepted by node, preparing execution.");
         assistantOutput.put("command", command);
-        assistantOutput.put("intentSkill", intent.skill());
-        assistantOutput.put("intentRoute", intent.routeSource());
+        assistantOutput.put("intentSkill", routedIntent.skill());
+        assistantOutput.put("intentRoute", routedIntent.routeSource());
         send(task, traceId, runId, EventType.ASSISTANT_OUTPUT, assistantOutput);
 
         if (tool.policy().requiresApproval(call)) {
             String approvalId = "apr_" + UUID.randomUUID().toString().replace("-", "");
             approvalIdForExec = approvalId;
-            // 触发审批：控制平面会把任务置为 WAITING_APPROVAL，并要求 operator 决策
             ToolContext approvalCtx = new ToolContext(task, cwd, approvalId, config.getApprovalTimeoutSeconds());
             send(task, traceId, runId, EventType.APPROVAL_REQUIRED, tool.buildApprovalPayload(call, approvalCtx));
 
-            // 等待审批结果：通过 control plane 的 approval 状态接口轮询
             long approvalStartNs = System.nanoTime();
             ApprovalDecision decision = waitForApproval(task.getTaskId());
             long approvalWaitMs = (System.nanoTime() - approvalStartNs) / 1_000_000;
@@ -188,7 +206,6 @@ public class TaskExecutor {
             }
         }
 
-        // 开始执行：以 TOOL_START/TOOL_END 形式上报，便于前端展示工具调用过程
         HashMap<String, Object> toolStart = new HashMap<>();
         toolStart.put("tool", call.getTool());
         String resolvedToolVersion = trimToNull(tool.version());
@@ -198,8 +215,8 @@ public class TaskExecutor {
         toolStart.put("command", command);
         toolStart.put("cwd", cwd);
         toolStart.put("action", call.getAction());
-        toolStart.put("intentSkill", intent.skill());
-        toolStart.put("intentRoute", intent.routeSource());
+        toolStart.put("intentSkill", routedIntent.skill());
+        toolStart.put("intentRoute", routedIntent.routeSource());
         if (approvalIdForExec != null) {
             toolStart.put("approvalId", approvalIdForExec);
         }
@@ -252,26 +269,54 @@ public class TaskExecutor {
             return;
         }
 
-        // 产出真实 patch 预览：若 workspacePath 指向 git 仓库且存在 diff，则上报 FILE_PATCH_PREVIEW
         try {
             Map<String, Object> patchPreview = gitDiffCollector.collectPatchPreview(cwd);
             if (patchPreview != null) {
                 send(task, traceId, runId, EventType.FILE_PATCH_PREVIEW, patchPreview);
             }
         } catch (Exception ignored) {
-            // 预览属于附加信息，失败不影响主任务完成
+            // Patch preview is optional and should not fail the task.
         }
 
-        // M1/M2：可选将本地产物上传并上报 ARTIFACT_READY（路径须在工作区前缀白名单内）
         List<ArtifactMetadata> postSuccessArtifacts = maybePublishPostSuccessArtifacts(task, traceId, runId, cwd, command);
         maybePublishRuntimeDescriptor(task, traceId, runId, cwd, command);
-        if (maybeReportDeployExecution(task, traceId, runId, cwd, command, postSuccessArtifacts)) {
+        if (maybeReportDeployExecution(task, traceId, runId, cwd, command, postSuccessArtifacts, forceDeploySkill)) {
             return;
         }
 
         long totalMs = (System.nanoTime() - taskStartNs) / 1_000_000;
         log.info("Task {} done total {}ms traceId={} runId={}", task.getTaskId(), totalMs, traceId, runId);
         send(task, traceId, runId, EventType.TASK_DONE, Map.of("result", "success"));
+    }
+
+    private final class RoutedSkillContext implements Skill.Context {
+        private final TaskSummary task;
+        private final RoutedIntent intent;
+
+        private RoutedSkillContext(TaskSummary task, RoutedIntent intent) {
+            this.task = task;
+            this.intent = intent;
+        }
+
+        @Override
+        public TaskSummary task() {
+            return task;
+        }
+
+        @Override
+        public RoutedIntent intent() {
+            return intent;
+        }
+
+        @Override
+        public void runCodeExecution() throws IOException, InterruptedException {
+            executeRoutedIntent(task, intent, false);
+        }
+
+        @Override
+        public void runDeployExecution() throws IOException, InterruptedException {
+            executeRoutedIntent(task, intent, true);
+        }
     }
 
     private List<ArtifactMetadata> maybePublishPostSuccessArtifacts(
@@ -369,9 +414,10 @@ public class TaskExecutor {
             String runId,
             String cwd,
             String command,
-            List<ArtifactMetadata> publishedArtifacts) throws IOException, InterruptedException {
+            List<ArtifactMetadata> publishedArtifacts,
+            boolean forceDeploySkill) throws IOException, InterruptedException {
         Map<String, String> env = System.getenv();
-        if (!isDeployEnabled(env)) {
+        if (!forceDeploySkill && !isDeployEnabled(env)) {
             return false;
         }
 
@@ -843,6 +889,10 @@ public class TaskExecutor {
             }
             descriptor.setStartup(startup);
         }
+        List<ServiceRuntimeDescriptor.EnvVarSpec> environment = parseRuntimeEnvironmentSpecs(env);
+        if (!environment.isEmpty()) {
+            descriptor.setEnvironment(environment);
+        }
         return descriptor;
     }
 
@@ -915,7 +965,8 @@ public class TaskExecutor {
                 || readOptionalEnv(env, "MVP_RUNTIME_HEALTH_URL") != null
                 || readOptionalEnv(env, "MVP_RUNTIME_START_COMMAND") != null
                 || readOptionalEnv(env, "MVP_RUNTIME_RUN_COMMAND") != null
-                || readOptionalEnv(env, "MVP_RUNTIME_RUN_HINTS") != null;
+                || readOptionalEnv(env, "MVP_RUNTIME_RUN_HINTS") != null
+                || readOptionalEnv(env, "MVP_RUNTIME_ENV_SPECS") != null;
     }
 
     private static String buildHealthBaseUrl(Map<String, String> env) {
@@ -971,6 +1022,54 @@ public class TaskExecutor {
             }
         }
         return values;
+    }
+
+    /**
+     * Parses environment specs from {@code MVP_RUNTIME_ENV_SPECS}:
+     * {@code NAME|required=true|default=dev|description=...;DB_URL|required=true}
+     */
+    private static List<ServiceRuntimeDescriptor.EnvVarSpec> parseRuntimeEnvironmentSpecs(Map<String, String> env) {
+        String raw = readOptionalEnv(env, "MVP_RUNTIME_ENV_SPECS");
+        if (raw == null) {
+            return List.of();
+        }
+        ArrayList<ServiceRuntimeDescriptor.EnvVarSpec> specs = new ArrayList<>();
+        for (String entryRaw : raw.split(";")) {
+            String entry = trimToNull(entryRaw);
+            if (entry == null) {
+                continue;
+            }
+            ServiceRuntimeDescriptor.EnvVarSpec spec = new ServiceRuntimeDescriptor.EnvVarSpec();
+            String[] tokens = entry.split("\\|");
+            for (String tokenRaw : tokens) {
+                String token = trimToNull(tokenRaw);
+                if (token == null) {
+                    continue;
+                }
+                int eq = token.indexOf('=');
+                if (eq <= 0) {
+                    if (spec.getName() == null) {
+                        spec.setName(token);
+                    }
+                    continue;
+                }
+                String key = token.substring(0, eq).trim().toLowerCase(Locale.ROOT);
+                String value = trimToNull(token.substring(eq + 1));
+                if ("name".equals(key)) {
+                    spec.setName(value);
+                } else if ("required".equals(key)) {
+                    spec.setRequired(value != null && isTruthy(value));
+                } else if ("default".equals(key) || "defaultvalue".equals(key)) {
+                    spec.setDefaultValue(value);
+                } else if ("description".equals(key) || "desc".equals(key)) {
+                    spec.setDescription(value);
+                }
+            }
+            if (trimToNull(spec.getName()) != null) {
+                specs.add(spec);
+            }
+        }
+        return specs;
     }
 
     private static Path resolveArtifactPath(String raw, Path cwdPath) {
@@ -1050,7 +1149,7 @@ public class TaskExecutor {
     }
 
     /**
-     * {@code ARTIFACT_READY} v1 JSON Schema allows only {@code artifact} and {@code kind} in payload — do not inject
+     * {@code ARTIFACT_READY} v1 JSON Schema allows only {@code artifact} and {@code kind} in payload - do not inject
      * {@code traceId}/{@code runId} there (M1 contract alignment).
      */
     static Map<String, Object> mergeOutboundPayload(EventType type, String traceId, String runId, Map<String, Object> payload) {

@@ -1,0 +1,23 @@
+{
+  "eventId": "evt_01HQ9BUILDDONE001",
+  "taskId": "task_123",
+  "sessionId": "sess_abc",
+  "assistant": "gpt",
+  "type": "BUILD_DONE",
+  "timestamp": "2026-04-05T10:11:00Z",
+  "seq": 52,
+  "eventVersion": 1,
+  "payload": {
+    "buildId": "build_01HQ9B001",
+    "status": "success",
+    "durationMs": 60500,
+    "reportArtifact": {
+      "artifactId": "art_build_report_001",
+      "name": "build-report.json",
+      "hash": "sha256:1b2c3d4e5f60718293a4b5c6d7e8f901234567890abcdef1234567890abcdef",
+      "size": 4096,
+      "mime": "application/json",
+      "type": "build_report"
+    }
+  }
+}

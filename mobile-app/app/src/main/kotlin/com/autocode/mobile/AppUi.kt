@@ -39,6 +39,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedTextField
@@ -47,6 +48,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -64,6 +66,7 @@ import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.PermissionStatus
 import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberPermissionState
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -131,7 +134,6 @@ fun AutoCodeApp() {
         }
     }
 }
-
 @Composable
 private fun LoginRoute(vm: AppViewModel) {
     val state by vm.uiState.collectAsStateWithLifecycle()
@@ -495,7 +497,17 @@ private fun TaskDetailTab(
     innerNav: NavHostController,
 ) {
     val state by vm.uiState.collectAsStateWithLifecycle()
+    val pendingApproval by vm.pendingApproval.collectAsStateWithLifecycle()
     val task = state.tasks.find { it.id == taskId }
+    val events = state.taskEvents[taskId].orEmpty().sortedBy { it.seq }
+    val approvalForTask = pendingApproval?.takeIf { it.taskId == taskId }
+
+    LaunchedEffect(taskId, state.baseUrl, state.session?.accessToken) {
+        vm.subscribeTaskEvents(taskId)
+    }
+    DisposableEffect(taskId) {
+        onDispose { vm.unsubscribeTaskEvents(taskId) }
+    }
 
     Scaffold(
         topBar = {
@@ -542,8 +554,14 @@ private fun TaskDetailTab(
                 style = MaterialTheme.typography.titleSmall,
             )
             Spacer(Modifier.height(8.dp))
-            task.logs.forEach { line ->
-                Text("· $line", fontFamily = FontFamily.Monospace)
+            if (events.isNotEmpty()) {
+                events.forEach { event ->
+                    Text("[${event.seq}] ${vm.eventLine(event)}", fontFamily = FontFamily.Monospace)
+                }
+            } else {
+                task.logs.forEach { line ->
+                    Text("· $line", fontFamily = FontFamily.Monospace)
+                }
             }
             if (task.status == TaskStatus.SUCCEEDED) {
                 Spacer(Modifier.height(20.dp))
@@ -554,6 +572,145 @@ private fun TaskDetailTab(
                     Text("查看产物（PR-3）")
                 }
             }
+        }
+    }
+
+    approvalForTask?.let { approval ->
+        ApprovalBottomSheet(
+            approval = approval,
+            onApprove = { comment ->
+                vm.submitApproval(
+                    taskId = approval.taskId,
+                    approvalId = approval.approvalId,
+                    decision = "approve",
+                    comment = comment,
+                )
+            },
+            onReject = { comment ->
+                vm.submitApproval(
+                    taskId = approval.taskId,
+                    approvalId = approval.approvalId,
+                    decision = "reject",
+                    comment = comment,
+                )
+            },
+            onTimeout = {
+                vm.dismissPendingApproval(taskId = approval.taskId, approvalId = approval.approvalId)
+            },
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ApprovalBottomSheet(
+    approval: ApprovalRequest,
+    onApprove: (comment: String) -> Unit,
+    onReject: (comment: String) -> Unit,
+    onTimeout: () -> Unit,
+) {
+    var comment by rememberSaveable(approval.approvalId) { mutableStateOf("") }
+    var handling by remember(approval.approvalId) { mutableStateOf(false) }
+    var secondsLeft by remember(approval.approvalId) { mutableStateOf(approval.timeoutSeconds.coerceAtLeast(1)) }
+    val totalSeconds = approval.timeoutSeconds.coerceAtLeast(1)
+
+    LaunchedEffect(approval.approvalId) {
+        while (secondsLeft > 0 && !handling) {
+            delay(1000)
+            secondsLeft -= 1
+        }
+        if (secondsLeft <= 0 && !handling) {
+            handling = true
+            onTimeout()
+        }
+    }
+
+    ModalBottomSheet(
+        onDismissRequest = { },
+    ) {
+        Column(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp)
+                    .verticalScroll(rememberScrollState()),
+        ) {
+            Text("审批请求", style = MaterialTheme.typography.titleLarge)
+            Spacer(Modifier.height(8.dp))
+            Text("approvalId: ${approval.approvalId}", fontFamily = FontFamily.Monospace)
+            approval.action?.let {
+                Spacer(Modifier.height(6.dp))
+                Text("action: $it")
+            }
+            approval.tool?.let {
+                Spacer(Modifier.height(6.dp))
+                Text("tool: $it")
+            }
+            approval.command?.let {
+                Spacer(Modifier.height(6.dp))
+                Text("command: $it", fontFamily = FontFamily.Monospace)
+            }
+            approval.cwd?.let {
+                Spacer(Modifier.height(6.dp))
+                Text("cwd: $it", fontFamily = FontFamily.Monospace)
+            }
+            approval.riskScore?.let {
+                Spacer(Modifier.height(6.dp))
+                Text("riskScore: ${String.format(Locale.getDefault(), "%.2f", it)}")
+            }
+            approval.reason?.let {
+                Spacer(Modifier.height(6.dp))
+                Text("reason: $it")
+            }
+
+            Spacer(Modifier.height(14.dp))
+            Text("剩余 ${secondsLeft}s", style = MaterialTheme.typography.labelLarge)
+            Spacer(Modifier.height(6.dp))
+            LinearProgressIndicator(
+                progress = { secondsLeft.toFloat() / totalSeconds.toFloat() },
+                modifier = Modifier.fillMaxWidth(),
+            )
+
+            Spacer(Modifier.height(14.dp))
+            OutlinedTextField(
+                value = comment,
+                onValueChange = { comment = it },
+                label = { Text("审批备注（可选）") },
+                modifier = Modifier.fillMaxWidth(),
+                minLines = 2,
+            )
+
+            Spacer(Modifier.height(12.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Button(
+                    onClick = {
+                        if (!handling) {
+                            handling = true
+                            onApprove(comment)
+                        }
+                    },
+                    enabled = !handling,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text("批准")
+                }
+                Button(
+                    onClick = {
+                        if (!handling) {
+                            handling = true
+                            onReject(comment)
+                        }
+                    },
+                    enabled = !handling,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text("拒绝")
+                }
+            }
+            Spacer(Modifier.height(24.dp))
         }
     }
 }
@@ -1028,3 +1185,4 @@ private fun AccountTab(vm: AppViewModel) {
         }
     }
 }
+

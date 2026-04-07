@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from datetime import datetime, timezone
+from threading import Lock
 from typing import Any
 from uuid import uuid4
 
@@ -11,6 +12,7 @@ from client.control_plane_client import ControlPlaneClient
 class BaseAgent(ABC):
     def __init__(self) -> None:
         self._seq_by_task: dict[str, int] = {}
+        self._seq_lock = Lock()
 
     @abstractmethod
     def handle_task(self, task: dict[str, Any], client: ControlPlaneClient) -> None:
@@ -30,9 +32,10 @@ class BaseAgent(ABC):
         client.publish_event(task_id, event)
 
     def _next_seq(self, task_id: str) -> int:
-        current = self._seq_by_task.get(task_id, 0)
-        self._seq_by_task[task_id] = current + 1
-        return current
+        with self._seq_lock:
+            current = self._seq_by_task.get(task_id, 0)
+            self._seq_by_task[task_id] = current + 1
+            return current
 
     @staticmethod
     def _build_event(task: dict[str, Any], event_type: str, payload: dict[str, Any], seq: int) -> dict[str, Any]:

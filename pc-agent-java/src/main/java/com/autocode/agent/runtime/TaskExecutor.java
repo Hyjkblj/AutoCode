@@ -604,7 +604,7 @@ public class TaskExecutor {
             Map<String, String> env) {
         String action = firstNonBlank(readOptionalEnv(env, "MVP_DEPLOY_ACTION"), DEFAULT_DEPLOY_ACTION);
         String tool = firstNonBlank(readOptionalEnv(env, "MVP_DEPLOY_TOOL"), DEFAULT_DEPLOY_TOOL);
-        String workspaceRef = firstNonBlank(readOptionalEnv(env, "MVP_DEPLOY_WORKSPACE_REF"), cwd);
+        String workspaceRef = normalizeWorkspaceRef(firstNonBlank(readOptionalEnv(env, "MVP_DEPLOY_WORKSPACE_REF"), cwd));
         String artifactId = artifact == null ? "" : firstNonBlank(artifact.getArtifactId(), "");
         String inputsHash = firstNonBlank(
                 readOptionalEnv(env, "MVP_DEPLOY_INPUTS_HASH"),
@@ -722,7 +722,7 @@ public class TaskExecutor {
         normalized.put("taskId", nz(task == null ? null : task.getTaskId()));
         normalized.put("projectId", nz(task == null ? null : task.getProjectId()));
         normalized.put("requestId", nz(requestId));
-        normalized.put("workspaceRef", nz(workspaceRef));
+        normalized.put("workspaceRef", normalizeWorkspaceRef(workspaceRef));
         normalized.put("artifactId", nz(artifactId));
         normalized.put("prompt", nz(task == null ? null : task.getPrompt()));
         try {
@@ -736,6 +736,14 @@ public class TaskExecutor {
 
     private static String nz(String value) {
         return value == null ? "" : value;
+    }
+
+    private static String normalizeWorkspaceRef(String value) {
+        String normalized = trimToNull(value);
+        if (normalized == null) {
+            return "";
+        }
+        return normalized.replace('\\', '/');
     }
 
     private static void putIfNotBlank(Map<String, Object> target, String key, String value) {

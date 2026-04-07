@@ -1,6 +1,11 @@
 package com.autocode.mobile
 
+import android.Manifest
 import android.app.Application
+import android.content.Intent
+import android.speech.RecognizerIntent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -14,6 +19,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.weight
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -22,6 +28,7 @@ import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -55,6 +62,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import com.autocode.mobile.network.ArtifactListItem
+import com.google.accompanist.permissions.ExperimentalPermissionsApi
+import com.google.accompanist.permissions.PermissionStatus
+import com.google.accompanist.permissions.isGranted
+import com.google.accompanist.permissions.rememberPermissionState
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -320,14 +331,43 @@ private fun HomeTab(vm: AppViewModel) {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalPermissionsApi::class)
 @Composable
 private fun TaskListTab(vm: AppViewModel, nav: NavHostController) {
     val state by vm.uiState.collectAsStateWithLifecycle()
     var prompt by rememberSaveable { mutableStateOf("") }
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    val audioPermissionState = rememberPermissionState(Manifest.permission.RECORD_AUDIO)
+    var askedAudioPermission by rememberSaveable { mutableStateOf(false) }
+    var voiceHint by rememberSaveable { mutableStateOf<String?>(null) }
     val list = vm.tasksForCurrentProject()
     val project = vm.mockProjects.find { it.id == state.selectedProjectId }
+    val permissionRationale =
+        (audioPermissionState.status as? PermissionStatus.Denied)?.shouldShowRationale == true
+    val voiceInputLauncher =
+        rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            val text =
+                result.data
+                    ?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
+                    ?.firstOrNull()
+                    ?.trim()
+                    .orEmpty()
+            if (text.isNotEmpty()) {
+                prompt = if (prompt.isBlank()) text else "$prompt\n$text"
+                voiceHint = null
+            }
+        }
+
+    fun startVoiceInput() {
+        val intent = buildSpeechRecognizerIntent()
+        if (intent.resolveActivity(context.packageManager) == null) {
+            voiceHint = "当前设备不支持语音识别"
+            return
+        }
+        runCatching { voiceInputLauncher.launch(intent) }
+            .onFailure { voiceHint = "语音识别启动失败，请稍后重试" }
+    }
 
     if (state.selectedProjectId == null) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -342,15 +382,48 @@ private fun TaskListTab(vm: AppViewModel, nav: NavHostController) {
             "当前项目：${project?.name ?: state.selectedProjectId}",
             modifier = Modifier.padding(bottom = 12.dp),
         )
-        OutlinedTextField(
-            value = prompt,
-            onValueChange = { prompt = it },
-            label = { Text("自然语言描述") },
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(140.dp),
-            minLines = 4,
-        )
+        Row(verticalAlignment = Alignment.Top) {
+            OutlinedTextField(
+                value = prompt,
+                onValueChange = { prompt = it },
+                label = { Text("自然语言描述") },
+                modifier = Modifier
+                    .weight(1f)
+                    .height(140.dp),
+                minLines = 4,
+            )
+            Spacer(Modifier.width(8.dp))
+            VoiceInputButton(
+                permissionGranted = audioPermissionState.status.isGranted,
+                onStartVoiceInput = { startVoiceInput() },
+                onRequestPermission = {
+                    askedAudioPermission = true
+                    audioPermissionState.launchPermissionRequest()
+                },
+            )
+        }
+        if (askedAudioPermission && !audioPermissionState.status.isGranted) {
+            val tip =
+                if (permissionRationale) {
+                    "请允许麦克风权限后再使用语音输入"
+                } else {
+                    "未授予麦克风权限，语音输入不可用"
+                }
+            Text(
+                tip,
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(top = 8.dp),
+            )
+        }
+        voiceHint?.let {
+            Text(
+                it,
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(top = 8.dp),
+            )
+        }
         state.errorMessage?.let {
             Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 8.dp))
         }
@@ -390,6 +463,30 @@ private fun TaskListTab(vm: AppViewModel, nav: NavHostController) {
         }
     }
 }
+
+@Composable
+private fun VoiceInputButton(
+    permissionGranted: Boolean,
+    onStartVoiceInput: () -> Unit,
+    onRequestPermission: () -> Unit,
+) {
+    IconButton(
+        onClick = {
+            if (permissionGranted) onStartVoiceInput() else onRequestPermission()
+        },
+        modifier = Modifier.padding(top = 4.dp),
+    ) {
+        Icon(Icons.Filled.Mic, contentDescription = "语音输入")
+    }
+}
+
+private fun buildSpeechRecognizerIntent(): Intent =
+    Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+        putExtra(RecognizerIntent.EXTRA_LANGUAGE, "zh-CN")
+        putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+        putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false)
+        putExtra(RecognizerIntent.EXTRA_PROMPT, "请说出你的任务描述")
+    }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

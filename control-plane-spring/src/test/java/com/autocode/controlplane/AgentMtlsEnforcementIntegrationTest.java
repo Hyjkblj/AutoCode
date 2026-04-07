@@ -36,6 +36,16 @@ class AgentMtlsEnforcementIntegrationTest extends OperatorProj1MembershipFixture
     }
 
     @Test
+    void agentEndpointShouldReturn403WhenContextPathPresentAndCertMissing() throws Exception {
+        mockMvc.perform(get("/cp/api/v1/agent/nodes")
+                        .contextPath("/cp")
+                        .header("X-Agent-Token", "ag-a"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.ok").value(false))
+                .andExpect(jsonPath("$.error").value("mtls required for agent"));
+    }
+
+    @Test
     void agentEndpointShouldAllowWhenMtlsCertPresent() throws Exception {
         X509Certificate cert = mock(X509Certificate.class);
         mockMvc.perform(get("/api/v1/agent/nodes")

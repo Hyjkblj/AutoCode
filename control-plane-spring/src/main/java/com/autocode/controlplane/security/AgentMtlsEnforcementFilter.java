@@ -30,8 +30,8 @@ public class AgentMtlsEnforcementFilter extends OncePerRequestFilter {
             filterChain.doFilter(request, response);
             return;
         }
-        String path = request.getRequestURI();
-        if (path == null || !path.startsWith("/api/v1/agent/")) {
+        String path = pathWithinApplication(request);
+        if (!isAgentEndpoint(path)) {
             filterChain.doFilter(request, response);
             return;
         }
@@ -43,6 +43,25 @@ public class AgentMtlsEnforcementFilter extends OncePerRequestFilter {
             return;
         }
         filterChain.doFilter(request, response);
+    }
+
+    private static String pathWithinApplication(HttpServletRequest request) {
+        String uri = request.getRequestURI();
+        if (uri == null) {
+            return null;
+        }
+        String contextPath = request.getContextPath();
+        if (contextPath == null || contextPath.isEmpty()) {
+            return uri;
+        }
+        if (uri.startsWith(contextPath)) {
+            return uri.substring(contextPath.length());
+        }
+        return uri;
+    }
+
+    private static boolean isAgentEndpoint(String path) {
+        return "/api/v1/agent".equals(path) || (path != null && path.startsWith("/api/v1/agent/"));
     }
 }
 

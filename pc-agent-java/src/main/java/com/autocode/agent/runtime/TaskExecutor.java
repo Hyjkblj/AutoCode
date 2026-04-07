@@ -889,6 +889,10 @@ public class TaskExecutor {
             }
             descriptor.setStartup(startup);
         }
+        List<ServiceRuntimeDescriptor.EnvVarSpec> environment = parseRuntimeEnvironmentSpecs(env);
+        if (!environment.isEmpty()) {
+            descriptor.setEnvironment(environment);
+        }
         return descriptor;
     }
 
@@ -961,7 +965,8 @@ public class TaskExecutor {
                 || readOptionalEnv(env, "MVP_RUNTIME_HEALTH_URL") != null
                 || readOptionalEnv(env, "MVP_RUNTIME_START_COMMAND") != null
                 || readOptionalEnv(env, "MVP_RUNTIME_RUN_COMMAND") != null
-                || readOptionalEnv(env, "MVP_RUNTIME_RUN_HINTS") != null;
+                || readOptionalEnv(env, "MVP_RUNTIME_RUN_HINTS") != null
+                || readOptionalEnv(env, "MVP_RUNTIME_ENV_SPECS") != null;
     }
 
     private static String buildHealthBaseUrl(Map<String, String> env) {
@@ -1017,6 +1022,54 @@ public class TaskExecutor {
             }
         }
         return values;
+    }
+
+    /**
+     * Parses environment specs from {@code MVP_RUNTIME_ENV_SPECS}:
+     * {@code NAME|required=true|default=dev|description=...;DB_URL|required=true}
+     */
+    private static List<ServiceRuntimeDescriptor.EnvVarSpec> parseRuntimeEnvironmentSpecs(Map<String, String> env) {
+        String raw = readOptionalEnv(env, "MVP_RUNTIME_ENV_SPECS");
+        if (raw == null) {
+            return List.of();
+        }
+        ArrayList<ServiceRuntimeDescriptor.EnvVarSpec> specs = new ArrayList<>();
+        for (String entryRaw : raw.split(";")) {
+            String entry = trimToNull(entryRaw);
+            if (entry == null) {
+                continue;
+            }
+            ServiceRuntimeDescriptor.EnvVarSpec spec = new ServiceRuntimeDescriptor.EnvVarSpec();
+            String[] tokens = entry.split("\\|");
+            for (String tokenRaw : tokens) {
+                String token = trimToNull(tokenRaw);
+                if (token == null) {
+                    continue;
+                }
+                int eq = token.indexOf('=');
+                if (eq <= 0) {
+                    if (spec.getName() == null) {
+                        spec.setName(token);
+                    }
+                    continue;
+                }
+                String key = token.substring(0, eq).trim().toLowerCase(Locale.ROOT);
+                String value = trimToNull(token.substring(eq + 1));
+                if ("name".equals(key)) {
+                    spec.setName(value);
+                } else if ("required".equals(key)) {
+                    spec.setRequired(value != null && isTruthy(value));
+                } else if ("default".equals(key) || "defaultvalue".equals(key)) {
+                    spec.setDefaultValue(value);
+                } else if ("description".equals(key) || "desc".equals(key)) {
+                    spec.setDescription(value);
+                }
+            }
+            if (trimToNull(spec.getName()) != null) {
+                specs.add(spec);
+            }
+        }
+        return specs;
     }
 
     private static Path resolveArtifactPath(String raw, Path cwdPath) {

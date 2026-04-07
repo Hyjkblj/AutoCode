@@ -75,6 +75,30 @@ class TaskExecutorRuntimeMetadataTest {
         assertEquals(List.of("http://127.0.0.1:8080/actuator/health", "log:tail"), run.getHints());
     }
 
+    @Test
+    void runtimeDescriptorIncludesEnvironmentSpecs() {
+        Map<String, String> env = new HashMap<>();
+        env.put("MVP_RUNTIME_SERVICE_ID", "control-plane-api");
+        env.put("MVP_RUNTIME_ENV_SPECS", "SPRING_PROFILES_ACTIVE|required=true|default=dev|description=spring profile;"
+                + "DB_URL|required=true");
+
+        ServiceRuntimeDescriptor descriptor = TaskExecutor.buildRuntimeDescriptor(
+                task("task_3"),
+                "mvn test",
+                "D:/workspace",
+                env
+        );
+
+        assertNotNull(descriptor);
+        assertNotNull(descriptor.getEnvironment());
+        assertEquals(2, descriptor.getEnvironment().size());
+        assertEquals("SPRING_PROFILES_ACTIVE", descriptor.getEnvironment().get(0).getName());
+        assertEquals(Boolean.TRUE, descriptor.getEnvironment().get(0).getRequired());
+        assertEquals("dev", descriptor.getEnvironment().get(0).getDefaultValue());
+        assertEquals("spring profile", descriptor.getEnvironment().get(0).getDescription());
+        assertEquals("DB_URL", descriptor.getEnvironment().get(1).getName());
+    }
+
     private static TaskSummary task(String taskId) {
         TaskSummary task = new TaskSummary();
         task.setTaskId(taskId);

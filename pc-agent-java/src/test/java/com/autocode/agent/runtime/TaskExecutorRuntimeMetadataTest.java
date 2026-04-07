@@ -140,6 +140,24 @@ class TaskExecutorRuntimeMetadataTest {
         assertTrue(run.getHints().contains("http://127.0.0.1:8081/healthz"));
     }
 
+    @Test
+    void runDescriptorHealthHintFallsBackToRuntimePortsWhenSinglePortInvalid() {
+        Map<String, String> env = new HashMap<>();
+        env.put("MVP_RUNTIME_PORT", "not-a-port");
+        env.put("MVP_RUNTIME_PORTS", "http:8081:http");
+        env.put("MVP_RUNTIME_HEALTH_PATH", "healthz");
+
+        ArtifactMetadata.RunDescriptor run = TaskExecutor.buildRunDescriptor(
+                null,
+                "mvn test",
+                env
+        );
+
+        assertNotNull(run);
+        assertNotNull(run.getHints());
+        assertTrue(run.getHints().contains("http://127.0.0.1:8081/healthz"));
+    }
+
     private static TaskSummary task(String taskId) {
         TaskSummary task = new TaskSummary();
         task.setTaskId(taskId);

@@ -4,9 +4,11 @@
 package com.autocode.agent.client;
 
 import com.autocode.agent.config.AgentConfig;
+import com.autocode.agent.runtime.RuntimeSignalParser;
 import com.autocode.protocol.model.ApprovalDecision;
 import com.autocode.protocol.model.ArtifactMetadata;
 import com.autocode.protocol.model.GatewayResponse;
+import com.autocode.protocol.model.ServiceRuntimeDescriptor;
 import com.autocode.protocol.model.TaskEvent;
 import com.autocode.protocol.model.TaskSummary;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -318,9 +320,11 @@ public class AgentApiClient {
         capabilities.add("profile:" + profile);
 
         String runtimeServiceId = trimToNull(env == null ? null : env.get("MVP_RUNTIME_SERVICE_ID"));
-        String runtimePort = trimToNull(env == null ? null : env.get("MVP_RUNTIME_PORT"));
-        List<String> runtimePorts = parseRuntimePorts(env == null ? null : env.get("MVP_RUNTIME_PORTS"));
-        String runtimeHealthPath = normalizeHealthPath(trimToNull(env == null ? null : env.get("MVP_RUNTIME_HEALTH_PATH")));
+        Integer runtimePort = RuntimeSignalParser.parsePositivePort(env == null ? null : env.get("MVP_RUNTIME_PORT"));
+        List<ServiceRuntimeDescriptor.PortBinding> runtimePorts = RuntimeSignalParser.parsePortBindings(
+                env == null ? null : env.get("MVP_RUNTIME_PORTS"));
+        String runtimeHealthPath = RuntimeSignalParser.normalizeHealthPath(
+                trimToNull(env == null ? null : env.get("MVP_RUNTIME_HEALTH_PATH")));
         String runtimeHealthUrl = trimToNull(env == null ? null : env.get("MVP_RUNTIME_HEALTH_URL"));
         if (runtimeServiceId != null || runtimePort != null || !runtimePorts.isEmpty()
                 || runtimeHealthPath != null || runtimeHealthUrl != null) {
@@ -329,9 +333,9 @@ public class AgentApiClient {
                 capabilities.add("runtime.service:" + sanitizeCapabilityValue(runtimeServiceId));
             }
             if (runtimePort != null) {
-                capabilities.add("runtime.port:" + sanitizeCapabilityValue(runtimePort));
+                capabilities.add("runtime.port:" + runtimePort);
             } else if (!runtimePorts.isEmpty()) {
-                capabilities.add("runtime.port:" + sanitizeCapabilityValue(runtimePorts.get(0)));
+                capabilities.add("runtime.port:" + runtimePorts.get(0).getPort());
                 capabilities.add("runtime.ports.count:" + runtimePorts.size());
             }
             if (runtimeHealthPath != null) {
@@ -344,47 +348,6 @@ public class AgentApiClient {
         return String.join(",", new ArrayList<>(capabilities));
     }
 
-    private static List<String> parseRuntimePorts(String raw) {
-        String value = trimToNull(raw);
-        if (value == null) {
-            return List.of();
-        }
-        ArrayList<String> ports = new ArrayList<>();
-        for (String tokenRaw : value.split("[,;]")) {
-            String token = trimToNull(tokenRaw);
-            if (token == null) {
-                continue;
-            }
-            String[] parts = token.split(":");
-            if (parts.length == 1) {
-                if (isPort(parts[0])) {
-                    ports.add(parts[0].trim());
-                }
-                continue;
-            }
-            for (String part : parts) {
-                if (isPort(part)) {
-                    ports.add(part.trim());
-                    break;
-                }
-            }
-        }
-        return ports.isEmpty() ? List.of() : List.copyOf(ports);
-    }
-
-    private static boolean isPort(String value) {
-        String v = trimToNull(value);
-        if (v == null) {
-            return false;
-        }
-        try {
-            int p = Integer.parseInt(v);
-            return p >= 1 && p <= 65535;
-        } catch (NumberFormatException ex) {
-            return false;
-        }
-    }
-
     private static String sanitizeCapabilityValue(String value) {
         String trimmed = trimToNull(value);
         if (trimmed == null) {
@@ -392,13 +355,6 @@ public class AgentApiClient {
         }
         String safe = trimmed.replace(",", "_").replace(' ', '_');
         return safe;
-    }
-
-    private static String normalizeHealthPath(String path) {
-        if (path == null) {
-            return null;
-        }
-        return path.startsWith("/") ? path : "/" + path;
     }
 
     private static String trimToNull(String value) {

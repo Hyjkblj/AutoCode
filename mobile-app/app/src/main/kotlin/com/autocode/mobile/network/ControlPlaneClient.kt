@@ -152,6 +152,29 @@ object ControlPlaneClient {
             }
         }
 
+    suspend fun listProjects(
+        baseUrl: String,
+        bearerToken: String,
+    ): Result<List<ProjectSummaryDto>> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val root = normalizeBaseUrl(baseUrl)
+                val req =
+                    Request.Builder()
+                        .url("$root/api/v1/projects")
+                        .header("Authorization", "Bearer ${bearerToken.trim()}")
+                        .get()
+                        .build()
+                client.newCall(req).execute().use { resp ->
+                    val text = resp.body?.string().orEmpty()
+                    if (!resp.isSuccessful) {
+                        error("HTTP ${resp.code}: ${text.take(300)}")
+                    }
+                    parseProjectListEnvelope(text)
+                }
+            }
+        }
+
     suspend fun listArtifacts(
         baseUrl: String,
         bearerToken: String,
@@ -338,6 +361,25 @@ object ControlPlaneClient {
         )
     }
 
+    private fun parseProjectListEnvelope(responseBody: String): List<ProjectSummaryDto> {
+        val obj = json.parseToJsonElement(responseBody).jsonObject
+        if (obj["ok"]?.jsonPrimitive?.booleanOrNull != true) {
+            val err = obj["error"]?.jsonPrimitive?.contentOrNull ?: "request failed"
+            error(err)
+        }
+        val payload = obj["payload"]?.jsonArray ?: return emptyList()
+        return payload.mapNotNull { el ->
+            val o = el.jsonObject
+            val projectId = o["projectId"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+            if (projectId.isEmpty()) return@mapNotNull null
+            ProjectSummaryDto(
+                projectId = projectId,
+                name = o["name"]?.jsonPrimitive?.contentOrNull,
+                roleName = o["roleName"]?.jsonPrimitive?.contentOrNull,
+            )
+        }
+    }
+
     private fun parseGatewayArtifactList(body: String, fallbackTaskId: String): List<ArtifactListItem> {
         val obj = json.parseToJsonElement(body).jsonObject
         if (obj["ok"]?.jsonPrimitive?.booleanOrNull != true) {
@@ -393,6 +435,12 @@ data class TaskSummaryDto(
     val status: String,
     val assistant: String? = null,
     val agentProfile: String? = null,
+)
+
+data class ProjectSummaryDto(
+    val projectId: String,
+    val name: String? = null,
+    val roleName: String? = null,
 )
 
 data class ArtifactListItem(

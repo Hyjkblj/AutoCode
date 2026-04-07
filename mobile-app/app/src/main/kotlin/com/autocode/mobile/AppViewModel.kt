@@ -10,6 +10,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.autocode.mobile.network.ArtifactListItem
 import com.autocode.mobile.network.ControlPlaneClient
+import com.autocode.mobile.network.ProjectSummaryDto
 import com.autocode.mobile.network.TaskEventDto
 import com.autocode.mobile.network.TaskSummaryDto
 import com.autocode.mobile.network.WebSocketClient
@@ -337,22 +338,72 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private suspend fun refreshProjectsInternal() {
         val before = _uiState.value
         _uiState.update { it.copy(isRefreshingProjects = true) }
-        val projects = deriveProjectsFromTasks(before.tasks, before.selectedProjectId)
+        val localProjects = deriveProjectsFromTasks(before.tasks, before.selectedProjectId)
+        val base = before.baseUrl.trim()
+        val token = before.session?.accessToken?.trim().orEmpty()
+        val shouldFetchRemote = base.isNotEmpty() && token.isNotEmpty()
+        var fallbackError: String? = null
+
+        if (shouldFetchRemote) {
+            val remote = ControlPlaneClient.listProjects(base, token)
+            if (remote.isSuccess) {
+                val remoteProjects = mapRemoteProjects(remote.getOrNull().orEmpty())
+                val selected =
+                    when {
+                        before.session == null -> null
+                        !before.selectedProjectId.isNullOrBlank() &&
+                            remoteProjects.any { it.id == before.selectedProjectId } -> before.selectedProjectId
+                        else -> remoteProjects.firstOrNull()?.id
+                    }
+                _uiState.update {
+                    it.copy(
+                        dynamicProjects = remoteProjects,
+                        selectedProjectId = selected,
+                        isRefreshingProjects = false,
+                        errorMessage = null,
+                    )
+                }
+                persistAll()
+                return
+            }
+            fallbackError =
+                remote.exceptionOrNull()?.message
+                    ?: "Failed to load projects from control-plane; using local fallback"
+        }
+
         val selected =
             when {
                 before.session == null -> null
-                !before.selectedProjectId.isNullOrBlank() && projects.any { it.id == before.selectedProjectId } ->
+                !before.selectedProjectId.isNullOrBlank() && localProjects.any { it.id == before.selectedProjectId } ->
                     before.selectedProjectId
-                else -> projects.firstOrNull()?.id
+                else -> localProjects.firstOrNull()?.id
             }
         _uiState.update {
             it.copy(
-                dynamicProjects = projects,
+                dynamicProjects = localProjects,
                 selectedProjectId = selected,
                 isRefreshingProjects = false,
+                errorMessage = fallbackError ?: it.errorMessage,
             )
         }
         persistAll()
+    }
+
+    private fun mapRemoteProjects(items: List<ProjectSummaryDto>): List<Project> {
+        if (items.isEmpty()) return emptyList()
+        val dedup = LinkedHashMap<String, Project>()
+        items.forEach { item ->
+            val projectId = item.projectId.trim()
+            if (projectId.isEmpty()) return@forEach
+            val projectName =
+                item.name
+                    ?.trim()
+                    ?.takeIf { it.isNotEmpty() }
+                    ?: fallbackProjectMap[projectId]?.name
+                    ?: "Project $projectId"
+            dedup[projectId] = Project(projectId, projectName)
+        }
+        return dedup.values.toList()
     }
 
     private fun deriveProjectsFromTasks(tasks: List<TaskItem>, selectedProjectId: String?): List<Project> {

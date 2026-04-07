@@ -1,7 +1,9 @@
 package com.autocode.controlplane;
 
+import com.autocode.controlplane.persistence.entity.ProjectEntity;
 import com.autocode.controlplane.persistence.entity.ProjectMembershipEntity;
 import com.autocode.controlplane.persistence.entity.UserEntity;
+import com.autocode.controlplane.persistence.repo.ProjectEntityRepository;
 import com.autocode.controlplane.persistence.repo.ProjectMembershipEntityRepository;
 import com.autocode.controlplane.persistence.repo.UserEntityRepository;
 import org.junit.jupiter.api.Test;
@@ -30,6 +32,9 @@ class ProjectControllerIntegrationTest extends OperatorProj1MembershipFixture {
     private UserEntityRepository userRepository;
 
     @Autowired
+    private ProjectEntityRepository projectRepository;
+
+    @Autowired
     private ProjectMembershipEntityRepository membershipRepository;
 
     @Test
@@ -44,6 +49,10 @@ class ProjectControllerIntegrationTest extends OperatorProj1MembershipFixture {
         UserEntity operator = userRepository.findByUsername("operator").orElseThrow();
         UserEntity other = ensureUser("usr_other", "other_user");
 
+        saveProject("proj-1", "核心项目");
+        saveProject("proj-2", "隔离项目");
+        saveProject("proj-3", "运营项目");
+
         saveMembership("proj-3", operator.getUserId(), "VIEWER");
         saveMembership("proj-2", other.getUserId(), "ADMIN");
 
@@ -53,9 +62,26 @@ class ProjectControllerIntegrationTest extends OperatorProj1MembershipFixture {
                 .andExpect(jsonPath("$.ok").value(true))
                 .andExpect(jsonPath("$.payload.length()").value(2))
                 .andExpect(jsonPath("$.payload[0].projectId").value("proj-1"))
+                .andExpect(jsonPath("$.payload[0].name").value("核心项目"))
                 .andExpect(jsonPath("$.payload[0].roleName").value("ADMIN"))
                 .andExpect(jsonPath("$.payload[1].projectId").value("proj-3"))
+                .andExpect(jsonPath("$.payload[1].name").value("运营项目"))
                 .andExpect(jsonPath("$.payload[1].roleName").value("VIEWER"));
+    }
+
+    @Test
+    void listProjectsShouldAllowMissingProjectNameForMembership() throws Exception {
+        UserEntity operator = userRepository.findByUsername("operator").orElseThrow();
+        saveMembership("proj-9", operator.getUserId(), "OPERATOR");
+
+        mockMvc.perform(get("/api/v1/projects")
+                        .header("Authorization", "Bearer op-a"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.ok").value(true))
+                .andExpect(jsonPath("$.payload.length()").value(2))
+                .andExpect(jsonPath("$.payload[1].projectId").value("proj-9"))
+                .andExpect(jsonPath("$.payload[1].name").value(org.hamcrest.Matchers.nullValue()))
+                .andExpect(jsonPath("$.payload[1].roleName").value("OPERATOR"));
     }
 
     @Test
@@ -90,5 +116,16 @@ class ProjectControllerIntegrationTest extends OperatorProj1MembershipFixture {
         membership.setUserId(userId);
         membership.setRoleName(roleName);
         membershipRepository.save(membership);
+    }
+
+    private void saveProject(String projectId, String name) {
+        if (projectRepository.findById(projectId).isPresent()) {
+            return;
+        }
+        ProjectEntity entity = new ProjectEntity();
+        entity.setProjectId(projectId);
+        entity.setName(name);
+        entity.setCreatedAt(Instant.now());
+        projectRepository.save(entity);
     }
 }

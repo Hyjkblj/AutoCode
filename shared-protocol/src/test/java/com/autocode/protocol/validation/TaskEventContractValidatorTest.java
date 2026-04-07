@@ -50,6 +50,15 @@ class TaskEventContractValidatorTest {
     }
 
     @Test
+    void filePatchPreview_example_resource_is_valid() throws Exception {
+        try (InputStream in = TaskEventContractValidatorTest.class.getResourceAsStream("/examples/file_patch_preview.v1.example.json")) {
+            assertNotNull(in, "Missing test resource: /examples/file_patch_preview.v1.example.json");
+            TaskEvent event = MAPPER.readValue(in, TaskEvent.class);
+            assertDoesNotThrow(() -> TaskEventContractValidator.validate(event));
+        }
+    }
+
+    @Test
     void approvalRequired_example_resource_is_valid() throws Exception {
         try (InputStream in = TaskEventContractValidatorTest.class.getResourceAsStream("/examples/approval_required.v1.example.json")) {
             assertNotNull(in, "Missing test resource: /examples/approval_required.v1.example.json");
@@ -199,6 +208,20 @@ class TaskEventContractValidatorTest {
         event.setSeq(0);
         event.setEventVersion(1);
         event.setPayload(Map.of("buildId", "build_001", "level", "info"));
+
+        assertThrows(ContractViolationException.class, () -> TaskEventContractValidator.validate(event));
+    }
+
+    @Test
+    void file_patch_preview_requires_patch_or_files() {
+        TaskEvent event = new TaskEvent();
+        event.setEventId("e6");
+        event.setTaskId("t6");
+        event.setType(EventType.FILE_PATCH_PREVIEW);
+        event.setTimestamp(Instant.parse("2026-04-04T00:00:00Z"));
+        event.setSeq(0);
+        event.setEventVersion(1);
+        event.setPayload(Map.of("format", "unified"));
 
         assertThrows(ContractViolationException.class, () -> TaskEventContractValidator.validate(event));
     }

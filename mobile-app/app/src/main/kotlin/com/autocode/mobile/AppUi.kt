@@ -630,6 +630,9 @@ private fun TaskDetailTab(
             onTimeout = {
                 vm.dismissPendingApproval(taskId = approval.taskId, approvalId = approval.approvalId)
             },
+            onDismiss = {
+                vm.dismissPendingApproval(taskId = approval.taskId, approvalId = approval.approvalId)
+            },
         )
     }
 }
@@ -876,9 +879,10 @@ private fun payloadLongValue(payload: JsonObject, vararg keys: String): Long? {
 @Composable
 private fun ApprovalBottomSheet(
     approval: ApprovalRequest,
-    onApprove: (comment: String) -> Unit,
-    onReject: (comment: String) -> Unit,
+    onApprove: (comment: String?) -> Unit,
+    onReject: (comment: String?) -> Unit,
     onTimeout: () -> Unit,
+    onDismiss: () -> Unit,
 ) {
     var comment by rememberSaveable(approval.approvalId) { mutableStateOf("") }
     var handling by remember(approval.approvalId) { mutableStateOf(false) }
@@ -897,7 +901,11 @@ private fun ApprovalBottomSheet(
     }
 
     ModalBottomSheet(
-        onDismissRequest = { },
+        onDismissRequest = {
+            if (handling) return@ModalBottomSheet
+            handling = true
+            onDismiss()
+        },
     ) {
         Column(
             modifier =
@@ -960,7 +968,7 @@ private fun ApprovalBottomSheet(
                     onClick = {
                         if (!handling) {
                             handling = true
-                            onApprove(comment)
+                            onApprove(comment.takeIf { it.isNotBlank() })
                         }
                     },
                     enabled = !handling,
@@ -972,7 +980,7 @@ private fun ApprovalBottomSheet(
                     onClick = {
                         if (!handling) {
                             handling = true
-                            onReject(comment)
+                            onReject(comment.takeIf { it.isNotBlank() })
                         }
                     },
                     enabled = !handling,

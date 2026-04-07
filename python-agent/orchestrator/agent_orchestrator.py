@@ -7,6 +7,8 @@ from agents.base_agent import BaseAgent
 from agents.coder_agent import CoderAgent
 from agents.intent_agent import IntentAgent
 from agents.planner_agent import PlannerAgent
+from agents.reviewer_agent import ReviewResult, ReviewerAgent
+from agents.tester_agent import TesterAgent, TesterResult
 from client.control_plane_client import ControlPlaneClient
 from tools.exec_tool import ExecResult, ExecTool
 
@@ -17,12 +19,16 @@ class AgentOrchestrator(BaseAgent):
         intent_agent: IntentAgent | None = None,
         planner_agent: PlannerAgent | None = None,
         coder_agent: CoderAgent | None = None,
+        reviewer_agent: ReviewerAgent | None = None,
+        tester_agent: TesterAgent | None = None,
         exec_tool: ExecTool | None = None,
     ) -> None:
         super().__init__()
         self.intent_agent = intent_agent or IntentAgent()
         self.planner_agent = planner_agent or PlannerAgent()
         self.coder_agent = coder_agent or CoderAgent()
+        self.reviewer_agent = reviewer_agent or ReviewerAgent()
+        self.tester_agent = tester_agent or TesterAgent(exec_tool=exec_tool)
         self.exec_tool = exec_tool or ExecTool()
 
     def handle_task(self, task: dict[str, Any], client: ControlPlaneClient) -> None:
@@ -56,17 +62,45 @@ class AgentOrchestrator(BaseAgent):
         )
 
         if decision.intent == "code_change":
-            ok = self.coder_agent.execute(task, client, plan, publish_event=self._publisher(task, client))
-            if ok:
+            publisher = self._publisher(task, client)
+            coded = self.coder_agent.execute(task, client, plan, publish_event=publisher)
+            if not coded:
+                return
+
+            review = self.reviewer_agent.review(task, client, plan, publish_event=publisher)
+            if not review.approved:
                 self.publish_event(
                     task,
                     client,
-                    "TASK_DONE",
+                    "TASK_FAILED",
                     {
-                        "result": "coded",
+                        "reason": "review_rejected",
                         "planName": plan.plan_name,
+                        "summary": review.summary,
+                        "issues": review.issues,
                     },
                 )
+                return
+
+            test = self.tester_agent.execute(task, client, plan, publish_event=publisher)
+            if test.success:
+                self.publish_event(task, client, "TASK_DONE", _build_code_change_done_payload(plan.plan_name, review, test))
+                return
+            self.publish_event(
+                task,
+                client,
+                "TASK_FAILED",
+                {
+                    "reason": "test_failed",
+                    "planName": plan.plan_name,
+                    "summary": review.summary,
+                    "testStatus": test.status,
+                    "detail": test.reason,
+                    "attempts": test.attempts,
+                    "retries": test.retries,
+                    "command": test.command,
+                },
+            )
             return
 
         if decision.intent in {"deploy", "test"}:
@@ -197,6 +231,23 @@ def _build_done_payload(result: ExecResult, plan_name: str, intent: str) -> dict
         payload["runId"] = result.run_id
     if result.output:
         payload["output"] = result.output
+    return payload
+
+
+def _build_code_change_done_payload(plan_name: str, review: ReviewResult, test: TesterResult) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "result": "coded_reviewed_tested",
+        "planName": plan_name,
+        "reviewApproved": review.approved,
+        "reviewSummary": review.summary,
+        "testStatus": test.status,
+        "testAttempts": test.attempts,
+        "testRetries": test.retries,
+    }
+    if test.trace_id:
+        payload["traceId"] = test.trace_id
+    if test.run_id:
+        payload["runId"] = test.run_id
     return payload
 
 

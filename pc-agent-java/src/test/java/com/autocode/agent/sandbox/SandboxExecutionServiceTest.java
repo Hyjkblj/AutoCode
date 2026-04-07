@@ -101,6 +101,23 @@ class SandboxExecutionServiceTest {
         assertTrue(apiClient.events().isEmpty());
     }
 
+    @Test
+    void executeDeniesPrivilegeEscalationCommandViaInvocationPolicy() throws Exception {
+        Path workspace = Files.createTempDirectory("sandbox-escalation");
+        RecordingAgentApiClient apiClient = new RecordingAgentApiClient();
+        SandboxExecutionService service = new SandboxExecutionService(
+                apiClient,
+                configWithWorkspaceAndCommands(workspace, List.of("sudo"), true));
+
+        SandboxExecuteRequest request = newRequest("task_escalation", "sudo echo blocked", workspace);
+        SandboxExecuteResponse response = service.execute(request);
+
+        assertFalse(response.isOk());
+        assertEquals("denied", response.getStatus());
+        assertEquals("policy_denied:elevation_not_allowed", response.getReason());
+        assertTrue(apiClient.events().isEmpty());
+    }
+
     private static SandboxExecuteRequest newRequest(String taskId, String command, Path cwd) {
         SandboxExecuteRequest request = new SandboxExecuteRequest();
         request.setTaskId(taskId);
@@ -113,6 +130,13 @@ class SandboxExecutionServiceTest {
     }
 
     private static AgentConfig configWithWorkspace(Path workspacePrefix) {
+        return configWithWorkspaceAndCommands(workspacePrefix, List.of("echo"), true);
+    }
+
+    private static AgentConfig configWithWorkspaceAndCommands(
+            Path workspacePrefix,
+            List<String> allowedCommands,
+            boolean networkAllowed) {
         return new AgentConfig(
                 "http://localhost:8048",
                 "node-sandbox-test",
@@ -120,10 +144,10 @@ class SandboxExecutionServiceTest {
                 200,
                 500,
                 1,
-                List.of("echo"),
+                allowedCommands,
                 List.of(workspacePrefix.toString()),
                 "coder",
-                true);
+                networkAllowed);
     }
 
     private static final class RecordingAgentApiClient extends AgentApiClient {

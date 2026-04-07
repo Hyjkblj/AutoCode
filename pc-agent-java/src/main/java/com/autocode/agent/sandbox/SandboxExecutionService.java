@@ -18,8 +18,12 @@ import com.autocode.agent.security.policy.PolicyDecision;
 import com.autocode.agent.security.policy.WorkspaceAllowlistPolicy;
 import com.autocode.protocol.model.ApprovalDecision;
 import com.autocode.protocol.model.EventType;
+import com.autocode.protocol.model.SandboxExecuteRequest;
+import com.autocode.protocol.model.SandboxExecuteResponse;
 import com.autocode.protocol.model.TaskEvent;
 import com.autocode.protocol.model.TaskSummary;
+import com.autocode.protocol.validation.ContractViolationException;
+import com.autocode.protocol.validation.SandboxExecuteContractValidator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -284,14 +288,10 @@ public class SandboxExecutionService {
     }
 
     private static void validateRequest(SandboxExecuteRequest request) {
-        if (request == null) {
-            throw new IllegalArgumentException("request is required");
-        }
-        if (trimToNull(request.getTaskId()) == null) {
-            throw new IllegalArgumentException("taskId is required");
-        }
-        if (trimToNull(request.getCommand()) == null) {
-            throw new IllegalArgumentException("command is required");
+        try {
+            SandboxExecuteContractValidator.validateRequest(request);
+        } catch (ContractViolationException ex) {
+            throw new IllegalArgumentException(ex.getMessage(), ex);
         }
     }
 

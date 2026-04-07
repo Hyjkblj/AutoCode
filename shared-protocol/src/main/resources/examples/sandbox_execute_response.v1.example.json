@@ -1,0 +1,11 @@
+{
+  "ok": true,
+  "status": "ok",
+  "exitCode": 0,
+  "output": "sandbox_ok",
+  "retryable": false,
+  "tool": "command.exec",
+  "toolVersion": "1.0.0",
+  "traceId": "trc_task_123",
+  "runId": "run_task_123"
+}

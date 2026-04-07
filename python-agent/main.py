@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-import argparse
 import os
 
-from agents.base_agent import DefaultAiAgent
+import argparse
+
 from client.control_plane_client import ControlPlaneClient
+from orchestrator.agent_orchestrator import AgentOrchestrator
 from runner import AgentRunner, RunnerConfig
 
 
@@ -53,7 +54,7 @@ def main() -> int:
         agent_token=config.agent_token,
         agent_version=config.agent_version,
     )
-    runner = AgentRunner(client=client, config=config, agent=DefaultAiAgent())
+    runner = AgentRunner(client=client, config=config, agent=AgentOrchestrator())
     if args.once:
         runner.tick()
         return 0
@@ -63,4 +64,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

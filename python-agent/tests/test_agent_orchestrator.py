@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from orchestrator.agent_orchestrator import AgentOrchestrator
+from tools.exec_tool import ExecResult
 
 
 class _FakeClient:
@@ -14,6 +15,23 @@ class _FakeClient:
         return {"eventId": event.get("eventId")}
 
 
+class _FakeExecTool:
+    def __init__(self, result: ExecResult) -> None:
+        self.result = result
+        self.calls: list[dict[str, Any]] = []
+
+    def execute(self, task: dict[str, Any], command: str, *, prompt: str = "", intent: str = "deploy") -> ExecResult:
+        self.calls.append(
+            {
+                "task": task,
+                "command": command,
+                "prompt": prompt,
+                "intent": intent,
+            }
+        )
+        return self.result
+
+
 def test_orchestrator_emits_intent_and_planner_events(monkeypatch) -> None:
     monkeypatch.setenv("LLM_BACKEND", "openai")
     monkeypatch.setenv("OPENAI_API_KEY", "dummy")
@@ -21,7 +39,7 @@ def test_orchestrator_emits_intent_and_planner_events(monkeypatch) -> None:
         "taskId": "task_100",
         "assistant": "ai-agent",
         "sessionKey": "sess_100",
-        "prompt": "please deploy this change",
+        "prompt": "please analyze this change",
     }
     client = _FakeClient()
 
@@ -56,3 +74,75 @@ def test_orchestrator_routes_code_change_to_coder_and_emits_patch_preview(monkey
     assert types == ["ASSISTANT_OUTPUT", "ASSISTANT_OUTPUT", "ASSISTANT_OUTPUT", "FILE_PATCH_PREVIEW", "TASK_DONE"]
     assert client.events[3][1]["payload"]["files"] == [{"path": "README.md", "changeType": "modify"}]
     assert client.events[4][1]["payload"]["result"] == "coded"
+
+
+def test_orchestrator_routes_deploy_to_exec_tool_and_marks_task_done(monkeypatch) -> None:
+    monkeypatch.setenv("LLM_BACKEND", "openai")
+    monkeypatch.setenv("OPENAI_API_KEY", "dummy")
+    exec_tool = _FakeExecTool(
+        ExecResult(
+            ok=True,
+            status="ok",
+            exit_code=0,
+            output="deploy ok",
+            retryable=False,
+            reason=None,
+            tool="deploy.execute",
+            tool_version="1.0.0",
+            trace_id="trc_task_102",
+            run_id="run_task_102",
+            approval_id=None,
+        )
+    )
+    task = {
+        "taskId": "task_102",
+        "assistant": "ai-agent",
+        "sessionKey": "sess_102",
+        "prompt": "please deploy this service",
+        "workspacePath": "D:/workspace/demo",
+    }
+    client = _FakeClient()
+
+    AgentOrchestrator(exec_tool=exec_tool).handle_task(task, client)
+
+    types = [event["type"] for _, event in client.events]
+    assert types == ["ASSISTANT_OUTPUT", "ASSISTANT_OUTPUT", "ASSISTANT_OUTPUT", "ASSISTANT_OUTPUT", "TASK_DONE"]
+    assert exec_tool.calls[0]["intent"] == "deploy"
+    assert client.events[4][1]["payload"]["result"] == "executed"
+    assert client.events[4][1]["payload"]["tool"] == "deploy.execute"
+    assert client.events[4][1]["payload"]["traceId"] == "trc_task_102"
+
+
+def test_orchestrator_marks_task_failed_when_exec_tool_returns_failure(monkeypatch) -> None:
+    monkeypatch.setenv("LLM_BACKEND", "openai")
+    monkeypatch.setenv("OPENAI_API_KEY", "dummy")
+    exec_tool = _FakeExecTool(
+        ExecResult(
+            ok=False,
+            status="approval_rejected",
+            exit_code=None,
+            output="",
+            retryable=False,
+            reason="approval_rejected",
+            tool="deploy.execute",
+            tool_version="1.0.0",
+            trace_id="trc_task_103",
+            run_id="run_task_103",
+            approval_id="apr_1",
+        )
+    )
+    task = {
+        "taskId": "task_103",
+        "assistant": "ai-agent",
+        "sessionKey": "sess_103",
+        "prompt": "please deploy now",
+        "command": "echo deploy_now",
+    }
+    client = _FakeClient()
+
+    AgentOrchestrator(exec_tool=exec_tool).handle_task(task, client)
+
+    types = [event["type"] for _, event in client.events]
+    assert types == ["ASSISTANT_OUTPUT", "ASSISTANT_OUTPUT", "ASSISTANT_OUTPUT", "ASSISTANT_OUTPUT", "TASK_FAILED"]
+    assert exec_tool.calls[0]["command"] == "echo deploy_now"
+    assert client.events[4][1]["payload"]["reason"] == "approval_rejected"

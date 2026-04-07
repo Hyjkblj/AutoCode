@@ -1,6 +1,8 @@
 package com.autocode.agent.runtime.tool;
 
 import com.autocode.protocol.model.ToolManifest;
+import com.autocode.protocol.validation.ContractViolationException;
+import com.autocode.protocol.validation.ToolManifestContractValidator;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -23,6 +25,11 @@ public class ToolRegistry {
             throw new IllegalArgumentException("tool manifest required");
         }
         ToolManifest manifest = tool.manifest();
+        try {
+            ToolManifestContractValidator.validate(manifest);
+        } catch (ContractViolationException ex) {
+            throw new IllegalArgumentException("invalid tool manifest: " + ex.getMessage(), ex);
+        }
         String name = normalize(manifest.getName());
         String version = normalize(manifest.getVersion());
         if (name == null) {

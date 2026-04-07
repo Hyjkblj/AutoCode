@@ -53,14 +53,44 @@ class ToolRegistryTest {
         assertEquals("deploy.execute", manifests.get(1).getName());
     }
 
+    @Test
+    void registerRejectsMissingActionFromManifestContract() {
+        ToolRegistry registry = new ToolRegistry();
+        ToolManifest manifest = new ToolManifest();
+        manifest.setName("command.exec");
+        manifest.setVersion("1.0.0");
+
+        Tool invalid = fakeTool(manifest);
+        assertThrows(IllegalArgumentException.class, () -> registry.register(invalid));
+    }
+
+    @Test
+    void registerRejectsOutOfRangeRiskScoreFromManifestContract() {
+        ToolRegistry registry = new ToolRegistry();
+        ToolManifest manifest = new ToolManifest();
+        manifest.setName("command.exec");
+        manifest.setVersion("1.0.0");
+        manifest.setAction("run_command");
+        ToolPermissions permissions = new ToolPermissions();
+        permissions.setRiskScore(1.5d);
+        manifest.setPermissions(permissions);
+
+        Tool invalid = fakeTool(manifest);
+        assertThrows(IllegalArgumentException.class, () -> registry.register(invalid));
+    }
+
     private static Tool fakeTool(String name, String version) {
         ToolManifest manifest = new ToolManifest();
         manifest.setName(name);
         manifest.setVersion(version);
+        manifest.setAction("run_command");
         ToolPermissions permissions = new ToolPermissions();
         permissions.setRiskScore(0.1d);
         manifest.setPermissions(permissions);
+        return fakeTool(manifest);
+    }
 
+    private static Tool fakeTool(ToolManifest manifest) {
         return new Tool() {
             @Override
             public ToolManifest manifest() {

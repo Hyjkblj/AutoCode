@@ -40,6 +40,8 @@ This module is the single source of truth for cross-component DTOs and event sch
   unknown values and only enforce documented required keys.
 - Tool manifests (`ToolManifest`/`ToolParamSpec`/`ToolPermissions`) are versioned by `ToolManifest.version`; runtime
   registries may keep multiple versions and resolve latest when no explicit version is requested.
+- Tool manifests use `src/main/resources/schema/manifest/v1/tool_manifest.v1.schema.json`; required keys are
+  `name`, `version`, and `action`, while additive optional fields remain v1-compatible.
 - Standalone manifests (multi-artifact exports) use `src/main/resources/schema/manifest/v1/`; `schemaVersion = 1`
   matches the same compatibility rules as event payloads (optional additive fields only).
 - For `ArtifactMetadata.build`: the `build` object is optional; when present, `command` is required (JSON Schema and
@@ -64,3 +66,6 @@ platform's key event types (v1). It is intended to be used by both control plane
 same minimal required-field approach.
 
 `com.autocode.protocol.validation.ServiceRuntimeDescriptorContractValidator` validates `ServiceRuntimeDescriptor` documents (v1).
+
+`com.autocode.protocol.validation.ToolManifestContractValidator` validates `ToolManifest` documents (v1) for required fields
+(`name`/`version`/`action`), param shape, and permission constraints (for example `riskScore` in `[0,1]`).

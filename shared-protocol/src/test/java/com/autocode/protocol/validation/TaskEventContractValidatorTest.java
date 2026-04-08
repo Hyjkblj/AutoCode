@@ -513,4 +513,73 @@ class TaskEventContractValidatorTest {
 
         assertThrows(ContractViolationException.class, () -> TaskEventContractValidator.validate(event));
     }
+
+    @Test
+    void task_done_rejects_non_string_steps_entries() {
+        TaskEvent event = new TaskEvent();
+        event.setEventId("e21");
+        event.setTaskId("t21");
+        event.setType(EventType.TASK_DONE);
+        event.setTimestamp(Instant.parse("2026-04-08T00:00:00Z"));
+        event.setSeq(0);
+        event.setEventVersion(1);
+        event.setPayload(Map.of(
+                "result", "coded_reviewed_tested",
+                "steps", List.of("analyze", 2)
+        ));
+
+        assertThrows(ContractViolationException.class, () -> TaskEventContractValidator.validate(event));
+    }
+
+    @Test
+    void task_done_rejects_negative_test_retries() {
+        TaskEvent event = new TaskEvent();
+        event.setEventId("e22");
+        event.setTaskId("t22");
+        event.setType(EventType.TASK_DONE);
+        event.setTimestamp(Instant.parse("2026-04-08T00:00:00Z"));
+        event.setSeq(0);
+        event.setEventVersion(1);
+        event.setPayload(Map.of(
+                "result", "coded_reviewed_tested",
+                "testRetries", -1
+        ));
+
+        assertThrows(ContractViolationException.class, () -> TaskEventContractValidator.validate(event));
+    }
+
+    @Test
+    void task_done_rejects_attempt_greater_than_max_attempts() {
+        TaskEvent event = new TaskEvent();
+        event.setEventId("e23");
+        event.setTaskId("t23");
+        event.setType(EventType.TASK_DONE);
+        event.setTimestamp(Instant.parse("2026-04-08T00:00:00Z"));
+        event.setSeq(0);
+        event.setEventVersion(1);
+        event.setPayload(Map.of(
+                "result", "coded_reviewed_tested",
+                "attempt", 4,
+                "maxAttempts", 3
+        ));
+
+        assertThrows(ContractViolationException.class, () -> TaskEventContractValidator.validate(event));
+    }
+
+    @Test
+    void task_failed_rejects_blank_plan_name() {
+        TaskEvent event = new TaskEvent();
+        event.setEventId("e24");
+        event.setTaskId("t24");
+        event.setType(EventType.TASK_FAILED);
+        event.setTimestamp(Instant.parse("2026-04-08T00:00:00Z"));
+        event.setSeq(0);
+        event.setEventVersion(1);
+        event.setPayload(Map.of(
+                "reason", "fix_loop_exhausted",
+                "planName", "   "
+        ));
+
+        assertThrows(ContractViolationException.class, () -> TaskEventContractValidator.validate(event));
+    }
 }

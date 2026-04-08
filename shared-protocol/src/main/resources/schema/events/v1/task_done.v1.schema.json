@@ -14,11 +14,24 @@
           "properties": {
             "result": { "type": "string", "minLength": 1 },
             "status": { "type": "string" },
+            "intent": { "type": "string" },
+            "planName": { "type": "string" },
+            "steps": {
+              "type": "array",
+              "items": { "type": "string", "minLength": 1 }
+            },
             "tool": { "type": "string" },
             "toolVersion": { "type": "string" },
             "exitCode": { "type": "integer" },
             "retryable": { "type": "boolean" },
             "output": { "type": "string" },
+            "reviewApproved": { "type": "boolean" },
+            "reviewSummary": { "type": "string" },
+            "testStatus": { "type": "string" },
+            "testAttempts": { "type": "integer", "minimum": 0 },
+            "testRetries": { "type": "integer", "minimum": 0 },
+            "attempt": { "type": "integer", "minimum": 1 },
+            "maxAttempts": { "type": "integer", "minimum": 1 },
             "traceId": { "type": "string" },
             "runId": { "type": "string" }
           },

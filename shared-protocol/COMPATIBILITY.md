@@ -22,7 +22,10 @@ This module is the single source of truth for cross-component DTOs and event sch
 - `BUILD_LOG` requires `message`; `buildId`/`level` are optional in v1.
 - `FILE_PATCH_PREVIEW` requires at least one of `patch` or `files` (either representation is valid in v1).
 - `TASK_DONE` requires `result`; additional completion metadata remains optional.
+  - LLM/orchestrator optional fields include `intent`, `planName`, `steps`, `reviewApproved`, `reviewSummary`,
+    `testStatus`, `testAttempts`, `testRetries`, `attempt`, `maxAttempts`.
 - `TASK_FAILED` requires `reason`; additional diagnostics (status/detail/errorCode/exitCode/traceId/runId) are optional.
+  - Orchestrator optional fields include `planName`.
   - LLM/fix-loop optional fields are supported in v1: `attempt`, `maxAttempts`, `lastTestError`,
     `riskLevel`, `issues`, `summary`.
 - `TASK_CREATED` requires `projectId`; `assistant`/`riskPolicy` remain optional in v1.

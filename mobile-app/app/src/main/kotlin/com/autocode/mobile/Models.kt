@@ -31,6 +31,28 @@ fun GenerationTarget.displayLabel(): String =
         GenerationTarget.WECHAT_MINI_PROGRAM -> "微信小程序"
     }
 
+/** 创建任务时传入控制面的 agentProfile。 */
+@Serializable
+enum class AgentProfile {
+    @SerialName("coder")
+    CODER,
+
+    @SerialName("ai-agent")
+    AI_AGENT,
+}
+
+fun AgentProfile.apiValue(): String =
+    when (this) {
+        AgentProfile.CODER -> "coder"
+        AgentProfile.AI_AGENT -> "ai-agent"
+    }
+
+fun AgentProfile.displayLabel(): String =
+    when (this) {
+        AgentProfile.CODER -> "Coder"
+        AgentProfile.AI_AGENT -> "AI Agent"
+    }
+
 @Serializable
 enum class TaskStatus {
     @SerialName("queued")

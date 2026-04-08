@@ -328,6 +328,8 @@ private fun HomeTab(vm: AppViewModel) {
         Spacer(Modifier.height(8.dp))
         Text("生成目标：${state.generationTarget.displayLabel()}")
         Spacer(Modifier.height(8.dp))
+        Text("Agent 身份：${state.agentProfile.displayLabel()}")
+        Spacer(Modifier.height(8.dp))
         Text(mode, style = MaterialTheme.typography.bodySmall)
         Spacer(Modifier.height(20.dp))
         Card(Modifier.fillMaxWidth()) {
@@ -1574,13 +1576,35 @@ private fun RowOfTargetChips(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
+private fun RowOfAgentProfileChips(
+    selected: String,
+    onSelect: (String) -> Unit,
+) {
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        FilterChip(
+            selected = selected == AgentProfile.CODER.name,
+            onClick = { onSelect(AgentProfile.CODER.name) },
+            label = { Text(AgentProfile.CODER.displayLabel()) },
+        )
+        FilterChip(
+            selected = selected == AgentProfile.AI_AGENT.name,
+            onClick = { onSelect(AgentProfile.AI_AGENT.name) },
+            label = { Text(AgentProfile.AI_AGENT.displayLabel()) },
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
 private fun AccountTab(vm: AppViewModel) {
     val state by vm.uiState.collectAsStateWithLifecycle()
     var baseUrlDraft by rememberSaveable { mutableStateOf(state.baseUrl) }
     var targetDraft by rememberSaveable { mutableStateOf(state.generationTarget.name) }
-    LaunchedEffect(state.baseUrl, state.generationTarget) {
+    var profileDraft by rememberSaveable { mutableStateOf(state.agentProfile.name) }
+    LaunchedEffect(state.baseUrl, state.generationTarget, state.agentProfile) {
         baseUrlDraft = state.baseUrl
         targetDraft = state.generationTarget.name
+        profileDraft = state.agentProfile.name
     }
     LaunchedEffect(state.baseUrl, state.session?.accessToken) {
         vm.refreshAgentNodes()
@@ -1610,6 +1634,13 @@ private fun AccountTab(vm: AppViewModel) {
             onSelect = { targetDraft = it },
         )
         Spacer(Modifier.height(12.dp))
+        Text("Agent 身份（写入创建任务 agentProfile）", style = MaterialTheme.typography.labelLarge)
+        Spacer(Modifier.height(8.dp))
+        RowOfAgentProfileChips(
+            selected = profileDraft,
+            onSelect = { profileDraft = it },
+        )
+        Spacer(Modifier.height(12.dp))
         Button(
             onClick = {
                 val t =
@@ -1617,7 +1648,12 @@ private fun AccountTab(vm: AppViewModel) {
                         GenerationTarget.WECHAT_MINI_PROGRAM.name -> GenerationTarget.WECHAT_MINI_PROGRAM
                         else -> GenerationTarget.WEB
                     }
-                vm.saveConnectivitySettings(baseUrlDraft, t)
+                val p =
+                    when (profileDraft) {
+                        AgentProfile.AI_AGENT.name -> AgentProfile.AI_AGENT
+                        else -> AgentProfile.CODER
+                    }
+                vm.saveConnectivitySettings(baseUrlDraft, t, p)
             },
             modifier = Modifier.fillMaxWidth(),
         ) {

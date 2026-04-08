@@ -41,6 +41,7 @@ private object PrefsKeys {
     val TASKS_JSON = stringPreferencesKey("tasks_json")
     val BASE_URL = stringPreferencesKey("base_url")
     val GENERATION_TARGET = stringPreferencesKey("generation_target")
+    val AGENT_PROFILE = stringPreferencesKey("agent_profile")
     val PUBLISH_HISTORY_JSON = stringPreferencesKey("publish_history_json")
 }
 
@@ -58,6 +59,7 @@ data class UiState(
     /** 控制面根 URL，空表示离线模拟（PR-1/PR-2） */
     val baseUrl: String = "",
     val generationTarget: GenerationTarget = GenerationTarget.WEB,
+    val agentProfile: AgentProfile = AgentProfile.CODER,
     /** PR-3：发布/版本历史（本地持久化） */
     val publishHistory: List<PublishHistoryEntry> = emptyList(),
     val isRefreshingPublishHistory: Boolean = false,
@@ -115,10 +117,16 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val rawTasks = prefs[PrefsKeys.TASKS_JSON]
         val baseUrl = prefs[PrefsKeys.BASE_URL].orEmpty()
         val targetRaw = prefs[PrefsKeys.GENERATION_TARGET]
+        val profileRaw = prefs[PrefsKeys.AGENT_PROFILE]
         val generationTarget =
             when (targetRaw?.trim()) {
                 "wechat_mini" -> GenerationTarget.WECHAT_MINI_PROGRAM
                 else -> GenerationTarget.WEB
+            }
+        val agentProfile =
+            when (profileRaw?.trim()) {
+                "ai-agent" -> AgentProfile.AI_AGENT
+                else -> AgentProfile.CODER
             }
 
         val tasks: List<TaskItem> =
@@ -162,6 +170,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 tasks = normalizedTasks,
                 baseUrl = baseUrl,
                 generationTarget = generationTarget,
+                agentProfile = agentProfile,
                 publishHistory = publishHistory,
             )
         }
@@ -186,6 +195,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             p[PrefsKeys.TASKS_JSON] = json.encodeToString(taskListSerializer, s.tasks)
             p[PrefsKeys.BASE_URL] = s.baseUrl.trim()
             p[PrefsKeys.GENERATION_TARGET] = generationTargetStorageValue(s.generationTarget)
+            p[PrefsKeys.AGENT_PROFILE] = agentProfileStorageValue(s.agentProfile)
             p[PrefsKeys.PUBLISH_HISTORY_JSON] = json.encodeToString(publishHistorySerializer, s.publishHistory)
         }
     }
@@ -194,6 +204,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         when (t) {
             GenerationTarget.WEB -> "web"
             GenerationTarget.WECHAT_MINI_PROGRAM -> "wechat_mini"
+        }
+
+    private fun agentProfileStorageValue(p: AgentProfile): String =
+        when (p) {
+            AgentProfile.CODER -> "coder"
+            AgentProfile.AI_AGENT -> "ai-agent"
         }
 
     private suspend fun persistTasks(tasks: List<TaskItem>) {
@@ -206,12 +222,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.update { it.copy(errorMessage = null) }
     }
 
-    fun saveConnectivitySettings(baseUrl: String, target: GenerationTarget) {
+    fun saveConnectivitySettings(baseUrl: String, target: GenerationTarget, profile: AgentProfile) {
         viewModelScope.launch {
             _uiState.update {
                 it.copy(
                     baseUrl = baseUrl.trim(),
                     generationTarget = target,
+                    agentProfile = profile,
                     errorMessage = null,
                 )
             }
@@ -492,7 +509,16 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
         if (base.isNotEmpty() && session != null) {
             val assistant = _uiState.value.generationTarget.assistantForApi()
-            val r = ControlPlaneClient.createTask(base, session.accessToken, projectId, text, assistant)
+            val agentProfile = _uiState.value.agentProfile.apiValue()
+            val r =
+                ControlPlaneClient.createTask(
+                    base = base,
+                    bearerToken = session.accessToken,
+                    projectId = projectId,
+                    prompt = text,
+                    assistant = assistant,
+                    agentProfile = agentProfile,
+                )
             if (r.isSuccess) {
                 val dto = r.getOrThrow()
                 val mapped = mapServerToTaskItem(dto, projectId, text)

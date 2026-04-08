@@ -68,6 +68,7 @@ object ControlPlaneClient {
         projectId: String,
         prompt: String,
         assistant: String,
+        agentProfile: String,
     ): Result<TaskSummaryDto> =
         withContext(Dispatchers.IO) {
             runCatching {
@@ -77,6 +78,7 @@ object ControlPlaneClient {
                         put("projectId", projectId.trim())
                         put("prompt", prompt.trim())
                         put("assistant", assistant.trim())
+                        put("agentProfile", agentProfile.trim())
                         put("inputMode", "voice_text")
                         put("riskPolicy", "strict_approval")
                     }.toString()

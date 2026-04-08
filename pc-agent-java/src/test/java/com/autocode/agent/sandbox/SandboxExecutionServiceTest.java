@@ -7,6 +7,7 @@ import com.autocode.protocol.model.EventType;
 import com.autocode.protocol.model.SandboxExecuteRequest;
 import com.autocode.protocol.model.SandboxExecuteResponse;
 import com.autocode.protocol.model.TaskEvent;
+import com.autocode.protocol.validation.SandboxExecuteContractValidator;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Files;
@@ -17,6 +18,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -33,6 +35,7 @@ class SandboxExecutionServiceTest {
         request.setRunId("run_task_ok");
 
         SandboxExecuteResponse response = service.execute(request);
+        assertDoesNotThrow(() -> SandboxExecuteContractValidator.validateResponse(response));
 
         assertTrue(response.isOk());
         assertEquals("ok", response.getStatus());
@@ -84,6 +87,7 @@ class SandboxExecutionServiceTest {
         SandboxExecuteRequest request = newRequest("task_reject", "echo deploy_reject", workspace);
 
         SandboxExecuteResponse response = service.execute(request);
+        assertDoesNotThrow(() -> SandboxExecuteContractValidator.validateResponse(response));
 
         assertFalse(response.isOk());
         assertEquals("approval_rejected", response.getStatus());

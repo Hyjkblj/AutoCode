@@ -89,7 +89,7 @@ public class SandboxExecutionService {
         try {
             tool = toolRegistry.getRequired(toolName, request.getToolVersion());
         } catch (IllegalArgumentException ex) {
-            return SandboxExecuteResponse.failure(
+            return validatedResponse(SandboxExecuteResponse.failure(
                     "unknown_tool",
                     ex.getMessage(),
                     false,
@@ -98,14 +98,14 @@ public class SandboxExecutionService {
                     traceId,
                     runId,
                     null
-            );
+            ));
         }
 
         String resolvedToolVersion = trimToNull(tool.version());
         ToolContext preContext = new ToolContext(task, cwd, null, approvalTimeoutSeconds);
         PolicyDecision policyDecision = invocationPolicy.evaluate(call, preContext);
         if (!policyDecision.isAllowed()) {
-            return SandboxExecuteResponse.failure(
+            return validatedResponse(SandboxExecuteResponse.failure(
                     "denied",
                     "policy_denied:" + policyDecision.getReason(),
                     false,
@@ -114,10 +114,10 @@ public class SandboxExecutionService {
                     traceId,
                     runId,
                     null
-            );
+            ));
         }
         if (!tool.policy().isAllowed(call)) {
-            return SandboxExecuteResponse.failure(
+            return validatedResponse(SandboxExecuteResponse.failure(
                     "denied",
                     "command_not_allowed",
                     false,
@@ -126,7 +126,7 @@ public class SandboxExecutionService {
                     traceId,
                     runId,
                     null
-            );
+            ));
         }
 
         String approvalId = null;
@@ -141,7 +141,7 @@ public class SandboxExecutionService {
                     "decision", decision.name().toLowerCase()
             ));
             if (decision == ApprovalDecision.REJECT) {
-                return SandboxExecuteResponse.failure(
+                return validatedResponse(SandboxExecuteResponse.failure(
                         "approval_rejected",
                         "approval_rejected",
                         false,
@@ -150,10 +150,10 @@ public class SandboxExecutionService {
                         traceId,
                         runId,
                         approvalId
-                );
+                ));
             }
             if (decision == ApprovalDecision.PENDING) {
-                return SandboxExecuteResponse.failure(
+                return validatedResponse(SandboxExecuteResponse.failure(
                         "approval_timeout",
                         "approval_timeout",
                         true,
@@ -162,7 +162,7 @@ public class SandboxExecutionService {
                         traceId,
                         runId,
                         approvalId
-                );
+                ));
             }
         }
 
@@ -192,7 +192,7 @@ public class SandboxExecutionService {
                 errorPayload.put("toolVersion", resolvedToolVersion);
             }
             publishEvent(task, traceId, runId, EventType.TOOL_END, errorPayload);
-            return SandboxExecuteResponse.failure(
+            return validatedResponse(SandboxExecuteResponse.failure(
                     "error",
                     ex.getMessage() == null ? "exec_error" : ex.getMessage(),
                     false,
@@ -201,7 +201,7 @@ public class SandboxExecutionService {
                     traceId,
                     runId,
                     approvalId
-            );
+            ));
         }
 
         HashMap<String, Object> toolEnd = new HashMap<>(executionResult.getToolEndPayload());
@@ -214,7 +214,7 @@ public class SandboxExecutionService {
         String output = asString(toolEnd.get("output"));
         String status = firstNonBlank(asString(toolEnd.get("status")), executionResult.isSuccess() ? "ok" : "failed");
         if (executionResult.isSuccess()) {
-            return SandboxExecuteResponse.success(
+            return validatedResponse(SandboxExecuteResponse.success(
                     status,
                     exitCode,
                     output,
@@ -223,9 +223,9 @@ public class SandboxExecutionService {
                     resolvedToolVersion,
                     traceId,
                     runId
-            );
+            ));
         }
-        return SandboxExecuteResponse.failure(
+        return validatedResponse(SandboxExecuteResponse.failure(
                 status,
                 firstNonBlank(asString(toolEnd.get("error")), "tool_failed"),
                 executionResult.isRetryable(),
@@ -234,7 +234,7 @@ public class SandboxExecutionService {
                 traceId,
                 runId,
                 approvalId
-        );
+        ));
     }
 
     private void publishEvent(
@@ -340,6 +340,15 @@ public class SandboxExecutionService {
             return null;
         }
         return String.valueOf(value);
+    }
+
+    private static SandboxExecuteResponse validatedResponse(SandboxExecuteResponse response) {
+        try {
+            SandboxExecuteContractValidator.validateResponse(response);
+            return response;
+        } catch (ContractViolationException ex) {
+            throw new IllegalStateException("sandbox execute response contract violation: " + ex.getMessage(), ex);
+        }
     }
 
     private static String normalizeWorkspaceRef(String value) {

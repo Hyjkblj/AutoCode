@@ -3,6 +3,7 @@ package com.autocode.mobile.network
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.JsonObject
@@ -17,6 +18,8 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import java.net.URLEncoder
+import java.time.Instant
 import java.util.concurrent.TimeUnit
 
 /**
@@ -284,6 +287,44 @@ object ControlPlaneClient {
             }
         }
 
+    suspend fun listTasks(
+        baseUrl: String,
+        bearerToken: String,
+        projectId: String? = null,
+        assistant: String? = null,
+    ): Result<List<TaskSummaryDto>> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val root = normalizeBaseUrl(baseUrl)
+                val params = mutableListOf<String>()
+                projectId?.trim()?.takeIf { it.isNotEmpty() }?.let {
+                    params += "projectId=${URLEncoder.encode(it, Charsets.UTF_8.name())}"
+                }
+                assistant?.trim()?.takeIf { it.isNotEmpty() }?.let {
+                    params += "assistant=${URLEncoder.encode(it, Charsets.UTF_8.name())}"
+                }
+                val url =
+                    if (params.isEmpty()) {
+                        "$root/api/v1/tasks"
+                    } else {
+                        "$root/api/v1/tasks?${params.joinToString("&")}"
+                    }
+                val req =
+                    Request.Builder()
+                        .url(url)
+                        .header("Authorization", "Bearer ${bearerToken.trim()}")
+                        .get()
+                        .build()
+                client.newCall(req).execute().use { resp ->
+                    val text = resp.body?.string().orEmpty()
+                    if (!resp.isSuccessful) {
+                        error("HTTP ${resp.code}: ${text.take(300)}")
+                    }
+                    parseTaskSummaryListEnvelope(text)
+                }
+            }
+        }
+
     suspend fun listTaskEvents(
         baseUrl: String,
         bearerToken: String,
@@ -373,6 +414,29 @@ object ControlPlaneClient {
         return parseTaskSummary(payload)
     }
 
+    private fun parseTaskSummaryListEnvelope(responseBody: String): List<TaskSummaryDto> {
+        val obj = json.parseToJsonElement(responseBody).jsonObject
+        if (obj["ok"]?.jsonPrimitive?.booleanOrNull != true) {
+            val err = obj["error"]?.jsonPrimitive?.contentOrNull ?: "请求失败"
+            error(err)
+        }
+        val payloadElement = obj["payload"]
+        val items: JsonArray =
+            when {
+                payloadElement == null -> return emptyList()
+                payloadElement is kotlinx.serialization.json.JsonArray -> payloadElement
+                payloadElement is JsonObject -> {
+                    payloadElement["items"]?.jsonArray
+                        ?: payloadElement["tasks"]?.jsonArray
+                        ?: return emptyList()
+                }
+                else -> return emptyList()
+            }
+        return items.mapNotNull { item ->
+            runCatching { parseTaskSummary(item.jsonObject) }.getOrNull()
+        }
+    }
+
     private fun parseTaskSummary(o: JsonObject): TaskSummaryDto {
         val taskId = o["taskId"]?.jsonPrimitive?.contentOrNull ?: error("缺少 taskId")
         val status = o["status"]?.jsonPrimitive?.contentOrNull ?: "UNKNOWN"
@@ -383,7 +447,18 @@ object ControlPlaneClient {
             status = status,
             assistant = o["assistant"]?.jsonPrimitive?.contentOrNull,
             agentProfile = o["agentProfile"]?.jsonPrimitive?.contentOrNull,
+            createdAtMillis = parseTimestampMillis(o, "createdAt"),
+            updatedAtMillis = parseTimestampMillis(o, "updatedAt"),
         )
+    }
+
+    private fun parseTimestampMillis(o: JsonObject, key: String): Long? {
+        val primitive = o[key]?.jsonPrimitive ?: return null
+        primitive.longOrNull?.let { return it }
+        val raw = primitive.contentOrNull?.trim().orEmpty()
+        if (raw.isEmpty()) return null
+        raw.toLongOrNull()?.let { return it }
+        return runCatching { Instant.parse(raw).toEpochMilli() }.getOrNull()
     }
 
     private fun parseProjectListEnvelope(responseBody: String): List<ProjectSummaryDto> {
@@ -481,6 +556,8 @@ data class TaskSummaryDto(
     val status: String,
     val assistant: String? = null,
     val agentProfile: String? = null,
+    val createdAtMillis: Long? = null,
+    val updatedAtMillis: Long? = null,
 )
 
 data class ProjectSummaryDto(

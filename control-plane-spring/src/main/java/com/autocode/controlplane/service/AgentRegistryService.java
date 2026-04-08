@@ -57,6 +57,12 @@ public class AgentRegistryService {
                 .toList();
     }
 
+    @Transactional(readOnly = true)
+    public boolean isNodeRegistered(String nodeId) {
+        String normalizedNodeId = normalizeRequired(nodeId, "nodeId");
+        return agentNodeRepository.existsById(normalizedNodeId);
+    }
+
     private boolean isOnline(Instant lastHeartbeatAt, Instant now) {
         if (lastHeartbeatAt == null) {
             return false;

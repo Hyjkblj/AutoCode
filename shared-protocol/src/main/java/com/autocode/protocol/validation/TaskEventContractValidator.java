@@ -201,6 +201,7 @@ public final class TaskEventContractValidator {
     }
 
     private static void validateTaskFailedExtensions(Map<String, Object> payload) {
+        validateOptionalNonBlankString(payload, "errorCode");
         validateFixLoopFields(payload);
         validateReviewFields(payload);
     }

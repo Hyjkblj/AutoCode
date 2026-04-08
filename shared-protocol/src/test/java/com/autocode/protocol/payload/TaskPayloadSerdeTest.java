@@ -37,6 +37,7 @@ class TaskPayloadSerdeTest {
             TaskFailedPayload payload = MAPPER.treeToValue(payloadNode, TaskFailedPayload.class);
             assertEquals("fix_loop_exhausted", payload.getReason());
             assertEquals("failed", payload.getStatus());
+            assertEquals("FIX_LOOP_EXHAUSTED", payload.getErrorCode());
             assertTrue(Boolean.FALSE.equals(payload.getRetryable()));
             assertEquals(3, payload.getAttempt());
             assertEquals(3, payload.getMaxAttempts());

@@ -18,6 +18,11 @@ public class TaskFailedPayload {
     private String detail;
 
     /**
+     * Optional. Producer-specific machine-readable error code.
+     */
+    private String errorCode;
+
+    /**
      * Optional. Failure status from tool/sandbox layer.
      */
     private String status;
@@ -101,6 +106,14 @@ public class TaskFailedPayload {
 
     public void setDetail(String detail) {
         this.detail = detail;
+    }
+
+    public String getErrorCode() {
+        return errorCode;
+    }
+
+    public void setErrorCode(String errorCode) {
+        this.errorCode = errorCode;
     }
 
     public String getStatus() {

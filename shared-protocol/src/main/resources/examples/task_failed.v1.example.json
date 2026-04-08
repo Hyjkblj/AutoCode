@@ -11,6 +11,7 @@
     "reason": "fix_loop_exhausted",
     "status": "failed",
     "detail": "tester failed after max fix loop attempts",
+    "errorCode": "FIX_LOOP_EXHAUSTED",
     "exitCode": 1,
     "retryable": false,
     "attempt": 3,

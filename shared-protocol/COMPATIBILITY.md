@@ -21,7 +21,7 @@ This module is the single source of truth for cross-component DTOs and event sch
 - `BUILD_LOG` requires `message`; `buildId`/`level` are optional in v1.
 - `FILE_PATCH_PREVIEW` requires at least one of `patch` or `files` (either representation is valid in v1).
 - `TASK_DONE` requires `result`; additional completion metadata remains optional.
-- `TASK_FAILED` requires `reason`; additional diagnostics (status/detail/exitCode/traceId/runId) are optional.
+- `TASK_FAILED` requires `reason`; additional diagnostics (status/detail/errorCode/exitCode/traceId/runId) are optional.
   - LLM/fix-loop optional fields are supported in v1: `attempt`, `maxAttempts`, `lastTestError`,
     `riskLevel`, `issues`, `summary`.
 - `TASK_CREATED` requires `projectId`; `assistant`/`riskPolicy` remain optional in v1.

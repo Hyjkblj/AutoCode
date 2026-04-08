@@ -10,6 +10,7 @@
   "payload": {
     "reason": "fix_loop_exhausted",
     "detail": "tester failed after max fix loop attempts",
+    "errorCode": "FIX_LOOP_EXHAUSTED",
     "status": "failed",
     "retryable": false,
     "attempt": 3,

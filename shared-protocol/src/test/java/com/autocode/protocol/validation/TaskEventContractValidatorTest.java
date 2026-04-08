@@ -496,4 +496,21 @@ class TaskEventContractValidatorTest {
 
         assertThrows(ContractViolationException.class, () -> TaskEventContractValidator.validate(event));
     }
+
+    @Test
+    void task_failed_rejects_blank_error_code() {
+        TaskEvent event = new TaskEvent();
+        event.setEventId("e20");
+        event.setTaskId("t20");
+        event.setType(EventType.TASK_FAILED);
+        event.setTimestamp(Instant.parse("2026-04-08T00:00:00Z"));
+        event.setSeq(0);
+        event.setEventVersion(1);
+        event.setPayload(Map.of(
+                "reason", "fix_loop_exhausted",
+                "errorCode", "   "
+        ));
+
+        assertThrows(ContractViolationException.class, () -> TaskEventContractValidator.validate(event));
+    }
 }

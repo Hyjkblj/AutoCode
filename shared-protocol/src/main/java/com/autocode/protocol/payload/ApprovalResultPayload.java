@@ -10,6 +10,10 @@ public class ApprovalResultPayload {
     private String approvalId;
     private ApprovalDecision decision;
     /**
+     * Optional. Time spent waiting for the approval decision.
+     */
+    private Long waitMs;
+    /**
      * Optional. Echo of the context that was approved/rejected.
      */
     private ApprovalContext context;
@@ -32,6 +36,14 @@ public class ApprovalResultPayload {
 
     public void setDecision(ApprovalDecision decision) {
         this.decision = decision;
+    }
+
+    public Long getWaitMs() {
+        return waitMs;
+    }
+
+    public void setWaitMs(Long waitMs) {
+        this.waitMs = waitMs;
     }
 
     public ApprovalContext getContext() {

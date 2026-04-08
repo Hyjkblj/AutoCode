@@ -286,6 +286,24 @@ class TaskEventContractValidatorTest {
     }
 
     @Test
+    void approval_result_rejects_negative_wait_ms() {
+        TaskEvent event = new TaskEvent();
+        event.setEventId("e4b");
+        event.setTaskId("t4b");
+        event.setType(EventType.APPROVAL_RESULT);
+        event.setTimestamp(Instant.parse("2026-04-09T00:00:00Z"));
+        event.setSeq(0);
+        event.setEventVersion(1);
+        event.setPayload(Map.of(
+                "approvalId", "apr_001",
+                "decision", "approve",
+                "waitMs", -1
+        ));
+
+        assertThrows(ContractViolationException.class, () -> TaskEventContractValidator.validate(event));
+    }
+
+    @Test
     void tool_start_requires_tool() {
         TaskEvent event = new TaskEvent();
         event.setEventId("e5");

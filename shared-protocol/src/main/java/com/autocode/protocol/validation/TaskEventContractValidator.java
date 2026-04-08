@@ -95,6 +95,7 @@ public final class TaskEventContractValidator {
                 requireString(payload, "approvalId");
                 // decision is required but cross-language casing differs; accept "decision" only.
                 requireString(payload, "decision");
+                validateOptionalNonNegativeInt(payload, "waitMs");
             }
             case DEPLOY_PLAN -> {
                 requireMap(payload, "payload");

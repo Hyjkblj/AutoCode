@@ -37,6 +37,7 @@ class ApprovalPayloadSerdeTest {
             ApprovalResultPayload payload = MAPPER.treeToValue(payloadNode, ApprovalResultPayload.class);
             assertEquals("apr_test_001", payload.getApprovalId());
             assertEquals(ApprovalDecision.REJECT, payload.getDecision());
+            assertEquals(950L, payload.getWaitMs());
             assertEquals("blocked by reviewer", payload.getMessage());
         }
     }

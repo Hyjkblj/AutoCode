@@ -10,6 +10,7 @@
   "payload": {
     "approvalId": "apr_test_001",
     "decision": "reject",
+    "waitMs": 950,
     "message": "blocked by reviewer",
     "context": {
       "action": "app.publish",

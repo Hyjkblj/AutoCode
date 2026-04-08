@@ -48,6 +48,7 @@ This module is the single source of truth for cross-component DTOs and event sch
   `command`, and required response keys are `ok`, `status`, `retryable`.
 - Sandbox health/error HTTP DTOs also use `src/main/resources/schema/sandbox/v1/`; health requires `ok` + `status`,
   and error responses require `ok` + `status` + `error`.
+  - `sandbox_health_response.v1` fixes `ok = true`; `sandbox_error_response.v1` fixes `ok = false`.
 - For `ArtifactMetadata.build`: the `build` object is optional; when present, `command` is required (JSON Schema and
   `ArtifactMetadataContractValidator` agree). `ArtifactManifest` lists must not contain duplicate `artifactId` values.
 - Service runtime descriptions (ports, health checks, env hints, startup) use `src/main/resources/schema/runtime/v1/`;

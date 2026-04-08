@@ -80,7 +80,24 @@ def _heuristic_intent(normalized_prompt: str) -> tuple[str, float, str]:
         return "deploy", 0.9, "deploy keywords"
     if any(word in normalized_prompt for word in ("test", "pytest", "mvn test")):
         return "test", 0.82, "test keywords"
-    if any(word in normalized_prompt for word in ("fix", "refactor", "code", "implement")):
+    if any(
+        word in normalized_prompt
+        for word in (
+            "fix",
+            "refactor",
+            "code",
+            "implement",
+            "flask",
+            "endpoint",
+            "route",
+            "接口",
+            "新增",
+            "增加",
+            "修改",
+            "修复",
+            "代码",
+        )
+    ):
         return "code_change", 0.86, "coding keywords"
     return "analyze", 0.68, "default heuristic"
 

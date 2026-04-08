@@ -47,3 +47,19 @@ def test_intent_agent_falls_back_to_rule_when_llm_errors(monkeypatch) -> None:
     assert decision.confidence > 0.5
     assert decision.reason.startswith("llm_fallback:")
 
+
+def test_intent_agent_falls_back_to_code_change_for_flask_health_prompt(monkeypatch) -> None:
+    monkeypatch.setenv("LLM_BACKEND", "openai")
+    monkeypatch.setenv("OPENAI_API_KEY", "dummy")
+
+    def _raise(*_args, **_kwargs):
+        raise RuntimeError("llm unavailable")
+
+    monkeypatch.setattr(LLMClient, "chat", _raise)
+
+    decision = IntentAgent().infer("给 Flask app 增加 /health 接口")
+
+    assert decision.intent == "code_change"
+    assert decision.confidence > 0.5
+    assert decision.reason.startswith("llm_fallback:")
+

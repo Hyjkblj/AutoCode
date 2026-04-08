@@ -4,6 +4,7 @@ from typing import Any
 
 from agents.reviewer_agent import ReviewResult
 from agents.tester_agent import TesterResult as RunResult
+from llm.llm_client import LLMClient
 from memory.redis_memory import RedisMemory
 from orchestrator.agent_orchestrator import AgentOrchestrator
 from tools.exec_tool import ExecResult
@@ -253,6 +254,178 @@ def test_orchestrator_marks_task_done_when_fix_loop_recovers(monkeypatch, tmp_pa
         if event["type"] == "ASSISTANT_OUTPUT" and event["payload"].get("message") == "Fix loop attempt started."
     ]
     assert fix_loop_events
+
+
+def test_orchestrator_handles_flask_health_task_end_to_end_success(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("LLM_BACKEND", "openai")
+    monkeypatch.setenv("OPENAI_API_KEY", "dummy")
+    workspace = tmp_path / "workspace"
+    workspace.mkdir(parents=True, exist_ok=True)
+    app_file = workspace / "app.py"
+    app_file.write_text(
+        'from flask import Flask\n\napp = Flask(__name__)\n\n@app.route("/")\ndef index():\n    return "ok"\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("MVP_ALLOWED_WORKSPACE_PREFIXES", str(workspace))
+
+    def _chat(self, messages):  # noqa: ANN001
+        system_prompt = str(messages[0].get("content", ""))
+        if "intent classifier" in system_prompt:
+            return '{"intent":"code_change","confidence":0.97,"reason":"flask health endpoint request"}'
+        if "planning agent" in system_prompt:
+            return '{"plan_name":"code_change_pipeline","steps":["update flask routes","run tests"]}'
+        if "coding assistant" in system_prompt:
+            return (
+                "from flask import Flask\n\n"
+                "app = Flask(__name__)\n\n"
+                '@app.route("/")\n'
+                "def index():\n"
+                '    return "ok"\n\n'
+                '@app.route("/health")\n'
+                "def health():\n"
+                '    return {"status": "ok"}, 200\n'
+            )
+        if "code reviewer" in system_prompt:
+            return '{"risk_level":"low","issues":[],"summary":"safe endpoint addition"}'
+        raise AssertionError(f"unexpected LLM call: {system_prompt}")
+
+    monkeypatch.setattr(LLMClient, "chat", _chat)
+
+    task = {
+        "taskId": "task_106",
+        "assistant": "ai-agent",
+        "sessionKey": "sess_106",
+        "prompt": "给 Flask app 增加 /health 接口",
+        "workspacePath": str(workspace),
+        "testCommand": "pytest -q",
+    }
+    client = _FakeClient()
+    exec_tool = _FakeExecTool(
+        ExecResult(
+            ok=True,
+            status="ok",
+            exit_code=0,
+            output="tests passed",
+            retryable=False,
+            reason=None,
+            tool="test.execute",
+            tool_version="1.0.0",
+            trace_id="trc_task_106",
+            run_id="run_task_106",
+            approval_id=None,
+        )
+    )
+
+    AgentOrchestrator(exec_tool=exec_tool).handle_task(task, client)
+
+    types = [event["type"] for _, event in client.events]
+    assert "FILE_PATCH_PREVIEW" in types
+    assert types[-1] == "TASK_DONE"
+    assert client.events[0][1]["payload"]["intent"] == "code_change"
+    patch_event = [event for _, event in client.events if event["type"] == "FILE_PATCH_PREVIEW"][0]
+    assert "---" in patch_event["payload"]["patch"]
+    assert "+++" in patch_event["payload"]["patch"]
+    assert "/health" in patch_event["payload"]["patch"]
+    assert '@app.route("/health")' in app_file.read_text(encoding="utf-8")
+    assert exec_tool.calls[0]["intent"] == "test"
+    assert client.events[-1][1]["payload"]["result"] == "coded_reviewed_tested"
+
+
+def test_orchestrator_flask_health_task_enters_fix_loop_when_test_fails(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("LLM_BACKEND", "openai")
+    monkeypatch.setenv("OPENAI_API_KEY", "dummy")
+    workspace = tmp_path / "workspace"
+    workspace.mkdir(parents=True, exist_ok=True)
+    app_file = workspace / "app.py"
+    app_file.write_text(
+        'from flask import Flask\n\napp = Flask(__name__)\n\n@app.route("/")\ndef index():\n    return "ok"\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("MVP_ALLOWED_WORKSPACE_PREFIXES", str(workspace))
+
+    coder_call_count = {"value": 0}
+
+    def _chat(self, messages):  # noqa: ANN001
+        system_prompt = str(messages[0].get("content", ""))
+        if "intent classifier" in system_prompt:
+            return '{"intent":"code_change","confidence":0.95,"reason":"flask route change"}'
+        if "planning agent" in system_prompt:
+            return '{"plan_name":"code_change_pipeline","steps":["edit flask app","run tests"]}'
+        if "coding assistant" in system_prompt:
+            coder_call_count["value"] += 1
+            if coder_call_count["value"] == 1:
+                return (
+                    "from flask import Flask\n\n"
+                    "app = Flask(__name__)\n\n"
+                    '@app.route("/")\n'
+                    "def index():\n"
+                    '    return "ok"\n\n'
+                    '@app.route("/health")\n'
+                    "def health():\n"
+                    '    return {"status": "ok"}, 200\n'
+                )
+            return (
+                "from flask import Flask\n\n"
+                "app = Flask(__name__)\n\n"
+                '@app.route("/")\n'
+                "def index():\n"
+                '    return "ok"\n\n'
+                '@app.route("/health")\n'
+                "def health():\n"
+                '    return {"status": "ok", "fixLoop": True}, 200\n'
+            )
+        if "code reviewer" in system_prompt:
+            return '{"risk_level":"low","issues":[],"summary":"safe endpoint addition"}'
+        raise AssertionError(f"unexpected LLM call: {system_prompt}")
+
+    monkeypatch.setattr(LLMClient, "chat", _chat)
+
+    task = {
+        "taskId": "task_107",
+        "assistant": "ai-agent",
+        "sessionKey": "sess_107",
+        "prompt": "给 Flask app 增加 /health 接口",
+        "workspacePath": str(workspace),
+    }
+    client = _FakeClient()
+    tester = _SequenceTesterAgent(
+        [
+            RunResult(
+                success=False,
+                attempts=1,
+                retries=0,
+                command="pytest -q",
+                status="failed",
+                reason="assert 404 == 200",
+                trace_id="trc_task_107_1",
+                run_id="run_task_107_1",
+            ),
+            RunResult(
+                success=True,
+                attempts=1,
+                retries=0,
+                command="pytest -q",
+                status="ok",
+                reason=None,
+                trace_id="trc_task_107_2",
+                run_id="run_task_107_2",
+            ),
+        ]
+    )
+
+    AgentOrchestrator(tester_agent=tester).handle_task(task, client)
+
+    types = [event["type"] for _, event in client.events]
+    assert types[-1] == "TASK_DONE"
+    assert len(tester.calls) == 2
+    fix_loop_events = [
+        event["payload"]
+        for _, event in client.events
+        if event["type"] == "ASSISTANT_OUTPUT" and event["payload"].get("message") == "Fix loop attempt started."
+    ]
+    assert fix_loop_events
+    assert client.events[-1][1]["payload"]["attempt"] == 1
+    assert client.events[-1][1]["payload"]["maxAttempts"] == 3
 
 
 def test_orchestrator_routes_deploy_to_exec_tool_and_marks_task_done(monkeypatch) -> None:

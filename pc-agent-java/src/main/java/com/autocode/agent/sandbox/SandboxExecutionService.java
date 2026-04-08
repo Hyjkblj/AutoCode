@@ -226,7 +226,9 @@ public class SandboxExecutionService {
 
         Integer exitCode = asInteger(toolEnd.get("exitCode"));
         String output = asString(toolEnd.get("output"));
-        String status = firstNonBlank(asString(toolEnd.get("status")), executionResult.isSuccess() ? "ok" : "failed");
+        String status = normalizeExecutionStatus(
+                asString(toolEnd.get("status")),
+                executionResult.isSuccess());
         if (executionResult.isSuccess()) {
             return validatedResponse(SandboxExecuteResponse.success(
                     status,
@@ -241,7 +243,7 @@ public class SandboxExecutionService {
         }
         return validatedResponse(SandboxExecuteResponse.failure(
                 status,
-                firstNonBlank(asString(toolEnd.get("error")), "tool_failed"),
+                resolveFailureReason(toolEnd, exitCode),
                 executionResult.isRetryable(),
                 toolName,
                 resolvedToolVersion,
@@ -368,6 +370,27 @@ public class SandboxExecutionService {
             return null;
         }
         return String.valueOf(value);
+    }
+
+    private static String normalizeExecutionStatus(String rawStatus, boolean success) {
+        String status = firstNonBlank(rawStatus, success ? "ok" : "failed");
+        if (!success && "ok".equalsIgnoreCase(status)) {
+            return "failed";
+        }
+        return status;
+    }
+
+    private static String resolveFailureReason(Map<String, Object> toolEnd, Integer exitCode) {
+        String explicit = firstNonBlank(
+                asString(toolEnd.get("error")),
+                asString(toolEnd.get("reason")));
+        if (explicit != null) {
+            return explicit;
+        }
+        if (exitCode != null) {
+            return "exit_code_" + exitCode;
+        }
+        return "tool_failed";
     }
 
     private static SandboxExecuteResponse validatedResponse(SandboxExecuteResponse response) {

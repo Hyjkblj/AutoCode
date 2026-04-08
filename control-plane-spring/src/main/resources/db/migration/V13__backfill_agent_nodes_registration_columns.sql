@@ -1,6 +1,7 @@
 -- AG-UP-05 / PY-AG-01 control-plane compatibility:
 -- older environments may have applied early V1 without later-edited agent_nodes columns.
 -- Backfill registration/runtime columns in a forward-only migration.
+-- V13 keeps migration versions unique while preserving existing V12 history.
 
 SET @has_version_col := (
     SELECT COUNT(*)

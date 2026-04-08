@@ -32,6 +32,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.annotation.Propagation;
@@ -449,6 +450,10 @@ public class TaskService {
      * 摄取 Agent 上报事件：去重、分配 seq、驱动状态机、落库并通过 WS 广播。
      */
     public Optional<TaskSummary> ingestAgentEvent(String taskId, TaskEvent event) {
+        return ingestAgentEvent(taskId, event, null);
+    }
+
+    public Optional<TaskSummary> ingestAgentEvent(String taskId, TaskEvent event, String nodeId) {
         taskEventValidator.validateOrThrow(event);
         // Lock task row to make seq allocation and status folding stable under concurrent ingest.
         TaskEntity task = taskRepository.findOptionalByIdForUpdate(taskId).orElse(null);
@@ -456,6 +461,7 @@ public class TaskService {
             return Optional.empty();
         }
 
+        validateAssignedNodeForIngest(task, nodeId);
         ensureEventId(event);
         if (taskEventRepository.existsById(event.getEventId())) {
             return Optional.of(modelMapper.toSummary(task));
@@ -489,6 +495,19 @@ public class TaskService {
         metrics.taskEventsIngested.increment();
 
         return Optional.of(modelMapper.toSummary(task));
+    }
+
+    private void validateAssignedNodeForIngest(TaskEntity task, String nodeId) {
+        if (nodeId == null || nodeId.isBlank()) {
+            return;
+        }
+        String assignedNodeId = task.getAssignedNodeId();
+        if (assignedNodeId == null || assignedNodeId.isBlank()) {
+            return;
+        }
+        if (!assignedNodeId.equals(nodeId)) {
+            throw new AccessDeniedException("task not assigned to this node");
+        }
     }
 
     private void ensureEventId(TaskEvent event) {

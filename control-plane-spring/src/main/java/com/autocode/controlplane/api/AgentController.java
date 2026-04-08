@@ -66,9 +66,23 @@ public class AgentController {
     @PostMapping("/tasks/{taskId}/events")
     public ResponseEntity<ApiResponse<TaskSummary>> ingestEvent(
             @PathVariable("taskId") String taskId,
+            @RequestParam(value = "nodeId", required = false)
+            @Size(max = 64, message = "nodeId size must be between 0 and 64")
+            String nodeId,
             @Valid @RequestBody AgentEventRequest request
     ) {
-        return taskService.ingestAgentEvent(taskId, request.getEvent())
+        String normalizedNodeId = null;
+        if (nodeId != null) {
+            normalizedNodeId = nodeId.trim();
+            if (normalizedNodeId.isEmpty()) {
+                throw new IllegalArgumentException("nodeId must not be blank");
+            }
+            if (!agentRegistryService.isNodeRegistered(normalizedNodeId)) {
+                return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                        .body(ApiResponse.error("node not registered"));
+            }
+        }
+        return taskService.ingestAgentEvent(taskId, request.getEvent(), normalizedNodeId)
                 .map(summary -> ResponseEntity.ok(ApiResponse.ok(summary)))
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }

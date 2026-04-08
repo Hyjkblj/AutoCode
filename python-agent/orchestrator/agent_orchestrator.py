@@ -15,6 +15,9 @@ from orchestrator.dag_scheduler import DagNode, DagScheduler
 from tools.exec_tool import ExecResult, ExecTool
 
 
+DEFAULT_FIX_LOOP_MAX_ATTEMPTS = 3
+
+
 class AgentOrchestrator(BaseAgent):
     def __init__(
         self,
@@ -238,6 +241,7 @@ class AgentOrchestrator(BaseAgent):
                     "planName": plan.plan_name,
                     "summary": review.summary,
                     "issues": review.issues,
+                    "riskLevel": review.risk_level,
                 },
             )
             return {
@@ -247,35 +251,19 @@ class AgentOrchestrator(BaseAgent):
                 "reason": "review_rejected",
                 "summary": review.summary,
                 "issues": review.issues,
+                "riskLevel": review.risk_level,
                 "testCommand": test.command,
             }
 
         if not test.success:
-            self.publish_event(
-                task,
-                client,
-                "TASK_FAILED",
-                {
-                    "reason": "test_failed",
-                    "planName": plan.plan_name,
-                    "summary": review.summary,
-                    "testStatus": test.status,
-                    "detail": test.reason,
-                    "attempts": test.attempts,
-                    "retries": test.retries,
-                    "command": test.command,
-                },
+            return self._run_fix_loop(
+                task=task,
+                client=client,
+                plan=plan,
+                review=review,
+                initial_test=test,
+                publish_event=publisher,
             )
-            return {
-                "intent": "code_change",
-                "planName": plan.plan_name,
-                "status": "failed",
-                "reason": "test_failed",
-                "summary": review.summary,
-                "testStatus": test.status,
-                "detail": test.reason,
-                "testCommand": test.command,
-            }
 
         self.publish_event(task, client, "TASK_DONE", _build_code_change_done_payload(plan.plan_name, review, test))
         return {
@@ -288,6 +276,133 @@ class AgentOrchestrator(BaseAgent):
             "testCommand": test.command,
             "traceId": test.trace_id,
             "runId": test.run_id,
+        }
+
+    def _run_fix_loop(
+        self,
+        task: dict[str, Any],
+        client: ControlPlaneClient,
+        plan: PlanResult,
+        review: ReviewResult,
+        initial_test: TesterResult,
+        publish_event,
+    ) -> dict[str, Any]:
+        max_attempts = _resolve_fix_loop_max_attempts()
+        original_prompt = str(task.get("prompt", "")).strip()
+        current_test = initial_test
+        last_test_error = _build_test_error_text(current_test)
+
+        for attempt in range(1, max_attempts + 1):
+            latest_diff = _resolve_latest_diff(task)
+            fix_prompt = _build_fix_loop_prompt(
+                original_prompt=original_prompt,
+                latest_diff=latest_diff,
+                last_test_error=last_test_error,
+                attempt=attempt,
+                max_attempts=max_attempts,
+            )
+            task["prompt"] = fix_prompt
+
+            self.publish_event(
+                task,
+                client,
+                "ASSISTANT_OUTPUT",
+                {
+                    "stage": "Orchestrator",
+                    "message": "Fix loop attempt started.",
+                    "attempt": attempt,
+                    "maxAttempts": max_attempts,
+                    "lastTestError": last_test_error,
+                },
+            )
+
+            coded = self.coder_agent.execute(task, client, plan, publish_event=publish_event)
+            if not coded:
+                self.publish_event(
+                    task,
+                    client,
+                    "ASSISTANT_OUTPUT",
+                    {
+                        "stage": "Orchestrator",
+                        "message": "Fix loop produced no substantial patch.",
+                        "attempt": attempt,
+                        "maxAttempts": max_attempts,
+                    },
+                )
+
+            current_test = self.tester_agent.execute(task, client, plan, publish_event=publish_event)
+            if current_test.success:
+                task["prompt"] = original_prompt
+                self.publish_event(
+                    task,
+                    client,
+                    "TASK_DONE",
+                    _build_code_change_done_payload(
+                        plan_name=plan.plan_name,
+                        review=review,
+                        test=current_test,
+                        fix_attempt=attempt,
+                        max_attempts=max_attempts,
+                    ),
+                )
+                return {
+                    "intent": "code_change",
+                    "planName": plan.plan_name,
+                    "status": "done",
+                    "result": "coded_reviewed_tested",
+                    "summary": review.summary,
+                    "testStatus": current_test.status,
+                    "testCommand": current_test.command,
+                    "traceId": current_test.trace_id,
+                    "runId": current_test.run_id,
+                    "fixLoopAttempt": attempt,
+                    "fixLoopMaxAttempts": max_attempts,
+                }
+
+            last_test_error = _build_test_error_text(current_test)
+            self.publish_event(
+                task,
+                client,
+                "ASSISTANT_OUTPUT",
+                {
+                    "stage": "Orchestrator",
+                    "message": "Fix loop validation failed.",
+                    "attempt": attempt,
+                    "maxAttempts": max_attempts,
+                    "lastTestError": last_test_error,
+                },
+            )
+
+        task["prompt"] = original_prompt
+        self.publish_event(
+            task,
+            client,
+            "TASK_FAILED",
+            {
+                "reason": "fix_loop_exhausted",
+                "planName": plan.plan_name,
+                "summary": review.summary,
+                "issues": review.issues,
+                "riskLevel": review.risk_level,
+                "attempt": max_attempts,
+                "maxAttempts": max_attempts,
+                "lastTestError": last_test_error,
+            },
+        )
+        return {
+            "intent": "code_change",
+            "planName": plan.plan_name,
+            "status": "failed",
+            "reason": "fix_loop_exhausted",
+            "summary": review.summary,
+            "issues": review.issues,
+            "riskLevel": review.risk_level,
+            "testStatus": current_test.status,
+            "detail": current_test.reason,
+            "testCommand": current_test.command,
+            "fixLoopAttempt": max_attempts,
+            "fixLoopMaxAttempts": max_attempts,
+            "lastTestError": last_test_error,
         }
 
     def _execute_with_sandbox(
@@ -441,7 +556,13 @@ def _build_done_payload(result: ExecResult, plan_name: str, intent: str) -> dict
     return payload
 
 
-def _build_code_change_done_payload(plan_name: str, review: ReviewResult, test: TesterResult) -> dict[str, Any]:
+def _build_code_change_done_payload(
+    plan_name: str,
+    review: ReviewResult,
+    test: TesterResult,
+    fix_attempt: int | None = None,
+    max_attempts: int | None = None,
+) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "result": "coded_reviewed_tested",
         "planName": plan_name,
@@ -451,6 +572,10 @@ def _build_code_change_done_payload(plan_name: str, review: ReviewResult, test: 
         "testAttempts": test.attempts,
         "testRetries": test.retries,
     }
+    if fix_attempt is not None:
+        payload["attempt"] = fix_attempt
+    if max_attempts is not None:
+        payload["maxAttempts"] = max_attempts
     if test.trace_id:
         payload["traceId"] = test.trace_id
     if test.run_id:
@@ -513,3 +638,56 @@ def _failure_reason(result: ExecResult) -> str:
     if result.reason and result.reason.strip():
         return result.reason.strip()
     return "sandbox_exec_failed"
+
+
+def _resolve_fix_loop_max_attempts() -> int:
+    raw = os.getenv("MVP_FIX_LOOP_MAX_ATTEMPTS", str(DEFAULT_FIX_LOOP_MAX_ATTEMPTS)).strip()
+    try:
+        parsed = int(raw)
+    except ValueError:
+        return DEFAULT_FIX_LOOP_MAX_ATTEMPTS
+    return max(1, min(parsed, DEFAULT_FIX_LOOP_MAX_ATTEMPTS))
+
+
+def _resolve_latest_diff(task: dict[str, Any]) -> str:
+    direct = task.get("latestDiff")
+    if isinstance(direct, str) and direct.strip():
+        return direct
+
+    generated = task.get("generatedDiffs")
+    if isinstance(generated, list):
+        for item in reversed(generated):
+            text = str(item).strip()
+            if text:
+                return text
+
+    for key in ("diff", "patch"):
+        value = task.get(key)
+        if isinstance(value, str) and value.strip():
+            return value
+    return ""
+
+
+def _build_test_error_text(test_result: TesterResult) -> str:
+    return _first_non_blank(test_result.reason, test_result.status, "test_failed") or "test_failed"
+
+
+def _build_fix_loop_prompt(
+    *,
+    original_prompt: str,
+    latest_diff: str,
+    last_test_error: str,
+    attempt: int,
+    max_attempts: int,
+) -> str:
+    return (
+        "Fix_Loop repair task.\n"
+        f"Attempt: {attempt}/{max_attempts}\n\n"
+        "Original task:\n"
+        f"{original_prompt or '(empty)'}\n\n"
+        "Current unified diff:\n"
+        f"{latest_diff or '(no diff)'}\n\n"
+        "Latest test error:\n"
+        f"{last_test_error or '(unknown)'}\n\n"
+        "Apply a minimal, safe fix and return full updated file content."
+    )

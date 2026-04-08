@@ -71,6 +71,27 @@ class _FakeTesterAgent:
         return self.result
 
 
+class _SequenceTesterAgent:
+    def __init__(self, results: list[RunResult]) -> None:
+        self.results = list(results)
+        self.calls: list[dict[str, Any]] = []
+
+    def execute(self, task, client, plan, publish_event):  # noqa: ANN001
+        self.calls.append({"task": task, "plan": plan.plan_name})
+        if not self.results:
+            raise RuntimeError("no more tester results")
+        result = self.results.pop(0)
+        publish_event(
+            {
+                "stage": "TesterAgent",
+                "message": "Validation completed.",
+                "status": result.status,
+                "attempts": result.attempts,
+            }
+        )
+        return result
+
+
 def test_orchestrator_emits_intent_and_planner_events(monkeypatch) -> None:
     monkeypatch.setenv("LLM_BACKEND", "openai")
     monkeypatch.setenv("OPENAI_API_KEY", "dummy")
@@ -136,7 +157,7 @@ def test_orchestrator_routes_code_change_to_coder_and_emits_patch_preview(monkey
     assert tester.calls[0]["plan"] == "code_change_pipeline"
 
 
-def test_orchestrator_marks_code_change_failed_when_tests_fail(monkeypatch, tmp_path) -> None:
+def test_orchestrator_marks_code_change_failed_when_fix_loop_exhausted(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("LLM_BACKEND", "openai")
     monkeypatch.setenv("OPENAI_API_KEY", "dummy")
     workspace = tmp_path / "workspace"
@@ -170,8 +191,67 @@ def test_orchestrator_marks_code_change_failed_when_tests_fail(monkeypatch, tmp_
 
     types = [event["type"] for _, event in client.events]
     assert types[-1] == "TASK_FAILED"
-    assert client.events[-1][1]["payload"]["reason"] == "test_failed"
-    assert client.events[-1][1]["payload"]["attempts"] == 4
+    assert client.events[-1][1]["payload"]["reason"] == "fix_loop_exhausted"
+    assert client.events[-1][1]["payload"]["attempt"] == 3
+    assert client.events[-1][1]["payload"]["maxAttempts"] == 3
+    assert len(tester.calls) == 4
+
+
+def test_orchestrator_marks_task_done_when_fix_loop_recovers(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("LLM_BACKEND", "openai")
+    monkeypatch.setenv("OPENAI_API_KEY", "dummy")
+    workspace = tmp_path / "workspace"
+    workspace.mkdir(parents=True, exist_ok=True)
+    (workspace / "README.md").write_text("TODO: patch me\n", encoding="utf-8")
+    monkeypatch.setenv("MVP_ALLOWED_WORKSPACE_PREFIXES", str(workspace))
+
+    task = {
+        "taskId": "task_105",
+        "assistant": "ai-agent",
+        "sessionKey": "sess_105",
+        "prompt": "fix readme and implement update",
+        "workspacePath": str(workspace),
+    }
+    client = _FakeClient()
+    reviewer = _FakeReviewerAgent(ReviewResult(approved=True, summary="review passed", issues=[]))
+    tester = _SequenceTesterAgent(
+        [
+            RunResult(
+                success=False,
+                attempts=1,
+                retries=0,
+                command="echo test",
+                status="failed",
+                reason="test_failed",
+                trace_id="trc_task_105_1",
+                run_id="run_task_105_1",
+            ),
+            RunResult(
+                success=True,
+                attempts=1,
+                retries=0,
+                command="echo test",
+                status="ok",
+                reason=None,
+                trace_id="trc_task_105_2",
+                run_id="run_task_105_2",
+            ),
+        ]
+    )
+
+    AgentOrchestrator(reviewer_agent=reviewer, tester_agent=tester).handle_task(task, client)
+
+    types = [event["type"] for _, event in client.events]
+    assert types[-1] == "TASK_DONE"
+    assert client.events[-1][1]["payload"]["attempt"] == 1
+    assert client.events[-1][1]["payload"]["maxAttempts"] == 3
+    assert len(tester.calls) == 2
+    fix_loop_events = [
+        event["payload"]
+        for _, event in client.events
+        if event["type"] == "ASSISTANT_OUTPUT" and event["payload"].get("message") == "Fix loop attempt started."
+    ]
+    assert fix_loop_events
 
 
 def test_orchestrator_routes_deploy_to_exec_tool_and_marks_task_done(monkeypatch) -> None:

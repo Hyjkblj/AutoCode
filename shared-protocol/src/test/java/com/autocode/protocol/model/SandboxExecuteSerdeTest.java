@@ -33,4 +33,24 @@ class SandboxExecuteSerdeTest {
             assertEquals(0, response.getExitCode());
         }
     }
+
+    @Test
+    void health_response_example_deserializes() throws Exception {
+        try (InputStream in = SandboxExecuteSerdeTest.class.getResourceAsStream("/examples/sandbox_health_response.v1.example.json")) {
+            assertNotNull(in, "Missing test resource: /examples/sandbox_health_response.v1.example.json");
+            SandboxHealthResponse response = MAPPER.readValue(in, SandboxHealthResponse.class);
+            assertTrue(response.isOk());
+            assertEquals("up", response.getStatus());
+        }
+    }
+
+    @Test
+    void error_response_example_deserializes() throws Exception {
+        try (InputStream in = SandboxExecuteSerdeTest.class.getResourceAsStream("/examples/sandbox_error_response.v1.example.json")) {
+            assertNotNull(in, "Missing test resource: /examples/sandbox_error_response.v1.example.json");
+            SandboxErrorResponse response = MAPPER.readValue(in, SandboxErrorResponse.class);
+            assertEquals("invalid_request", response.getStatus());
+            assertEquals("taskId is required", response.getError());
+        }
+    }
 }

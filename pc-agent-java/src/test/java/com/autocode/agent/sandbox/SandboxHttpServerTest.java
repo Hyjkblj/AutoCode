@@ -58,6 +58,7 @@ class SandboxHttpServerTest {
             HttpResponse<String> badMethodResponse = client.send(badMethodRequest, HttpResponse.BodyHandlers.ofString());
             assertEquals(405, badMethodResponse.statusCode());
             assertTrue(badMethodResponse.body().contains("method_not_allowed"));
+            assertTrue(badMethodResponse.body().contains("\"status\":\"method_not_allowed\""));
 
             HttpRequest invalidPostRequest = HttpRequest.newBuilder()
                     .uri(URI.create("http://127.0.0.1:" + port + "/sandbox/execute"))
@@ -67,6 +68,7 @@ class SandboxHttpServerTest {
             HttpResponse<String> invalidPostResponse = client.send(invalidPostRequest, HttpResponse.BodyHandlers.ofString());
             assertEquals(400, invalidPostResponse.statusCode());
             assertTrue(invalidPostResponse.body().contains("invalid_request"));
+            assertTrue(invalidPostResponse.body().contains("\"error\":\"taskId is required\""));
         } finally {
             server.stop();
         }

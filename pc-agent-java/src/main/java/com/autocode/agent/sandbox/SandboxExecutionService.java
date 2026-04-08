@@ -171,6 +171,7 @@ public class SandboxExecutionService {
         toolStart.put("action", action);
         toolStart.put("command", command);
         toolStart.put("cwd", cwd);
+        toolStart.put("workspaceRef", normalizeWorkspaceRef(cwd));
         if (resolvedToolVersion != null) {
             toolStart.put("toolVersion", resolvedToolVersion);
         }
@@ -339,5 +340,13 @@ public class SandboxExecutionService {
             return null;
         }
         return String.valueOf(value);
+    }
+
+    private static String normalizeWorkspaceRef(String value) {
+        String normalized = trimToNull(value);
+        if (normalized == null) {
+            return "";
+        }
+        return normalized.replace('\\', '/');
     }
 }

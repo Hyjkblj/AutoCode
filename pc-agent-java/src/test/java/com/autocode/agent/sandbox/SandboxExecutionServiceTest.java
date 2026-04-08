@@ -17,6 +17,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class SandboxExecutionServiceTest {
@@ -66,6 +67,12 @@ class SandboxExecutionServiceTest {
                 EventType.TOOL_END
         ), types);
         assertEquals("approve", apiClient.events().get(1).getPayload().get("decision"));
+        TaskEvent toolStartEvent = apiClient.events().get(2);
+        assertEquals(EventType.TOOL_START, toolStartEvent.getType());
+        assertNotNull(toolStartEvent.getPayload().get("workspaceRef"));
+        assertEquals(
+                request.getCwd().replace('\\', '/'),
+                toolStartEvent.getPayload().get("workspaceRef"));
     }
 
     @Test

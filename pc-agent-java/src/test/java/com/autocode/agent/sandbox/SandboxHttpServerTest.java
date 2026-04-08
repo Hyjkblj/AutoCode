@@ -119,6 +119,7 @@ class SandboxHttpServerTest {
             String requestJson = "{"
                     + "\"taskId\":\"task_http_ok\","
                     + "\"command\":\"echo sandbox_http_ok\","
+                    + "\"prompt\":\"please deploy this\","
                     + "\"cwd\":\"" + cwd + "\","
                     + "\"assistant\":\"python-agent\","
                     + "\"sessionId\":\"sess_http_ok\""
@@ -135,6 +136,7 @@ class SandboxHttpServerTest {
             assertTrue(response.body().contains("\"ok\":true"));
             assertTrue(response.body().contains("\"status\":\"ok\""));
             assertTrue(response.body().contains("\"tool\":\"command.exec\""));
+            assertTrue(response.body().contains("\"approvalId\":\"apr_"));
         } finally {
             server.stop();
         }

@@ -20,6 +20,7 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -71,6 +72,8 @@ class SandboxExecutionServiceTest {
                 EventType.TOOL_END
         ), types);
         assertEquals("approve", apiClient.events().get(1).getPayload().get("decision"));
+        assertNotNull(response.getApprovalId());
+        assertEquals(apiClient.events().get(0).getPayload().get("approvalId"), response.getApprovalId());
         TaskEvent toolStartEvent = apiClient.events().get(2);
         assertEquals(EventType.TOOL_START, toolStartEvent.getType());
         assertNotNull(toolStartEvent.getPayload().get("workspaceRef"));
@@ -93,6 +96,7 @@ class SandboxExecutionServiceTest {
         assertFalse(response.isOk());
         assertEquals("approval_rejected", response.getStatus());
         assertEquals("approval_rejected", response.getReason());
+        assertNotNull(response.getApprovalId());
 
         List<EventType> types = apiClient.eventTypes();
         assertEquals(List.of(EventType.APPROVAL_REQUIRED, EventType.APPROVAL_RESULT), types);
@@ -186,6 +190,8 @@ class SandboxExecutionServiceTest {
         assertFalse(response.isOk());
         assertEquals("failed", response.getStatus());
         assertTrue(response.getReason().startsWith("exit_code_"));
+        assertNotNull(response.getExitCode());
+        assertNotEquals(0, response.getExitCode());
         assertEquals(List.of(EventType.TOOL_START, EventType.TOOL_END), apiClient.eventTypes());
     }
 

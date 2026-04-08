@@ -5,7 +5,7 @@
   "type": "object",
   "required": ["ok", "status"],
   "properties": {
-    "ok": { "type": "boolean" },
+    "ok": { "const": true },
     "status": { "type": "string", "minLength": 1 }
   },
   "additionalProperties": true

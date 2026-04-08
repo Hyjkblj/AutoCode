@@ -45,4 +45,21 @@ class SandboxHttpContractValidatorTest {
         response.setStatus("invalid_request");
         assertThrows(ContractViolationException.class, () -> SandboxHttpContractValidator.validateErrorResponse(response));
     }
+
+    @Test
+    void health_requires_ok_true() {
+        SandboxHealthResponse response = new SandboxHealthResponse();
+        response.setOk(false);
+        response.setStatus("up");
+        assertThrows(ContractViolationException.class, () -> SandboxHttpContractValidator.validateHealthResponse(response));
+    }
+
+    @Test
+    void error_requires_ok_false() {
+        SandboxErrorResponse response = new SandboxErrorResponse();
+        response.setOk(true);
+        response.setStatus("invalid_request");
+        response.setError("taskId is required");
+        assertThrows(ContractViolationException.class, () -> SandboxHttpContractValidator.validateErrorResponse(response));
+    }
 }

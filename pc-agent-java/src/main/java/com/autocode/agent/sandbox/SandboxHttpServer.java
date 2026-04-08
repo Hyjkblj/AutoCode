@@ -6,6 +6,8 @@ import com.autocode.protocol.model.SandboxErrorResponse;
 import com.autocode.protocol.model.SandboxExecuteRequest;
 import com.autocode.protocol.model.SandboxExecuteResponse;
 import com.autocode.protocol.model.SandboxHealthResponse;
+import com.autocode.protocol.validation.ContractViolationException;
+import com.autocode.protocol.validation.SandboxExecuteContractValidator;
 import com.autocode.protocol.validation.SandboxHttpContractValidator;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpExchange;
@@ -104,9 +106,12 @@ public class SandboxHttpServer {
                 byte[] bodyBytes = exchange.getRequestBody().readAllBytes();
                 SandboxExecuteRequest request = objectMapper.readValue(bodyBytes, SandboxExecuteRequest.class);
                 SandboxExecuteResponse response = service.execute(request);
+                SandboxExecuteContractValidator.validateResponse(response);
                 writeJson(exchange, 200, response);
             } catch (IllegalArgumentException ex) {
                 writeError(exchange, 400, "invalid_request", ex.getMessage());
+            } catch (ContractViolationException ex) {
+                writeError(exchange, 500, "contract_violation", ex.getMessage());
             } catch (InterruptedException ex) {
                 Thread.currentThread().interrupt();
                 writeError(exchange, 503, "interrupted", "sandbox_interrupted");

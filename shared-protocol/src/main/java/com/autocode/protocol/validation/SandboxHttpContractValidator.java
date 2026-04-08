@@ -13,12 +13,18 @@ public final class SandboxHttpContractValidator {
         if (response == null) {
             throw new ContractViolationException("SandboxHealthResponse is required");
         }
+        if (!response.isOk()) {
+            throw new ContractViolationException("SandboxHealthResponse.ok must be true");
+        }
         requireNonBlank(response.getStatus(), "status");
     }
 
     public static void validateErrorResponse(SandboxErrorResponse response) {
         if (response == null) {
             throw new ContractViolationException("SandboxErrorResponse is required");
+        }
+        if (response.isOk()) {
+            throw new ContractViolationException("SandboxErrorResponse.ok must be false");
         }
         requireNonBlank(response.getStatus(), "status");
         requireNonBlank(response.getError(), "error");

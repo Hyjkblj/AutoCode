@@ -15,6 +15,22 @@
             "message": { "type": "string", "minLength": 1 },
             "stage": { "type": "string" },
             "command": { "type": "string" },
+            "intent": {
+              "type": "string",
+              "enum": ["code_change", "deploy", "test", "analyze"]
+            },
+            "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+            "reason": { "type": "string" },
+            "llmFallback": { "type": "boolean" },
+            "riskLevel": { "type": "string", "enum": ["high", "medium", "low"] },
+            "issues": {
+              "type": "array",
+              "items": { "type": "string", "minLength": 1 }
+            },
+            "summary": { "type": "string" },
+            "attempt": { "type": "integer", "minimum": 1 },
+            "maxAttempts": { "type": "integer", "minimum": 1 },
+            "lastTestError": { "type": "string" },
             "traceId": { "type": "string" },
             "runId": { "type": "string" }
           },

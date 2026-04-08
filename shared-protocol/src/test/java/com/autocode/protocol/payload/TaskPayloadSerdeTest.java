@@ -35,9 +35,13 @@ class TaskPayloadSerdeTest {
             JsonNode payloadNode = root.get("payload");
             assertNotNull(payloadNode);
             TaskFailedPayload payload = MAPPER.treeToValue(payloadNode, TaskFailedPayload.class);
-            assertEquals("sandbox_request_failed", payload.getReason());
-            assertEquals("error", payload.getStatus());
-            assertTrue(Boolean.TRUE.equals(payload.getRetryable()));
+            assertEquals("fix_loop_exhausted", payload.getReason());
+            assertEquals("failed", payload.getStatus());
+            assertTrue(Boolean.FALSE.equals(payload.getRetryable()));
+            assertEquals(3, payload.getAttempt());
+            assertEquals(3, payload.getMaxAttempts());
+            assertEquals("high", payload.getRiskLevel());
+            assertEquals(2, payload.getIssues().size());
         }
     }
 }

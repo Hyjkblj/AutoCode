@@ -14,6 +14,7 @@
           "properties": {
             "reason": { "type": "string", "minLength": 1 },
             "detail": { "type": "string" },
+            "planName": { "type": "string" },
             "errorCode": { "type": "string" },
             "status": { "type": "string" },
             "exitCode": { "type": "integer" },

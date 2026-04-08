@@ -11,6 +11,7 @@
     "reason": "fix_loop_exhausted",
     "status": "failed",
     "detail": "tester failed after max fix loop attempts",
+    "planName": "code_change_pipeline",
     "errorCode": "FIX_LOOP_EXHAUSTED",
     "exitCode": 1,
     "retryable": false,

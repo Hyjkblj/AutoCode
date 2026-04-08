@@ -21,9 +21,16 @@ class TaskPayloadSerdeTest {
             JsonNode payloadNode = root.get("payload");
             assertNotNull(payloadNode);
             TaskDonePayload payload = MAPPER.treeToValue(payloadNode, TaskDonePayload.class);
-            assertEquals("executed", payload.getResult());
-            assertEquals("command.exec", payload.getTool());
-            assertEquals(0, payload.getExitCode());
+            assertEquals("coded_reviewed_tested", payload.getResult());
+            assertEquals("code_change", payload.getIntent());
+            assertEquals("code_change_pipeline", payload.getPlanName());
+            assertEquals(3, payload.getSteps().size());
+            assertTrue(Boolean.TRUE.equals(payload.getReviewApproved()));
+            assertEquals("ok", payload.getTestStatus());
+            assertEquals(2, payload.getTestAttempts());
+            assertEquals(1, payload.getTestRetries());
+            assertEquals(1, payload.getAttempt());
+            assertEquals(3, payload.getMaxAttempts());
         }
     }
 
@@ -36,6 +43,7 @@ class TaskPayloadSerdeTest {
             assertNotNull(payloadNode);
             TaskFailedPayload payload = MAPPER.treeToValue(payloadNode, TaskFailedPayload.class);
             assertEquals("fix_loop_exhausted", payload.getReason());
+            assertEquals("code_change_pipeline", payload.getPlanName());
             assertEquals("failed", payload.getStatus());
             assertEquals("FIX_LOOP_EXHAUSTED", payload.getErrorCode());
             assertTrue(Boolean.FALSE.equals(payload.getRetryable()));

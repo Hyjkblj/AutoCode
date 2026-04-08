@@ -18,6 +18,11 @@ public class TaskFailedPayload {
     private String detail;
 
     /**
+     * Optional. Plan name selected by orchestrator.
+     */
+    private String planName;
+
+    /**
      * Optional. Producer-specific machine-readable error code.
      */
     private String errorCode;
@@ -106,6 +111,14 @@ public class TaskFailedPayload {
 
     public void setDetail(String detail) {
         this.detail = detail;
+    }
+
+    public String getPlanName() {
+        return planName;
+    }
+
+    public void setPlanName(String planName) {
+        this.planName = planName;
     }
 
     public String getErrorCode() {

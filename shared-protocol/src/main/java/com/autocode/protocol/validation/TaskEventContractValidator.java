@@ -118,6 +118,7 @@ public final class TaskEventContractValidator {
             case TASK_DONE -> {
                 requireMap(payload, "payload");
                 requireString(payload, "result");
+                validateTaskDoneExtensions(payload);
             }
             case TASK_FAILED -> {
                 requireMap(payload, "payload");
@@ -201,9 +202,22 @@ public final class TaskEventContractValidator {
     }
 
     private static void validateTaskFailedExtensions(Map<String, Object> payload) {
+        validateOptionalNonBlankString(payload, "planName");
         validateOptionalNonBlankString(payload, "errorCode");
         validateFixLoopFields(payload);
         validateReviewFields(payload);
+    }
+
+    private static void validateTaskDoneExtensions(Map<String, Object> payload) {
+        validateOptionalIntent(payload, "intent");
+        validateOptionalNonBlankString(payload, "planName");
+        validateOptionalStringList(payload, "steps");
+        validateOptionalBoolean(payload, "reviewApproved");
+        validateOptionalNonBlankString(payload, "reviewSummary");
+        validateOptionalNonBlankString(payload, "testStatus");
+        validateOptionalNonNegativeInt(payload, "testAttempts");
+        validateOptionalNonNegativeInt(payload, "testRetries");
+        validateFixLoopFields(payload);
     }
 
     private static void validateFixLoopFields(Map<String, Object> payload) {
@@ -310,6 +324,41 @@ public final class TaskEventContractValidator {
             throw new ContractViolationException("payload." + key + " must be >= 1");
         }
         return (int) asLong;
+    }
+
+    private static Integer validateOptionalNonNegativeInt(Map<String, Object> payload, String key) {
+        Object value = payload.get(key);
+        if (value == null) {
+            return null;
+        }
+        if (!(value instanceof Number number)) {
+            throw new ContractViolationException("payload." + key + " must be an integer");
+        }
+        double asDouble = number.doubleValue();
+        if (Double.isNaN(asDouble) || Double.isInfinite(asDouble) || asDouble != Math.rint(asDouble)) {
+            throw new ContractViolationException("payload." + key + " must be an integer");
+        }
+        long asLong = number.longValue();
+        if (asLong < 0 || asLong > Integer.MAX_VALUE) {
+            throw new ContractViolationException("payload." + key + " must be >= 0");
+        }
+        return (int) asLong;
+    }
+
+    private static void validateOptionalStringList(Map<String, Object> payload, String key) {
+        Object value = payload.get(key);
+        if (value == null) {
+            return;
+        }
+        if (!(value instanceof List<?> values)) {
+            throw new ContractViolationException("payload." + key + " must be an array");
+        }
+        for (int i = 0; i < values.size(); i++) {
+            Object item = values.get(i);
+            if (!(item instanceof String text) || isBlank(text)) {
+                throw new ContractViolationException("payload." + key + "[" + i + "] must be a non-blank string");
+            }
+        }
     }
 
     private static boolean isBlank(String s) {

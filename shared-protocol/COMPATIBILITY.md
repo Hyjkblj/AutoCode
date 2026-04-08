@@ -17,6 +17,7 @@ This module is the single source of truth for cross-component DTOs and event sch
 - `APPROVAL_REQUIRED` requires `approvalId` + `context` (strong-binding context fields stay mandatory).
 - `APPROVAL_RESULT` requires `approvalId` + `decision`; consumers should tolerate lowercase/uppercase decision strings.
 - `TOOL_START` keeps `tool` as the only required payload key (other fields like `action`/`command`/`cwd` are optional).
+  - Runtime-aligned optional fields include `workspaceRef`, `intentSkill`, and `intentRoute`.
 - `TOOL_END` requires `tool` + `status`; output/error/exitCode remain optional for compatibility.
 - `BUILD_LOG` requires `message`; `buildId`/`level` are optional in v1.
 - `FILE_PATCH_PREVIEW` requires at least one of `patch` or `files` (either representation is valid in v1).

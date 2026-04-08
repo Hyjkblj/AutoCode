@@ -12,8 +12,11 @@
     "action": "run_command",
     "command": "echo hello",
     "cwd": "D:/workspace/test",
+    "workspaceRef": "D:/workspace/test",
     "toolVersion": "1.0.0",
     "traceId": "trc_task_test_123",
-    "runId": "run_test_001"
+    "runId": "run_test_001",
+    "intentSkill": "skill.code.author",
+    "intentRoute": "rule_based"
   }
 }

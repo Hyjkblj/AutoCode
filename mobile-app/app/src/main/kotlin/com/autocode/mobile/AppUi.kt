@@ -815,6 +815,76 @@ private fun AgentEventItem(event: TaskEventDto, fallbackLine: String) {
                 }
             }
         }
+        "DEPLOY_PLAN" -> {
+            val environment = payloadText(payload, "environment", "env") ?: "staging"
+            val artifactId = payloadText(payload, "artifactId")
+            val version = payloadText(payload, "version", "versionLabel")
+            val requestId = payloadText(payload, "requestId", "deployRequestId", "request_id")
+            Card(
+                colors =
+                    CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    ),
+            ) {
+                Column(Modifier.padding(12.dp)) {
+                    Text("Deploy Plan", style = MaterialTheme.typography.titleSmall)
+                    Text(header, style = MaterialTheme.typography.labelSmall)
+                    Spacer(Modifier.height(6.dp))
+                    Text("Environment: $environment")
+                    artifactId?.let {
+                        Spacer(Modifier.height(4.dp))
+                        Text("Artifact: $it", fontFamily = FontFamily.Monospace)
+                    }
+                    version?.let {
+                        Spacer(Modifier.height(4.dp))
+                        Text("Version: $it")
+                    }
+                    requestId?.let {
+                        Spacer(Modifier.height(4.dp))
+                        Text("Request ID: $it", fontFamily = FontFamily.Monospace)
+                    }
+                }
+            }
+        }
+        "DEPLOY_RESULT" -> {
+            val rawStatus = payloadText(payload, "status", "result") ?: "unknown"
+            val status = rawStatus.trim().ifEmpty { "unknown" }
+            val normalized = status.lowercase()
+            val endpoint = payloadText(payload, "endpointUrl", "endpoint", "url")
+            val requestId = payloadText(payload, "requestId", "deployRequestId", "request_id")
+            val reason = payloadText(payload, "reason", "message", "error")
+            val cardColor =
+                when (normalized) {
+                    "success", "succeeded", "done", "ok" -> MaterialTheme.colorScheme.tertiaryContainer
+                    "failed", "error", "rejected", "canceled", "cancelled" -> MaterialTheme.colorScheme.errorContainer
+                    else -> MaterialTheme.colorScheme.secondaryContainer
+                }
+            Card(
+                colors =
+                    CardDefaults.cardColors(
+                        containerColor = cardColor,
+                    ),
+            ) {
+                Column(Modifier.padding(12.dp)) {
+                    Text("Deploy Result", style = MaterialTheme.typography.titleSmall)
+                    Text(header, style = MaterialTheme.typography.labelSmall)
+                    Spacer(Modifier.height(6.dp))
+                    Text("Status: $status", fontFamily = FontFamily.Monospace)
+                    endpoint?.let {
+                        Spacer(Modifier.height(4.dp))
+                        Text("Endpoint: $it", fontFamily = FontFamily.Monospace)
+                    }
+                    requestId?.let {
+                        Spacer(Modifier.height(4.dp))
+                        Text("Request ID: $it", fontFamily = FontFamily.Monospace)
+                    }
+                    reason?.let {
+                        Spacer(Modifier.height(4.dp))
+                        Text("Reason: $it")
+                    }
+                }
+            }
+        }
         "TASK_DONE", "TASK_FAILED" -> {
             val done = type == "TASK_DONE"
             Card(

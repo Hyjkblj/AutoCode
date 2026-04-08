@@ -42,8 +42,12 @@ class LifecyclePayloadSerdeTest {
             JsonNode payloadNode = MAPPER.readTree(in).get("payload");
             assertNotNull(payloadNode);
             AssistantOutputPayload payload = MAPPER.treeToValue(payloadNode, AssistantOutputPayload.class);
-            assertEquals("Task accepted by node, preparing execution.", payload.getMessage());
-            assertEquals("Orchestrator", payload.getStage());
+            assertEquals("Reviewer finished: medium risk with two issues, entering fix loop attempt 1/3.", payload.getMessage());
+            assertEquals("ReviewerAgent", payload.getStage());
+            assertEquals("code_change", payload.getIntent());
+            assertEquals("medium", payload.getRiskLevel());
+            assertEquals(1, payload.getAttempt());
+            assertEquals(3, payload.getMaxAttempts());
         }
     }
 

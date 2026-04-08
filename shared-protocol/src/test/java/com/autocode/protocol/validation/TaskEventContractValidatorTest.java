@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test;
 import java.io.InputStream;
 import java.time.Instant;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
@@ -406,6 +407,92 @@ class TaskEventContractValidatorTest {
         event.setSeq(0);
         event.setEventVersion(1);
         event.setPayload(Map.of("stage", "PlannerAgent"));
+
+        assertThrows(ContractViolationException.class, () -> TaskEventContractValidator.validate(event));
+    }
+
+    @Test
+    void assistant_output_rejects_unknown_intent() {
+        TaskEvent event = new TaskEvent();
+        event.setEventId("e15");
+        event.setTaskId("t15");
+        event.setType(EventType.ASSISTANT_OUTPUT);
+        event.setTimestamp(Instant.parse("2026-04-08T00:00:00Z"));
+        event.setSeq(0);
+        event.setEventVersion(1);
+        event.setPayload(Map.of(
+                "message", "intent detection result",
+                "intent", "refactor"
+        ));
+
+        assertThrows(ContractViolationException.class, () -> TaskEventContractValidator.validate(event));
+    }
+
+    @Test
+    void assistant_output_rejects_confidence_out_of_range() {
+        TaskEvent event = new TaskEvent();
+        event.setEventId("e16");
+        event.setTaskId("t16");
+        event.setType(EventType.ASSISTANT_OUTPUT);
+        event.setTimestamp(Instant.parse("2026-04-08T00:00:00Z"));
+        event.setSeq(0);
+        event.setEventVersion(1);
+        event.setPayload(Map.of(
+                "message", "intent detection result",
+                "confidence", 1.2
+        ));
+
+        assertThrows(ContractViolationException.class, () -> TaskEventContractValidator.validate(event));
+    }
+
+    @Test
+    void assistant_output_rejects_attempt_greater_than_max_attempts() {
+        TaskEvent event = new TaskEvent();
+        event.setEventId("e17");
+        event.setTaskId("t17");
+        event.setType(EventType.ASSISTANT_OUTPUT);
+        event.setTimestamp(Instant.parse("2026-04-08T00:00:00Z"));
+        event.setSeq(0);
+        event.setEventVersion(1);
+        event.setPayload(Map.of(
+                "message", "fix loop progress",
+                "attempt", 4,
+                "maxAttempts", 3
+        ));
+
+        assertThrows(ContractViolationException.class, () -> TaskEventContractValidator.validate(event));
+    }
+
+    @Test
+    void task_failed_rejects_unknown_risk_level() {
+        TaskEvent event = new TaskEvent();
+        event.setEventId("e18");
+        event.setTaskId("t18");
+        event.setType(EventType.TASK_FAILED);
+        event.setTimestamp(Instant.parse("2026-04-08T00:00:00Z"));
+        event.setSeq(0);
+        event.setEventVersion(1);
+        event.setPayload(Map.of(
+                "reason", "fix_loop_exhausted",
+                "riskLevel", "critical"
+        ));
+
+        assertThrows(ContractViolationException.class, () -> TaskEventContractValidator.validate(event));
+    }
+
+    @Test
+    void task_failed_rejects_non_string_issue_entries() {
+        TaskEvent event = new TaskEvent();
+        event.setEventId("e19");
+        event.setTaskId("t19");
+        event.setType(EventType.TASK_FAILED);
+        event.setTimestamp(Instant.parse("2026-04-08T00:00:00Z"));
+        event.setSeq(0);
+        event.setEventVersion(1);
+        event.setPayload(Map.of(
+                "reason", "fix_loop_exhausted",
+                "issues", List.of("first issue", 2)
+        ));
 
         assertThrows(ContractViolationException.class, () -> TaskEventContractValidator.validate(event));
     }

@@ -8,10 +8,19 @@
   "seq": 71,
   "eventVersion": 1,
   "payload": {
-    "reason": "sandbox_request_failed",
-    "detail": "connection refused",
-    "status": "error",
-    "retryable": true,
+    "reason": "fix_loop_exhausted",
+    "detail": "tester failed after max fix loop attempts",
+    "status": "failed",
+    "retryable": false,
+    "attempt": 3,
+    "maxAttempts": 3,
+    "lastTestError": "pytest: test_health_endpoint failed with status 500",
+    "riskLevel": "high",
+    "issues": [
+      "Health route still throws when dependency is null.",
+      "Regression test expects outdated response shape."
+    ],
+    "summary": "Fix loop exhausted; manual intervention required.",
     "traceId": "trc_task_test_123",
     "runId": "run_test_001"
   }

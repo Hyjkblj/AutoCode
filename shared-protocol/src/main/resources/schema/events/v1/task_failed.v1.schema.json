@@ -20,6 +20,15 @@
             "policyReason": { "type": "string" },
             "tool": { "type": "string" },
             "cwd": { "type": "string" },
+            "attempt": { "type": "integer", "minimum": 1 },
+            "maxAttempts": { "type": "integer", "minimum": 1 },
+            "lastTestError": { "type": "string" },
+            "riskLevel": { "type": "string", "enum": ["high", "medium", "low"] },
+            "issues": {
+              "type": "array",
+              "items": { "type": "string", "minLength": 1 }
+            },
+            "summary": { "type": "string" },
             "traceId": { "type": "string" },
             "runId": { "type": "string" }
           },

@@ -8,11 +8,20 @@
   "seq": 71,
   "eventVersion": 1,
   "payload": {
-    "reason": "exec_nonzero_exit",
-    "status": "error",
-    "detail": "command failed",
+    "reason": "fix_loop_exhausted",
+    "status": "failed",
+    "detail": "tester failed after max fix loop attempts",
     "exitCode": 1,
     "retryable": false,
+    "attempt": 3,
+    "maxAttempts": 3,
+    "lastTestError": "pytest: test_health_endpoint failed with status 500",
+    "riskLevel": "high",
+    "issues": [
+      "Health route still throws when dependency is null.",
+      "Regression test expects outdated response shape."
+    ],
+    "summary": "Fix loop exhausted; manual intervention required.",
     "tool": "command.exec",
     "cwd": "D:/Develop/Project/AutoCode",
     "traceId": "trc_task_123",

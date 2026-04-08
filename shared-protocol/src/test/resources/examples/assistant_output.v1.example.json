@@ -8,9 +8,22 @@
   "seq": 3,
   "eventVersion": 1,
   "payload": {
-    "message": "Task accepted by node, preparing execution.",
-    "stage": "Orchestrator",
-    "command": "echo test",
+    "message": "Reviewer finished: medium risk with two issues, entering fix loop attempt 1/3.",
+    "stage": "ReviewerAgent",
+    "command": "pytest -q",
+    "intent": "code_change",
+    "confidence": 0.91,
+    "reason": "Prompt requires source change plus test verification.",
+    "llmFallback": false,
+    "riskLevel": "medium",
+    "issues": [
+      "Missing null guard in /health endpoint.",
+      "Regression test for 500-path is absent."
+    ],
+    "summary": "Need one code fix and one test update.",
+    "attempt": 1,
+    "maxAttempts": 3,
+    "lastTestError": "AssertionError: expected status 200, got 500",
     "traceId": "trc_task_test_123",
     "runId": "run_test_001"
   }

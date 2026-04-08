@@ -1,5 +1,8 @@
 package com.autocode.protocol.payload;
 
+import java.util.ArrayList;
+import java.util.List;
+
 /**
  * Payload for {@code EventType.TASK_FAILED}.
  */
@@ -53,6 +56,36 @@ public class TaskFailedPayload {
      * Optional. Correlation id for one execution run.
      */
     private String runId;
+
+    /**
+     * Optional. Current fix-loop attempt (1-based).
+     */
+    private Integer attempt;
+
+    /**
+     * Optional. Maximum fix-loop attempts allowed.
+     */
+    private Integer maxAttempts;
+
+    /**
+     * Optional. Latest test failure text for diagnostics.
+     */
+    private String lastTestError;
+
+    /**
+     * Optional. Review risk level (high/medium/low).
+     */
+    private String riskLevel;
+
+    /**
+     * Optional. Human-readable issue summaries from reviewer stage.
+     */
+    private List<String> issues = new ArrayList<>();
+
+    /**
+     * Optional. Review/failure summary text.
+     */
+    private String summary;
 
     public String getReason() {
         return reason;
@@ -132,5 +165,53 @@ public class TaskFailedPayload {
 
     public void setRunId(String runId) {
         this.runId = runId;
+    }
+
+    public Integer getAttempt() {
+        return attempt;
+    }
+
+    public void setAttempt(Integer attempt) {
+        this.attempt = attempt;
+    }
+
+    public Integer getMaxAttempts() {
+        return maxAttempts;
+    }
+
+    public void setMaxAttempts(Integer maxAttempts) {
+        this.maxAttempts = maxAttempts;
+    }
+
+    public String getLastTestError() {
+        return lastTestError;
+    }
+
+    public void setLastTestError(String lastTestError) {
+        this.lastTestError = lastTestError;
+    }
+
+    public String getRiskLevel() {
+        return riskLevel;
+    }
+
+    public void setRiskLevel(String riskLevel) {
+        this.riskLevel = riskLevel;
+    }
+
+    public List<String> getIssues() {
+        return issues;
+    }
+
+    public void setIssues(List<String> issues) {
+        this.issues = issues;
+    }
+
+    public String getSummary() {
+        return summary;
+    }
+
+    public void setSummary(String summary) {
+        this.summary = summary;
     }
 }

@@ -115,6 +115,7 @@ class TaskWorkflowIntegrationTest extends OperatorProj1MembershipFixture {
     @Test
     void profileRoutingShouldPreferMatchingProfile() throws Exception {
         registerAgentNode("node-reviewer-1");
+        String isolatedProfile = "reviewer-routing-test";
 
         String t1 = objectMapper.readTree(createTask("need coder")).path("payload").path("taskId").asText();
         String t2Payload = """
@@ -122,9 +123,9 @@ class TaskWorkflowIntegrationTest extends OperatorProj1MembershipFixture {
                   "projectId": "proj-1",
                   "assistant": "codex",
                   "prompt": "need reviewer",
-                  "agentProfile": "reviewer"
+                  "agentProfile": "%s"
                 }
-                """;
+                """.formatted(isolatedProfile);
         String t2Resp = mockMvc.perform(post("/api/v1/tasks")
                         .header("Authorization", "Bearer operator-dev-token")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -137,7 +138,7 @@ class TaskWorkflowIntegrationTest extends OperatorProj1MembershipFixture {
         for (int i = 0; i < 20; i++) {
             var res = mockMvc.perform(get("/api/v1/agent/tasks/next")
                             .param("nodeId", "node-reviewer-1")
-                            .param("profile", "reviewer")
+                            .param("profile", isolatedProfile)
                             .header("X-Agent-Token", "agent-dev-token"))
                     .andReturn();
             if (res.getResponse().getStatus() == 204) {
@@ -149,7 +150,7 @@ class TaskWorkflowIntegrationTest extends OperatorProj1MembershipFixture {
                 return;
             }
         }
-        org.junit.jupiter.api.Assertions.fail("reviewer profile did not receive reviewer task " + t2);
+        org.junit.jupiter.api.Assertions.fail("isolated profile did not receive routing task " + t2);
     }
 
     private void registerAgentNode(String nodeId) throws Exception {

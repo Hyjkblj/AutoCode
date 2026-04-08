@@ -61,6 +61,7 @@ class SandboxHttpServerTest {
             assertEquals(200, toolsResponse.statusCode());
             assertTrue(toolsResponse.body().contains("\"ok\":true"));
             assertTrue(toolsResponse.body().contains("\"name\":\"command.exec\""));
+            assertTrue(toolsResponse.body().contains("\"name\":\"deploy.execute\""));
 
             HttpRequest badMethodRequest = HttpRequest.newBuilder()
                     .uri(URI.create("http://127.0.0.1:" + port + "/sandbox/execute"))

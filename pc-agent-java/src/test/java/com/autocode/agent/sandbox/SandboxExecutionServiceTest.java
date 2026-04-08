@@ -7,6 +7,7 @@ import com.autocode.protocol.model.EventType;
 import com.autocode.protocol.model.SandboxExecuteRequest;
 import com.autocode.protocol.model.SandboxExecuteResponse;
 import com.autocode.protocol.model.TaskEvent;
+import com.autocode.protocol.model.ToolManifest;
 import com.autocode.protocol.validation.SandboxExecuteContractValidator;
 import org.junit.jupiter.api.Test;
 
@@ -129,6 +130,43 @@ class SandboxExecutionServiceTest {
         assertEquals("denied", response.getStatus());
         assertEquals("policy_denied:elevation_not_allowed", response.getReason());
         assertTrue(apiClient.events().isEmpty());
+    }
+
+    @Test
+    void executeSupportsDeployExecuteAliasAndKeepsToolNameConsistent() throws Exception {
+        Path workspace = Files.createTempDirectory("sandbox-deploy-alias");
+        RecordingAgentApiClient apiClient = new RecordingAgentApiClient();
+        SandboxExecutionService service = new SandboxExecutionService(apiClient, configWithWorkspace(workspace));
+
+        SandboxExecuteRequest request = newRequest("task_deploy_alias", "echo alias_ok", workspace);
+        request.setTool("deploy.execute");
+
+        SandboxExecuteResponse response = service.execute(request);
+        assertDoesNotThrow(() -> SandboxExecuteContractValidator.validateResponse(response));
+        assertTrue(response.isOk());
+        assertEquals("deploy.execute", response.getTool());
+        assertEquals("1.0.0", response.getToolVersion());
+        assertTrue(response.getOutput().contains("alias_ok"));
+
+        List<TaskEvent> events = apiClient.events();
+        assertEquals(2, events.size());
+        assertEquals(EventType.TOOL_START, events.get(0).getType());
+        assertEquals("deploy.execute", events.get(0).getPayload().get("tool"));
+        assertEquals(EventType.TOOL_END, events.get(1).getType());
+        assertEquals("deploy.execute", events.get(1).getPayload().get("tool"));
+    }
+
+    @Test
+    void listToolManifestsIncludesDeployExecuteAlias() throws Exception {
+        Path workspace = Files.createTempDirectory("sandbox-tools-alias");
+        SandboxExecutionService service = new SandboxExecutionService(new RecordingAgentApiClient(), configWithWorkspace(workspace));
+
+        List<ToolManifest> manifests = service.listToolManifests();
+        assertEquals(2, manifests.size());
+        assertEquals("command.exec", manifests.get(0).getName());
+        assertEquals("deploy.execute", manifests.get(1).getName());
+        assertEquals(manifests.get(0).getVersion(), manifests.get(1).getVersion());
+        assertEquals(manifests.get(0).getAction(), manifests.get(1).getAction());
     }
 
     private static SandboxExecuteRequest newRequest(String taskId, String command, Path cwd) {

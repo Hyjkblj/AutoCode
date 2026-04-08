@@ -53,4 +53,16 @@ class SandboxExecuteSerdeTest {
             assertEquals("taskId is required", response.getError());
         }
     }
+
+    @Test
+    void tools_response_example_deserializes() throws Exception {
+        try (InputStream in = SandboxExecuteSerdeTest.class.getResourceAsStream("/examples/sandbox_tools_response.v1.example.json")) {
+            assertNotNull(in, "Missing test resource: /examples/sandbox_tools_response.v1.example.json");
+            SandboxToolsResponse response = MAPPER.readValue(in, SandboxToolsResponse.class);
+            assertTrue(response.isOk());
+            assertNotNull(response.getTools());
+            assertEquals(1, response.getTools().size());
+            assertEquals("command.exec", response.getTools().get(0).getName());
+        }
+    }
 }

@@ -6,6 +6,7 @@ import com.autocode.protocol.model.SandboxErrorResponse;
 import com.autocode.protocol.model.SandboxExecuteRequest;
 import com.autocode.protocol.model.SandboxExecuteResponse;
 import com.autocode.protocol.model.SandboxHealthResponse;
+import com.autocode.protocol.model.SandboxToolsResponse;
 import com.autocode.protocol.validation.ContractViolationException;
 import com.autocode.protocol.validation.SandboxExecuteContractValidator;
 import com.autocode.protocol.validation.SandboxHttpContractValidator;
@@ -73,6 +74,15 @@ public class SandboxHttpServer {
         InetSocketAddress address = new InetSocketAddress(host, port);
         HttpServer httpServer = HttpServer.create(address, 0);
         httpServer.createContext("/sandbox/execute", new ExecuteHandler());
+        httpServer.createContext("/sandbox/tools", exchange -> {
+            if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
+                writeError(exchange, 405, "method_not_allowed", "method_not_allowed");
+                return;
+            }
+            SandboxToolsResponse response = SandboxToolsResponse.of(service.listToolManifests());
+            SandboxHttpContractValidator.validateToolsResponse(response);
+            writeJson(exchange, 200, response);
+        });
         httpServer.createContext("/sandbox/health", exchange -> {
             if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
                 writeError(exchange, 405, "method_not_allowed", "method_not_allowed");

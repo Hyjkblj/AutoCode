@@ -53,6 +53,15 @@ class SandboxHttpServerTest {
             assertEquals(200, healthResponse.statusCode());
             assertTrue(healthResponse.body().contains("\"status\":\"up\""));
 
+            HttpRequest toolsRequest = HttpRequest.newBuilder()
+                    .uri(URI.create("http://127.0.0.1:" + port + "/sandbox/tools"))
+                    .GET()
+                    .build();
+            HttpResponse<String> toolsResponse = client.send(toolsRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, toolsResponse.statusCode());
+            assertTrue(toolsResponse.body().contains("\"ok\":true"));
+            assertTrue(toolsResponse.body().contains("\"name\":\"command.exec\""));
+
             HttpRequest badMethodRequest = HttpRequest.newBuilder()
                     .uri(URI.create("http://127.0.0.1:" + port + "/sandbox/execute"))
                     .GET()
@@ -61,6 +70,15 @@ class SandboxHttpServerTest {
             assertEquals(405, badMethodResponse.statusCode());
             assertTrue(badMethodResponse.body().contains("method_not_allowed"));
             assertTrue(badMethodResponse.body().contains("\"status\":\"method_not_allowed\""));
+
+            HttpRequest toolsBadMethodRequest = HttpRequest.newBuilder()
+                    .uri(URI.create("http://127.0.0.1:" + port + "/sandbox/tools"))
+                    .POST(HttpRequest.BodyPublishers.noBody())
+                    .build();
+            HttpResponse<String> toolsBadMethodResponse = client.send(toolsBadMethodRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(405, toolsBadMethodResponse.statusCode());
+            assertTrue(toolsBadMethodResponse.body().contains("method_not_allowed"));
+            assertTrue(toolsBadMethodResponse.body().contains("\"status\":\"method_not_allowed\""));
 
             HttpRequest invalidPostRequest = HttpRequest.newBuilder()
                     .uri(URI.create("http://127.0.0.1:" + port + "/sandbox/execute"))

@@ -22,6 +22,7 @@ import com.autocode.protocol.model.SandboxExecuteRequest;
 import com.autocode.protocol.model.SandboxExecuteResponse;
 import com.autocode.protocol.model.TaskEvent;
 import com.autocode.protocol.model.TaskSummary;
+import com.autocode.protocol.model.ToolManifest;
 import com.autocode.protocol.validation.ContractViolationException;
 import com.autocode.protocol.validation.SandboxExecuteContractValidator;
 import org.slf4j.Logger;
@@ -30,6 +31,7 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.time.Instant;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
@@ -235,6 +237,10 @@ public class SandboxExecutionService {
                 runId,
                 approvalId
         );
+    }
+
+    public List<ToolManifest> listToolManifests() {
+        return toolRegistry.listManifests();
     }
 
     private void publishEvent(

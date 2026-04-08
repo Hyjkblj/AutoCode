@@ -69,6 +69,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.autocode.mobile.network.ArtifactListItem
 import com.autocode.mobile.network.TaskEventDto
+import com.mikepenz.markdown.coil3.Coil3ImageTransformerImpl
+import com.mikepenz.markdown.compose.components.markdownComponents
+import com.mikepenz.markdown.compose.elements.highlightedCodeBlock
+import com.mikepenz.markdown.compose.elements.highlightedCodeFence
+import com.mikepenz.markdown.m3.Markdown
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.PermissionStatus
 import com.google.accompanist.permissions.isGranted
@@ -753,7 +758,23 @@ private fun AgentEventItem(event: TaskEventDto, fallbackLine: String) {
         }
         "FILE_PATCH_PREVIEW" -> {
             val patch = payloadText(payload, "patch", "diff", "preview", "content")
-            val lines = patch.orEmpty().lineSequence().take(120).toList()
+            val patchLines = patch.orEmpty().lineSequence().toList()
+            val previewLineLimit = 220
+            val truncated = patchLines.size > previewLineLimit
+            var expanded by rememberSaveable(eventStableKey(event)) { mutableStateOf(false) }
+            val shownPatch =
+                when {
+                    patchLines.isEmpty() -> ""
+                    expanded || !truncated -> patchLines.joinToString("\n")
+                    else -> patchLines.take(previewLineLimit).joinToString("\n")
+                }
+            val markdownContent = remember(shownPatch) { asDiffMarkdown(shownPatch) }
+            val mdComponents = remember {
+                markdownComponents(
+                    codeFence = highlightedCodeFence,
+                    codeBlock = highlightedCodeBlock,
+                )
+            }
             Card(
                 colors =
                     CardDefaults.cardColors(
@@ -764,26 +785,20 @@ private fun AgentEventItem(event: TaskEventDto, fallbackLine: String) {
                     Text("代码变更预览", style = MaterialTheme.typography.titleSmall)
                     Text(header, style = MaterialTheme.typography.labelSmall)
                     Spacer(Modifier.height(8.dp))
-                    if (lines.isEmpty()) {
+                    if (patchLines.isEmpty()) {
                         Text(fallbackLine, fontFamily = FontFamily.Monospace)
                     } else {
-                        lines.forEach { line ->
-                            val lineColor =
-                                when {
-                                    line.startsWith("+") -> Color(0xFF1B5E20)
-                                    line.startsWith("-") -> Color(0xFFB71C1C)
-                                    else -> MaterialTheme.colorScheme.onSurfaceVariant
-                                }
-                            Text(
-                                text = line,
-                                color = lineColor,
-                                fontFamily = FontFamily.Monospace,
-                                style = MaterialTheme.typography.bodySmall,
-                            )
-                        }
-                        if (patch != null && patch.lines().size > lines.size) {
+                        Markdown(
+                            content = markdownContent,
+                            modifier = Modifier.fillMaxWidth(),
+                            imageTransformer = Coil3ImageTransformerImpl,
+                            components = mdComponents,
+                        )
+                        if (truncated) {
                             Spacer(Modifier.height(6.dp))
-                            Text("… 预览已截断", style = MaterialTheme.typography.labelSmall)
+                            TextButton(onClick = { expanded = !expanded }) {
+                                Text(if (expanded) "收起完整 diff" else "展开完整 diff")
+                            }
                         }
                     }
                 }
@@ -1341,7 +1356,7 @@ private fun ArtifactDetailScreen(
             }
             Spacer(Modifier.height(12.dp))
             Text(
-                "发布入口：填写版本号并记录到历史/版本页。",
+                "发布入口：填写版本号并提交到控制面 deploy API。",
                 style = MaterialTheme.typography.bodySmall,
             )
             Spacer(Modifier.height(8.dp))
@@ -1496,6 +1511,17 @@ private fun formatTimestamp(millis: Long): String =
     runCatching {
         SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date(millis))
     }.getOrElse { millis.toString() }
+
+private fun asDiffMarkdown(patch: String): String {
+    if (patch.isBlank()) return "```diff\n(no diff)\n```"
+    val escaped = patch.replace("```", "``\\`")
+    return buildString {
+        append("```diff\n")
+        append(escaped)
+        if (!escaped.endsWith('\n')) append('\n')
+        append("```")
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

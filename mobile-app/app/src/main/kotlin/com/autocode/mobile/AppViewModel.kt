@@ -338,19 +338,41 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val base = before.baseUrl.trim()
         val token = before.session?.accessToken?.trim().orEmpty()
         if (base.isEmpty() || token.isEmpty()) return
-        val entries = before.publishHistory
-        if (entries.isEmpty()) return
 
         _uiState.update { it.copy(isRefreshingPublishHistory = true) }
-        var merged = entries
-        entries.forEach { entry ->
+        val selectedProjectId = before.selectedProjectId?.trim()?.takeIf { it.isNotEmpty() }
+        val deployTaskResult =
+            ControlPlaneClient.listTasks(
+                baseUrl = base,
+                bearerToken = token,
+                projectId = selectedProjectId,
+                assistant = "deployer",
+            )
+        var merged =
+            if (deployTaskResult.isSuccess) {
+                mergePublishHistoryFromRemoteTasks(
+                    existing = before.publishHistory,
+                    remoteTasks = deployTaskResult.getOrNull().orEmpty(),
+                )
+            } else {
+                before.publishHistory
+            }
+        val hydrationTargets = merged.toList()
+        hydrationTargets.forEach { entry ->
             val taskId = entry.taskId.trim()
             if (taskId.isEmpty()) return@forEach
             val summary = ControlPlaneClient.getTask(base, token, taskId).getOrNull()
             if (summary != null) {
                 merged = updatePublishHistoryFromSummary(merged, summary)
             }
-            if (merged.firstOrNull { it.id == entry.id }?.endpointUrl.isNullOrBlank()) {
+            val current = merged.firstOrNull { it.taskId == taskId }
+            val shouldHydrateEvents =
+                current?.let {
+                    it.endpointUrl.isNullOrBlank() ||
+                        it.deployRequestId.isNullOrBlank() ||
+                        it.status in setOf("queued", "running", "waiting_approval", "deploy_planned", "unknown")
+                } ?: false
+            if (shouldHydrateEvents) {
                 val events = ControlPlaneClient.listTaskEvents(base, token, taskId, 0L).getOrNull().orEmpty()
                 merged = updatePublishHistoryFromEvents(merged, taskId, events)
             }
@@ -358,8 +380,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
         _uiState.update {
             it.copy(
-                publishHistory = merged,
+                publishHistory = merged.sortedByDescending { entry -> entry.createdAt },
                 isRefreshingPublishHistory = false,
+                errorMessage =
+                    if (deployTaskResult.isSuccess) null
+                    else deployTaskResult.exceptionOrNull()?.message ?: it.errorMessage,
             )
         }
         persistAll()
@@ -1162,6 +1187,81 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 else -> entry
             }
         }
+    }
+
+    private fun mergePublishHistoryFromRemoteTasks(
+        existing: List<PublishHistoryEntry>,
+        remoteTasks: List<TaskSummaryDto>,
+    ): List<PublishHistoryEntry> {
+        if (remoteTasks.isEmpty()) return existing
+        val mergedByTaskId = LinkedHashMap<String, PublishHistoryEntry>()
+        existing.forEach { entry ->
+            val taskId = entry.taskId.trim()
+            if (taskId.isNotEmpty()) {
+                mergedByTaskId[taskId] = entry
+            }
+        }
+        remoteTasks.forEach { dto ->
+            val taskId = dto.taskId.trim()
+            if (taskId.isEmpty()) return@forEach
+            if (!isDeployTask(dto)) return@forEach
+            val prior = mergedByTaskId[taskId]
+            val inferred = parseDeployPrompt(dto.prompt)
+            val createdAt = prior?.createdAt ?: dto.createdAtMillis ?: System.currentTimeMillis()
+            val merged =
+                PublishHistoryEntry(
+                    id = prior?.id ?: "pub_${dto.taskId}",
+                    taskId = dto.taskId,
+                    artifactId = prior?.artifactId ?: inferred?.artifactId,
+                    artifactName = prior?.artifactName,
+                    sourceTaskId = prior?.sourceTaskId ?: inferred?.sourceTaskId,
+                    versionLabel = prior?.versionLabel ?: inferred?.versionLabel ?: "unknown",
+                    status = normalizePublishStatus(dto.status),
+                    environment = prior?.environment ?: inferred?.environment ?: "staging",
+                    endpointUrl = prior?.endpointUrl,
+                    deployRequestId = prior?.deployRequestId,
+                    createdAt = createdAt,
+                )
+            mergedByTaskId[taskId] = merged
+        }
+        return mergedByTaskId.values.sortedByDescending { entry -> entry.createdAt }
+    }
+
+    private fun isDeployTask(dto: TaskSummaryDto): Boolean {
+        val assistant = dto.assistant?.trim()?.lowercase()
+        val profile = dto.agentProfile?.trim()?.lowercase()
+        if (assistant == "deployer" || profile == "deployer") return true
+        val prompt = dto.prompt?.trim()?.lowercase().orEmpty()
+        return prompt.startsWith("deploy ")
+    }
+
+    private data class ParsedDeployPrompt(
+        val artifactId: String? = null,
+        val environment: String? = null,
+        val versionLabel: String? = null,
+        val sourceTaskId: String? = null,
+    )
+
+    private fun parseDeployPrompt(prompt: String?): ParsedDeployPrompt? {
+        val text = prompt?.trim().orEmpty()
+        if (text.isEmpty()) return null
+        val regex =
+            Regex(
+                pattern =
+                    "^Deploy artifact\\s+(.+?)\\s+to\\s+(.+?)\\s+with version\\s+(.+?)(?:\\s*\\(sourceTaskId=(.+?)\\))?$",
+                options = setOf(RegexOption.IGNORE_CASE),
+            )
+        val match = regex.matchEntire(text) ?: return null
+        val artifactId = match.groupValues.getOrNull(1)?.trim().orEmpty().ifBlank { null }
+        val environment = match.groupValues.getOrNull(2)?.trim().orEmpty().ifBlank { null }
+        val versionLabel = match.groupValues.getOrNull(3)?.trim().orEmpty().ifBlank { null }
+        val sourceTaskId = match.groupValues.getOrNull(4)?.trim().orEmpty().ifBlank { null }
+        return ParsedDeployPrompt(
+            artifactId = artifactId,
+            environment = environment,
+            versionLabel = versionLabel,
+            sourceTaskId = sourceTaskId,
+        )
     }
 
     private fun stringValue(payload: JsonObject, vararg keys: String): String? {

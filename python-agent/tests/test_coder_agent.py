@@ -73,6 +73,7 @@ def test_coder_agent_reports_task_failed_when_write_is_out_of_bounds(tmp_path, m
     assert ok is False
     assert [item[0] for item in events] == ["ASSISTANT_OUTPUT", "TASK_FAILED"]
     assert events[1][1]["reason"] == "path_not_allowed"
+    assert events[1][1]["errorCode"] == "PATH_NOT_ALLOWED"
 
 
 def test_coder_agent_continues_when_one_file_fails(tmp_path, monkeypatch) -> None:
@@ -112,6 +113,8 @@ def test_coder_agent_continues_when_one_file_fails(tmp_path, monkeypatch) -> Non
     event_types = [kind for kind, _ in events]
     assert event_types.count("TASK_FAILED") == 1
     assert event_types.count("FILE_PATCH_PREVIEW") == 1
+    failed_payloads = [payload for kind, payload in events if kind == "TASK_FAILED"]
+    assert failed_payloads[0]["errorCode"] == "PATH_NOT_ALLOWED"
     assert good.read_text(encoding="utf-8") == "new text\n"
 
 

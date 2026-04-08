@@ -169,6 +169,26 @@ class SandboxExecutionServiceTest {
         assertEquals(manifests.get(0).getAction(), manifests.get(1).getAction());
     }
 
+    @Test
+    void executeMapsNonZeroExitToFailedSandboxResponse() throws Exception {
+        Path workspace = Files.createTempDirectory("sandbox-exec-nonzero");
+        RecordingAgentApiClient apiClient = new RecordingAgentApiClient();
+        SandboxExecutionService service = new SandboxExecutionService(apiClient, configWithWorkspace(workspace));
+
+        SandboxExecuteRequest request = newRequest(
+                "task_nonzero",
+                "echo sandbox_nonzero && definitely_not_a_real_command_for_test",
+                workspace);
+
+        SandboxExecuteResponse response = service.execute(request);
+
+        assertDoesNotThrow(() -> SandboxExecuteContractValidator.validateResponse(response));
+        assertFalse(response.isOk());
+        assertEquals("failed", response.getStatus());
+        assertTrue(response.getReason().startsWith("exit_code_"));
+        assertEquals(List.of(EventType.TOOL_START, EventType.TOOL_END), apiClient.eventTypes());
+    }
+
     private static SandboxExecuteRequest newRequest(String taskId, String command, Path cwd) {
         SandboxExecuteRequest request = new SandboxExecuteRequest();
         request.setTaskId(taskId);

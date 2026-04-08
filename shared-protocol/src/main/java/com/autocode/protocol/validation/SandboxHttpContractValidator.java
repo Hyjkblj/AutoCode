@@ -2,9 +2,11 @@ package com.autocode.protocol.validation;
 
 import com.autocode.protocol.model.SandboxErrorResponse;
 import com.autocode.protocol.model.SandboxHealthResponse;
+import com.autocode.protocol.model.SandboxToolsResponse;
+import com.autocode.protocol.model.ToolManifest;
 
 /**
- * Lightweight validation for sandbox health/error HTTP contracts (v1).
+ * Lightweight validation for sandbox health/error/tools HTTP contracts (v1).
  */
 public final class SandboxHttpContractValidator {
     private SandboxHttpContractValidator() {}
@@ -28,6 +30,21 @@ public final class SandboxHttpContractValidator {
         }
         requireNonBlank(response.getStatus(), "status");
         requireNonBlank(response.getError(), "error");
+    }
+
+    public static void validateToolsResponse(SandboxToolsResponse response) {
+        if (response == null) {
+            throw new ContractViolationException("SandboxToolsResponse is required");
+        }
+        if (!response.isOk()) {
+            throw new ContractViolationException("SandboxToolsResponse.ok must be true");
+        }
+        if (response.getTools() == null) {
+            throw new ContractViolationException("tools is required");
+        }
+        for (ToolManifest manifest : response.getTools()) {
+            ToolManifestContractValidator.validate(manifest);
+        }
     }
 
     private static void requireNonBlank(String value, String field) {

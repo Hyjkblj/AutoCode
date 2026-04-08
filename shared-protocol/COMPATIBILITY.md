@@ -49,6 +49,8 @@ This module is the single source of truth for cross-component DTOs and event sch
 - Sandbox health/error HTTP DTOs also use `src/main/resources/schema/sandbox/v1/`; health requires `ok` + `status`,
   and error responses require `ok` + `status` + `error`.
   - `sandbox_health_response.v1` fixes `ok = true`; `sandbox_error_response.v1` fixes `ok = false`.
+- Sandbox tools HTTP DTOs use `src/main/resources/schema/sandbox/v1/sandbox_tools_response.v1.schema.json`;
+  response requires `ok = true` and `tools[]`, where each tool entry follows `ToolManifest` v1 schema.
 - For `ArtifactMetadata.build`: the `build` object is optional; when present, `command` is required (JSON Schema and
   `ArtifactMetadataContractValidator` agree). `ArtifactManifest` lists must not contain duplicate `artifactId` values.
 - Service runtime descriptions (ports, health checks, env hints, startup) use `src/main/resources/schema/runtime/v1/`;
@@ -78,5 +80,5 @@ same minimal required-field approach.
 `com.autocode.protocol.validation.SandboxExecuteContractValidator` validates sandbox execute request/response documents
 (v1) using minimal required-field checks for cross-language compatibility.
 
-`com.autocode.protocol.validation.SandboxHttpContractValidator` validates sandbox health/error response documents (v1)
-using the same minimal required-field approach.
+`com.autocode.protocol.validation.SandboxHttpContractValidator` validates sandbox health/error/tools response documents
+(v1) using the same minimal required-field approach.

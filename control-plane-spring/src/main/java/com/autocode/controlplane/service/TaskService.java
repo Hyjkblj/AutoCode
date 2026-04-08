@@ -527,7 +527,10 @@ public class TaskService {
         }
         if (event.getPayload() == null) {
             event.setPayload(new HashMap<>());
+        } else {
+            event.setPayload(new HashMap<>(event.getPayload()));
         }
+        normalizeReviewPayloadAliases(event.getPayload());
         event.setSeq(task.getNextSeq());
         task.setNextSeq(task.getNextSeq() + 1);
     }
@@ -594,7 +597,67 @@ public class TaskService {
             task.setStatus(TaskStatus.DONE);
         } else if (event.getType() == EventType.TASK_FAILED) {
             markFailed(task);
+            auditTaskFailureDetails(task, event);
         }
+        auditReviewResultIfPresent(task, event);
+    }
+
+    private void normalizeReviewPayloadAliases(Map<String, Object> payload) {
+        if (payload == null) {
+            return;
+        }
+        String riskLevel = asNonBlankString(payload.get("riskLevel"), null);
+        String legacyRiskLevel = asNonBlankString(payload.get("risk_level"), null);
+        if (riskLevel == null && legacyRiskLevel != null) {
+            payload.put("riskLevel", legacyRiskLevel);
+        }
+        if (legacyRiskLevel == null && riskLevel != null) {
+            payload.put("risk_level", riskLevel);
+        }
+    }
+
+    private void auditReviewResultIfPresent(TaskEntity task, TaskEvent event) {
+        if (event.getType() != EventType.ASSISTANT_OUTPUT && event.getType() != EventType.TASK_FAILED) {
+            return;
+        }
+        if (event.getPayload() == null) {
+            return;
+        }
+        String riskLevel = asNonBlankString(firstNonNull(
+                event.getPayload().get("riskLevel"),
+                event.getPayload().get("risk_level")
+        ), null);
+        Object issues = event.getPayload().get("issues");
+        if (riskLevel == null && !(issues instanceof List<?>)) {
+            return;
+        }
+
+        Map<String, Object> details = new HashMap<>();
+        putIfPresent(details, "riskLevel", riskLevel);
+        if (issues instanceof List<?> issueList) {
+            details.put("issues", issueList);
+        }
+        putIfPresent(details, "summary", asNonBlankString(event.getPayload().get("summary"), null));
+        details.put("eventType", event.getType().name());
+        details.put("seq", event.getSeq());
+        auditService.log(task.getTaskId(), "agent", "review.result", details);
+    }
+
+    private void auditTaskFailureDetails(TaskEntity task, TaskEvent event) {
+        if (event.getPayload() == null) {
+            return;
+        }
+        String reason = asNonBlankString(event.getPayload().get("reason"), null);
+        if (reason == null || !"fix_loop_exhausted".equalsIgnoreCase(reason)) {
+            return;
+        }
+        Map<String, Object> details = new HashMap<>();
+        details.put("reason", "fix_loop_exhausted");
+        putIfPresent(details, "attempt", asInteger(event.getPayload().get("attempt")));
+        putIfPresent(details, "maxAttempts", asInteger(event.getPayload().get("maxAttempts")));
+        putIfPresent(details, "lastTestError", asNonBlankString(event.getPayload().get("lastTestError"), null));
+        details.put("seq", event.getSeq());
+        auditService.log(task.getTaskId(), "agent", "fix_loop.exhausted", details);
     }
 
     private Map<String, Object> buildApprovalContext(Map<String, Object> payload) {
@@ -822,6 +885,23 @@ public class TaskService {
             return s;
         }
         return fallback;
+    }
+
+    private Integer asInteger(Object value) {
+        if (value instanceof Number number) {
+            return number.intValue();
+        }
+        if (value instanceof String text) {
+            String trimmed = text.trim();
+            if (!trimmed.isEmpty()) {
+                try {
+                    return Integer.parseInt(trimmed);
+                } catch (NumberFormatException ignored) {
+                    return null;
+                }
+            }
+        }
+        return null;
     }
 
     private String extractOrCreateApprovalId(TaskEvent event) {

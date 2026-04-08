@@ -242,6 +242,131 @@ class TaskWorkflowIntegrationTest extends OperatorProj1MembershipFixture {
     }
 
     @Test
+    void assistantOutputReviewFieldsShouldBeNormalizedAndAudited() throws Exception {
+        String createResponse = createTask("Review payload compatibility");
+        String taskId = objectMapper.readTree(createResponse).path("payload").path("taskId").asText();
+
+        String reviewEvent = """
+                {
+                  "event": {
+                    "eventId": "evt-review-compat-1",
+                    "type": "ASSISTANT_OUTPUT",
+                    "assistant": "codex",
+                    "payload": {
+                      "stage": "ReviewerAgent",
+                      "risk_level": "high",
+                      "summary": "review says high risk",
+                      "issues": ["unsafe command", "sql injection pattern"]
+                    }
+                  }
+                }
+                """;
+
+        mockMvc.perform(post("/api/v1/agent/tasks/{taskId}/events", taskId)
+                        .header("X-Agent-Token", "agent-dev-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(reviewEvent))
+                .andExpect(status().isOk());
+
+        String eventsResponse = mockMvc.perform(get("/api/v1/tasks/{taskId}/events", taskId)
+                        .header("Authorization", "Bearer operator-dev-token"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        JsonNode events = objectMapper.readTree(eventsResponse).path("payload");
+        JsonNode reviewPayload = null;
+        for (JsonNode event : events) {
+            if ("evt-review-compat-1".equals(event.path("eventId").asText())) {
+                reviewPayload = event.path("payload");
+                break;
+            }
+        }
+        assertTrue(reviewPayload != null, "review compatibility event should exist");
+        assertEquals("high", reviewPayload.path("riskLevel").asText());
+        assertEquals("high", reviewPayload.path("risk_level").asText());
+        assertEquals("review says high risk", reviewPayload.path("summary").asText());
+        assertEquals(2, reviewPayload.path("issues").size());
+
+        String auditResponse = mockMvc.perform(get("/api/v1/audits/export")
+                        .param("taskId", taskId)
+                        .header("Authorization", "Bearer operator-dev-token"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        JsonNode items = objectMapper.readTree(auditResponse).path("payload").path("items");
+        boolean hasReviewAudit = false;
+        for (JsonNode item : items) {
+            if (!"review.result".equals(item.path("action").asText())) {
+                continue;
+            }
+            JsonNode details = objectMapper.readTree(item.path("detailsJson").asText("{}"));
+            if ("ASSISTANT_OUTPUT".equals(details.path("eventType").asText())
+                    && "high".equals(details.path("riskLevel").asText())) {
+                hasReviewAudit = true;
+                assertEquals("review says high risk", details.path("summary").asText());
+                assertEquals(2, details.path("issues").size());
+            }
+        }
+        assertTrue(hasReviewAudit, "review.result audit should be recorded");
+    }
+
+    @Test
+    void taskFailedFixLoopExhaustedShouldWriteFailureAudit() throws Exception {
+        String createResponse = createTask("Fix loop failure semantics");
+        String taskId = objectMapper.readTree(createResponse).path("payload").path("taskId").asText();
+
+        String taskFailedEvent = """
+                {
+                  "event": {
+                    "eventId": "evt-fix-loop-failed-1",
+                    "type": "TASK_FAILED",
+                    "assistant": "codex",
+                    "payload": {
+                      "reason": "fix_loop_exhausted",
+                      "attempt": 3,
+                      "maxAttempts": 3,
+                      "lastTestError": "AssertionError: expected 200 got 500"
+                    }
+                  }
+                }
+                """;
+
+        mockMvc.perform(post("/api/v1/agent/tasks/{taskId}/events", taskId)
+                        .header("X-Agent-Token", "agent-dev-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(taskFailedEvent))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.payload.status").value("FAILED"));
+
+        mockMvc.perform(get("/api/v1/tasks/{taskId}", taskId)
+                        .header("Authorization", "Bearer operator-dev-token"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.payload.status").value("FAILED"));
+
+        String auditResponse = mockMvc.perform(get("/api/v1/audits/export")
+                        .param("taskId", taskId)
+                        .header("Authorization", "Bearer operator-dev-token"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        JsonNode items = objectMapper.readTree(auditResponse).path("payload").path("items");
+        boolean hasFixLoopAudit = false;
+        for (JsonNode item : items) {
+            if (!"fix_loop.exhausted".equals(item.path("action").asText())) {
+                continue;
+            }
+            JsonNode details = objectMapper.readTree(item.path("detailsJson").asText("{}"));
+            if ("fix_loop_exhausted".equals(details.path("reason").asText())) {
+                hasFixLoopAudit = true;
+                assertEquals(3, details.path("attempt").asInt());
+                assertEquals(3, details.path("maxAttempts").asInt());
+                assertEquals("AssertionError: expected 200 got 500", details.path("lastTestError").asText());
+            }
+        }
+        assertTrue(hasFixLoopAudit, "fix_loop.exhausted audit should be recorded");
+    }
+
+    @Test
     void approvalContextMismatchShouldFailTask() throws Exception {
         String createResponse = createTask("Mismatch approval context");
         String taskId = objectMapper.readTree(createResponse).path("payload").path("taskId").asText();

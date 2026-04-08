@@ -175,6 +175,29 @@ object ControlPlaneClient {
             }
         }
 
+    suspend fun listAgentNodes(
+        baseUrl: String,
+        bearerToken: String,
+    ): Result<List<AgentNodeDto>> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val root = normalizeBaseUrl(baseUrl)
+                val req =
+                    Request.Builder()
+                        .url("$root/api/v1/agent/nodes")
+                        .header("Authorization", "Bearer ${bearerToken.trim()}")
+                        .get()
+                        .build()
+                client.newCall(req).execute().use { resp ->
+                    val text = resp.body?.string().orEmpty()
+                    if (!resp.isSuccessful) {
+                        error("HTTP ${resp.code}: ${text.take(300)}")
+                    }
+                    parseAgentNodeListEnvelope(text)
+                }
+            }
+        }
+
     suspend fun listArtifacts(
         baseUrl: String,
         bearerToken: String,
@@ -380,6 +403,27 @@ object ControlPlaneClient {
         }
     }
 
+    private fun parseAgentNodeListEnvelope(responseBody: String): List<AgentNodeDto> {
+        val obj = json.parseToJsonElement(responseBody).jsonObject
+        if (obj["ok"]?.jsonPrimitive?.booleanOrNull != true) {
+            val err = obj["error"]?.jsonPrimitive?.contentOrNull ?: "request failed"
+            error(err)
+        }
+        val payload = obj["payload"]?.jsonArray ?: return emptyList()
+        return payload.mapNotNull { el ->
+            val o = el.jsonObject
+            val nodeId = o["nodeId"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+            if (nodeId.isEmpty()) return@mapNotNull null
+            AgentNodeDto(
+                nodeId = nodeId,
+                version = o["version"]?.jsonPrimitive?.contentOrNull,
+                capabilities = o["capabilities"]?.jsonPrimitive?.contentOrNull,
+                lastHeartbeatAt = o["lastHeartbeatAt"]?.jsonPrimitive?.contentOrNull,
+                online = o["online"]?.jsonPrimitive?.booleanOrNull == true,
+            )
+        }
+    }
+
     private fun parseGatewayArtifactList(body: String, fallbackTaskId: String): List<ArtifactListItem> {
         val obj = json.parseToJsonElement(body).jsonObject
         if (obj["ok"]?.jsonPrimitive?.booleanOrNull != true) {
@@ -441,6 +485,14 @@ data class ProjectSummaryDto(
     val projectId: String,
     val name: String? = null,
     val roleName: String? = null,
+)
+
+data class AgentNodeDto(
+    val nodeId: String,
+    val version: String? = null,
+    val capabilities: String? = null,
+    val lastHeartbeatAt: String? = null,
+    val online: Boolean = false,
 )
 
 data class ArtifactListItem(

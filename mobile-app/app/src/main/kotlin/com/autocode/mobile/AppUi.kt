@@ -1582,7 +1582,14 @@ private fun AccountTab(vm: AppViewModel) {
         baseUrlDraft = state.baseUrl
         targetDraft = state.generationTarget.name
     }
-    Column(Modifier.padding(20.dp)) {
+    LaunchedEffect(state.baseUrl, state.session?.accessToken) {
+        vm.refreshAgentNodes()
+    }
+    Column(
+        Modifier
+            .padding(20.dp)
+            .verticalScroll(rememberScrollState()),
+    ) {
         Text("我的", style = MaterialTheme.typography.headlineSmall)
         Spacer(Modifier.height(16.dp))
         Text("连接与生成目标（PR-1）", style = MaterialTheme.typography.titleMedium)
@@ -1628,6 +1635,81 @@ private fun AccountTab(vm: AppViewModel) {
                     fontFamily = FontFamily.Monospace,
                     maxLines = 1,
                 )
+            }
+        }
+        Spacer(Modifier.height(24.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("Agent Nodes", style = MaterialTheme.typography.titleMedium)
+            TextButton(
+                onClick = { vm.refreshAgentNodes() },
+                enabled = !state.isRefreshingAgentNodes,
+            ) {
+                Text(if (state.isRefreshingAgentNodes) "Refreshing..." else "Refresh")
+            }
+        }
+        if (state.baseUrl.isBlank() || state.session == null) {
+            Text(
+                "Configure base URL and login to view node capabilities.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+        } else if (state.agentNodes.isEmpty() && state.isRefreshingAgentNodes) {
+            Spacer(Modifier.height(8.dp))
+            CircularProgressIndicator()
+        } else if (state.agentNodes.isEmpty()) {
+            Text(
+                "No agent nodes reported yet.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+        } else {
+            Spacer(Modifier.height(8.dp))
+            state.agentNodes.forEach { node ->
+                Card(
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp),
+                ) {
+                    Column(Modifier.padding(12.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(node.nodeId, style = MaterialTheme.typography.titleSmall)
+                            Text(
+                                if (node.online) "online" else "offline",
+                                color =
+                                    if (node.online) Color(0xFF2E7D32)
+                                    else MaterialTheme.colorScheme.error,
+                                style = MaterialTheme.typography.labelMedium,
+                            )
+                        }
+                        node.version?.takeIf { it.isNotBlank() }?.let {
+                            Spacer(Modifier.height(4.dp))
+                            Text("Version: $it", style = MaterialTheme.typography.bodySmall)
+                        }
+                        node.lastHeartbeatAt?.takeIf { it.isNotBlank() }?.let {
+                            Spacer(Modifier.height(4.dp))
+                            Text("Heartbeat: $it", style = MaterialTheme.typography.bodySmall)
+                        }
+                        val capabilities = node.capabilities?.trim().orEmpty()
+                        if (capabilities.isNotEmpty()) {
+                            Spacer(Modifier.height(6.dp))
+                            Text("Capabilities", style = MaterialTheme.typography.labelMedium)
+                            Text(
+                                text = capabilities,
+                                fontFamily = FontFamily.Monospace,
+                                style = MaterialTheme.typography.bodySmall,
+                                maxLines = 6,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                }
             }
         }
         Spacer(Modifier.height(24.dp))

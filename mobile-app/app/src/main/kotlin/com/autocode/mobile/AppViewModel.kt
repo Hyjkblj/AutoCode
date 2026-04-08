@@ -8,6 +8,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.autocode.mobile.network.AgentNodeDto
 import com.autocode.mobile.network.ArtifactListItem
 import com.autocode.mobile.network.ControlPlaneClient
 import com.autocode.mobile.network.ProjectSummaryDto
@@ -49,6 +50,8 @@ data class UiState(
     val selectedProjectId: String? = null,
     val dynamicProjects: List<Project> = emptyList(),
     val isRefreshingProjects: Boolean = false,
+    val agentNodes: List<AgentNodeDto> = emptyList(),
+    val isRefreshingAgentNodes: Boolean = false,
     val tasks: List<TaskItem> = emptyList(),
     val taskEvents: Map<String, List<TaskEventDto>> = emptyMap(),
     val errorMessage: String? = null,
@@ -96,6 +99,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             loadFromStore()
             refreshProjectsInternal()
+            refreshAgentNodesInternal()
             refreshPublishHistoryInternal()
             _uiState.update { it.copy(isLoading = false) }
             startLocalProgressTicker()
@@ -213,6 +217,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             }
             persistAll()
             refreshProjectsInternal()
+            refreshAgentNodesInternal()
         }
     }
 
@@ -239,6 +244,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     }
                     persistAll()
                     refreshProjectsInternal()
+                    refreshAgentNodesInternal()
                 } else {
                     val msg = r.exceptionOrNull()?.message ?: "登录失败"
                     _uiState.update { it.copy(errorMessage = msg) }
@@ -251,6 +257,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 persistAll()
                 refreshProjectsInternal()
+                refreshAgentNodesInternal()
             }
         }
     }
@@ -297,6 +304,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun refreshAgentNodes() {
+        viewModelScope.launch {
+            refreshAgentNodesInternal()
+        }
+    }
+
     fun refreshPublishHistory() {
         viewModelScope.launch {
             refreshPublishHistoryInternal()
@@ -333,6 +346,41 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             )
         }
         persistAll()
+    }
+
+    private suspend fun refreshAgentNodesInternal() {
+        val before = _uiState.value
+        val base = before.baseUrl.trim()
+        val token = before.session?.accessToken?.trim().orEmpty()
+        if (base.isEmpty() || token.isEmpty()) {
+            _uiState.update {
+                it.copy(
+                    agentNodes = emptyList(),
+                    isRefreshingAgentNodes = false,
+                )
+            }
+            return
+        }
+
+        _uiState.update { it.copy(isRefreshingAgentNodes = true) }
+        val result = ControlPlaneClient.listAgentNodes(base, token)
+        if (result.isSuccess) {
+            val nodes = result.getOrNull().orEmpty().sortedBy { it.nodeId.lowercase() }
+            _uiState.update {
+                it.copy(
+                    agentNodes = nodes,
+                    isRefreshingAgentNodes = false,
+                    errorMessage = null,
+                )
+            }
+        } else {
+            _uiState.update {
+                it.copy(
+                    isRefreshingAgentNodes = false,
+                    errorMessage = result.exceptionOrNull()?.message ?: "Failed to load agent nodes",
+                )
+            }
+        }
     }
 
     private suspend fun refreshProjectsInternal() {

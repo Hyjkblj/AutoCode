@@ -75,6 +75,9 @@ public class AgentController {
 
     @GetMapping("/tasks/{taskId}/approval")
     public ResponseEntity<ApiResponse<Map<String, Object>>> getApprovalStatus(@PathVariable("taskId") String taskId) {
+        if (!taskService.taskExists(taskId)) {
+            return ResponseEntity.notFound().build();
+        }
         ApprovalDecision decision = taskService.getApprovalDecision(taskId).orElse(ApprovalDecision.PENDING);
         return ResponseEntity.ok(ApiResponse.ok(Map.of("decision", decision.name().toLowerCase())));
     }

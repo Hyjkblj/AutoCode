@@ -237,4 +237,11 @@ class AgentControllerIntegrationTest {
                 .andExpect(jsonPath("$.ok").value(false))
                 .andExpect(jsonPath("$.error").value("node not registered"));
     }
+
+    @Test
+    void approvalStatusShouldReturn404WhenTaskNotFound() throws Exception {
+        mockMvc.perform(get("/api/v1/agent/tasks/{taskId}/approval", "tsk_not_exists")
+                        .header("X-Agent-Token", "ag-a"))
+                .andExpect(status().isNotFound());
+    }
 }

@@ -210,6 +210,11 @@ public class TaskService {
         return taskRepository.findById(taskId).map(modelMapper::toSummary);
     }
 
+    @Transactional(readOnly = true)
+    public boolean taskExists(String taskId) {
+        return taskRepository.existsById(taskId);
+    }
+
     /**
      * 查询任务事件历史（支持按 seq 增量拉取；参数名 lastEventId 实际对应 lastSeq）。
      */

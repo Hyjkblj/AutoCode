@@ -96,25 +96,127 @@ public class ToolRegistry {
         if (left.equals(right)) {
             return 0;
         }
-        String[] l = left.split("\\.");
-        String[] r = right.split("\\.");
-        int max = Math.max(l.length, r.length);
+        ParsedVersion l = ParsedVersion.parse(left);
+        ParsedVersion r = ParsedVersion.parse(right);
+
+        int cmp = compareCoreIdentifiers(l.core(), r.core());
+        if (cmp != 0) {
+            return cmp;
+        }
+        cmp = comparePreReleaseIdentifiers(l.preRelease(), r.preRelease());
+        if (cmp != 0) {
+            return cmp;
+        }
+        return left.compareTo(right);
+    }
+
+    private static int compareCoreIdentifiers(List<String> left, List<String> right) {
+        int max = Math.max(left.size(), right.size());
         for (int i = 0; i < max; i++) {
-            String lv = i < l.length ? l[i] : "0";
-            String rv = i < r.length ? r[i] : "0";
+            String lv = i < left.size() ? left.get(i) : "0";
+            String rv = i < right.size() ? right.get(i) : "0";
             int cmp = compareVersionPart(lv, rv);
             if (cmp != 0) {
                 return cmp;
             }
         }
-        return left.compareTo(right);
+        return 0;
+    }
+
+    private static int comparePreReleaseIdentifiers(List<String> left, List<String> right) {
+        if (left.isEmpty() && right.isEmpty()) {
+            return 0;
+        }
+        if (left.isEmpty()) {
+            return 1;
+        }
+        if (right.isEmpty()) {
+            return -1;
+        }
+        int max = Math.max(left.size(), right.size());
+        for (int i = 0; i < max; i++) {
+            if (i >= left.size()) {
+                return -1;
+            }
+            if (i >= right.size()) {
+                return 1;
+            }
+            String lv = left.get(i);
+            String rv = right.get(i);
+            boolean leftNumeric = isNumeric(lv);
+            boolean rightNumeric = isNumeric(rv);
+            if (leftNumeric && rightNumeric) {
+                int cmp = compareNumericStrings(lv, rv);
+                if (cmp != 0) {
+                    return cmp;
+                }
+                continue;
+            }
+            if (leftNumeric != rightNumeric) {
+                return leftNumeric ? -1 : 1;
+            }
+            int cmp = lv.compareTo(rv);
+            if (cmp != 0) {
+                return cmp;
+            }
+        }
+        return 0;
     }
 
     private static int compareVersionPart(String left, String right) {
-        if (left.chars().allMatch(Character::isDigit) && right.chars().allMatch(Character::isDigit)) {
-            return Integer.compare(Integer.parseInt(left), Integer.parseInt(right));
+        if (isNumeric(left) && isNumeric(right)) {
+            return compareNumericStrings(left, right);
         }
         return left.compareTo(right);
+    }
+
+    private static boolean isNumeric(String value) {
+        return value != null && !value.isEmpty() && value.chars().allMatch(Character::isDigit);
+    }
+
+    private static int compareNumericStrings(String left, String right) {
+        String normalizedLeft = stripLeadingZeros(left);
+        String normalizedRight = stripLeadingZeros(right);
+        if (normalizedLeft.length() != normalizedRight.length()) {
+            return Integer.compare(normalizedLeft.length(), normalizedRight.length());
+        }
+        return normalizedLeft.compareTo(normalizedRight);
+    }
+
+    private static String stripLeadingZeros(String value) {
+        if (value == null || value.isEmpty()) {
+            return "0";
+        }
+        int index = 0;
+        while (index < value.length() - 1 && value.charAt(index) == '0') {
+            index++;
+        }
+        return value.substring(index);
+    }
+
+    private record ParsedVersion(List<String> core, List<String> preRelease) {
+        private static ParsedVersion parse(String version) {
+            String raw = version == null ? "" : version.trim();
+            int buildIndex = raw.indexOf('+');
+            String withoutBuild = buildIndex >= 0 ? raw.substring(0, buildIndex) : raw;
+
+            int preReleaseIndex = withoutBuild.indexOf('-');
+            String core = preReleaseIndex >= 0 ? withoutBuild.substring(0, preReleaseIndex) : withoutBuild;
+            String preRelease = preReleaseIndex >= 0 ? withoutBuild.substring(preReleaseIndex + 1) : "";
+            return new ParsedVersion(splitIdentifiers(core), splitIdentifiers(preRelease));
+        }
+
+        private static List<String> splitIdentifiers(String value) {
+            if (value == null || value.isEmpty()) {
+                return List.of();
+            }
+            String[] parts = value.split("\\.");
+            ArrayList<String> result = new ArrayList<>(parts.length);
+            for (String part : parts) {
+                result.add(part == null ? "" : part);
+            }
+            return List.copyOf(result);
+        }
     }
 }
 

@@ -42,6 +42,37 @@ class ToolRegistryTest {
     }
 
     @Test
+    void lookupWithoutVersionPrefersStableReleaseOverPrerelease() {
+        ToolRegistry registry = new ToolRegistry();
+        Tool pre = fakeTool("command.exec", "1.0.0-alpha.2");
+        Tool stable = fakeTool("command.exec", "1.0.0");
+        registry.register(pre).register(stable);
+
+        assertSame(stable, registry.getRequired("command.exec"));
+    }
+
+    @Test
+    void lookupWithoutVersionOrdersPrereleaseIdentifiersBySemverRules() {
+        ToolRegistry registry = new ToolRegistry();
+        Tool alpha = fakeTool("command.exec", "1.0.0-alpha.1");
+        Tool beta = fakeTool("command.exec", "1.0.0-beta");
+        Tool rc = fakeTool("command.exec", "1.0.0-rc.1");
+        registry.register(alpha).register(beta).register(rc);
+
+        assertSame(rc, registry.getRequired("command.exec"));
+    }
+
+    @Test
+    void lookupWithoutVersionSupportsLargeNumericVersionParts() {
+        ToolRegistry registry = new ToolRegistry();
+        Tool normal = fakeTool("command.exec", "1.0.9");
+        Tool large = fakeTool("command.exec", "1.0.214748364800000000000");
+        registry.register(normal).register(large);
+
+        assertSame(large, registry.getRequired("command.exec"));
+    }
+
+    @Test
     void listManifestsReturnsAllRegisteredVariants() {
         ToolRegistry registry = new ToolRegistry();
         registry.register(fakeTool("command.exec", "1.0.0"));

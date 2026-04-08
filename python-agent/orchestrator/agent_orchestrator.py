@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 from typing import Any
 
 from agents.base_agent import BaseAgent
@@ -126,10 +127,7 @@ class AgentOrchestrator(BaseAgent):
                 working_task,
                 client,
                 "TASK_FAILED",
-                {
-                    "reason": "orchestrator_error",
-                    "detail": str(exc),
-                },
+                _task_failed_payload("orchestrator_error", detail=str(exc)),
             )
             self.memory_store.append(
                 project_key,
@@ -138,6 +136,7 @@ class AgentOrchestrator(BaseAgent):
                     "planName": plan.plan_name,
                     "status": "failed",
                     "reason": "orchestrator_error",
+                    "errorCode": _error_code_from_reason("orchestrator_error"),
                     "detail": str(exc),
                 },
             )
@@ -198,17 +197,18 @@ class AgentOrchestrator(BaseAgent):
                 task,
                 client,
                 "TASK_FAILED",
-                {
-                    "reason": "parallel_pipeline_error",
-                    "planName": plan.plan_name,
-                    "detail": str(exc),
-                },
+                _task_failed_payload(
+                    "parallel_pipeline_error",
+                    planName=plan.plan_name,
+                    detail=str(exc),
+                ),
             )
             return {
                 "intent": "code_change",
                 "planName": plan.plan_name,
                 "status": "failed",
                 "reason": "parallel_pipeline_error",
+                "errorCode": _error_code_from_reason("parallel_pipeline_error"),
                 "detail": str(exc),
             }
 
@@ -219,16 +219,14 @@ class AgentOrchestrator(BaseAgent):
                 task,
                 client,
                 "TASK_FAILED",
-                {
-                    "reason": "parallel_result_invalid",
-                    "planName": plan.plan_name,
-                },
+                _task_failed_payload("parallel_result_invalid", planName=plan.plan_name),
             )
             return {
                 "intent": "code_change",
                 "planName": plan.plan_name,
                 "status": "failed",
                 "reason": "parallel_result_invalid",
+                "errorCode": _error_code_from_reason("parallel_result_invalid"),
             }
 
         if not review.approved:
@@ -236,19 +234,20 @@ class AgentOrchestrator(BaseAgent):
                 task,
                 client,
                 "TASK_FAILED",
-                {
-                    "reason": "review_rejected",
-                    "planName": plan.plan_name,
-                    "summary": review.summary,
-                    "issues": review.issues,
-                    "riskLevel": review.risk_level,
-                },
+                _task_failed_payload(
+                    "review_rejected",
+                    planName=plan.plan_name,
+                    summary=review.summary,
+                    issues=review.issues,
+                    riskLevel=review.risk_level,
+                ),
             )
             return {
                 "intent": "code_change",
                 "planName": plan.plan_name,
                 "status": "failed",
                 "reason": "review_rejected",
+                "errorCode": _error_code_from_reason("review_rejected"),
                 "summary": review.summary,
                 "issues": review.issues,
                 "riskLevel": review.risk_level,
@@ -378,22 +377,23 @@ class AgentOrchestrator(BaseAgent):
             task,
             client,
             "TASK_FAILED",
-            {
-                "reason": "fix_loop_exhausted",
-                "planName": plan.plan_name,
-                "summary": review.summary,
-                "issues": review.issues,
-                "riskLevel": review.risk_level,
-                "attempt": max_attempts,
-                "maxAttempts": max_attempts,
-                "lastTestError": last_test_error,
-            },
+            _task_failed_payload(
+                "fix_loop_exhausted",
+                planName=plan.plan_name,
+                summary=review.summary,
+                issues=review.issues,
+                riskLevel=review.risk_level,
+                attempt=max_attempts,
+                maxAttempts=max_attempts,
+                lastTestError=last_test_error,
+            ),
         )
         return {
             "intent": "code_change",
             "planName": plan.plan_name,
             "status": "failed",
             "reason": "fix_loop_exhausted",
+            "errorCode": _error_code_from_reason("fix_loop_exhausted"),
             "summary": review.summary,
             "issues": review.issues,
             "riskLevel": review.risk_level,
@@ -439,12 +439,18 @@ class AgentOrchestrator(BaseAgent):
                     "error": str(exc),
                 },
             )
-            self.publish_event(task, client, "TASK_FAILED", {"reason": "sandbox_request_failed", "detail": str(exc)})
+            self.publish_event(
+                task,
+                client,
+                "TASK_FAILED",
+                _task_failed_payload("sandbox_request_failed", detail=str(exc)),
+            )
             return {
                 "intent": intent,
                 "planName": plan_name,
                 "status": "failed",
                 "reason": "sandbox_request_failed",
+                "errorCode": _error_code_from_reason("sandbox_request_failed"),
                 "detail": str(exc),
                 "command": command,
             }
@@ -487,22 +493,24 @@ class AgentOrchestrator(BaseAgent):
             if intent == "test":
                 payload["testCommand"] = command
             return payload
+        failure_reason = _failure_reason(result)
         self.publish_event(
             task,
             client,
             "TASK_FAILED",
-            {
-                "reason": _failure_reason(result),
-                "status": result.status,
-                "detail": result.reason,
-                "retryable": result.retryable,
-            },
+            _task_failed_payload(
+                failure_reason,
+                status=result.status,
+                detail=result.reason,
+                retryable=result.retryable,
+            ),
         )
         payload = {
             "intent": intent,
             "planName": plan_name,
             "status": "failed",
-            "reason": _failure_reason(result),
+            "reason": failure_reason,
+            "errorCode": _error_code_from_reason(failure_reason),
             "detail": result.reason,
             "command": command,
             "traceId": result.trace_id,
@@ -691,3 +699,16 @@ def _build_fix_loop_prompt(
         f"{last_test_error or '(unknown)'}\n\n"
         "Apply a minimal, safe fix and return full updated file content."
     )
+
+
+def _task_failed_payload(reason: str, **extra: Any) -> dict[str, Any]:
+    payload = {"reason": reason, "errorCode": _error_code_from_reason(reason)}
+    payload.update(extra)
+    return payload
+
+
+def _error_code_from_reason(reason: str) -> str:
+    normalized = re.sub(r"[^A-Za-z0-9]+", "_", str(reason).strip()).strip("_")
+    if not normalized:
+        return "UNKNOWN_ERROR"
+    return normalized.upper()

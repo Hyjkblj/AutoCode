@@ -192,6 +192,7 @@ def test_orchestrator_marks_code_change_failed_when_fix_loop_exhausted(monkeypat
     types = [event["type"] for _, event in client.events]
     assert types[-1] == "TASK_FAILED"
     assert client.events[-1][1]["payload"]["reason"] == "fix_loop_exhausted"
+    assert client.events[-1][1]["payload"]["errorCode"] == "FIX_LOOP_EXHAUSTED"
     assert client.events[-1][1]["payload"]["attempt"] == 3
     assert client.events[-1][1]["payload"]["maxAttempts"] == 3
     assert len(tester.calls) == 4
@@ -324,6 +325,7 @@ def test_orchestrator_marks_task_failed_when_exec_tool_returns_failure(monkeypat
     assert types == ["ASSISTANT_OUTPUT", "ASSISTANT_OUTPUT", "ASSISTANT_OUTPUT", "ASSISTANT_OUTPUT", "TASK_FAILED"]
     assert exec_tool.calls[0]["command"] == "echo deploy_now"
     assert client.events[4][1]["payload"]["reason"] == "approval_rejected"
+    assert client.events[4][1]["payload"]["errorCode"] == "APPROVAL_REJECTED"
 
 
 def test_orchestrator_reuses_memory_context_for_second_code_change(monkeypatch, tmp_path) -> None:

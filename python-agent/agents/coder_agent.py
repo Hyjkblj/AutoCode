@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -89,6 +90,7 @@ class CoderAgent:
                 publish_event(
                     {
                         "reason": "path_not_allowed",
+                        "errorCode": _error_code_from_reason("path_not_allowed"),
                         "detail": str(exc),
                         "file": relative,
                     },
@@ -224,3 +226,10 @@ def _dedupe_paths(paths: list[Path]) -> list[Path]:
 class EventPublisher:
     def __call__(self, payload: dict[str, Any], event_type: str = "ASSISTANT_OUTPUT") -> None:
         raise NotImplementedError
+
+
+def _error_code_from_reason(reason: str) -> str:
+    normalized = re.sub(r"[^A-Za-z0-9]+", "_", str(reason).strip()).strip("_")
+    if not normalized:
+        return "UNKNOWN_ERROR"
+    return normalized.upper()

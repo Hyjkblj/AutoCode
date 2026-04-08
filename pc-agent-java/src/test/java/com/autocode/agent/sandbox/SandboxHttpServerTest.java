@@ -71,6 +71,16 @@ class SandboxHttpServerTest {
             assertEquals(400, invalidPostResponse.statusCode());
             assertTrue(invalidPostResponse.body().contains("invalid_request"));
             assertTrue(invalidPostResponse.body().contains("\"error\":\"taskId is required\""));
+
+            HttpRequest malformedJsonRequest = HttpRequest.newBuilder()
+                    .uri(URI.create("http://127.0.0.1:" + port + "/sandbox/execute"))
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString("{"))
+                    .build();
+            HttpResponse<String> malformedJsonResponse = client.send(malformedJsonRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(400, malformedJsonResponse.statusCode());
+            assertTrue(malformedJsonResponse.body().contains("\"status\":\"invalid_request\""));
+            assertTrue(malformedJsonResponse.body().contains("\"error\":\"invalid_json\""));
         } finally {
             server.stop();
         }

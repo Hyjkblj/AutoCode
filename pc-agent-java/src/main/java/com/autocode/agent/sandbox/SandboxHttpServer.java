@@ -9,6 +9,7 @@ import com.autocode.protocol.model.SandboxHealthResponse;
 import com.autocode.protocol.validation.ContractViolationException;
 import com.autocode.protocol.validation.SandboxExecuteContractValidator;
 import com.autocode.protocol.validation.SandboxHttpContractValidator;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
@@ -108,6 +109,8 @@ public class SandboxHttpServer {
                 SandboxExecuteResponse response = service.execute(request);
                 SandboxExecuteContractValidator.validateResponse(response);
                 writeJson(exchange, 200, response);
+            } catch (JsonProcessingException ex) {
+                writeError(exchange, 400, "invalid_request", "invalid_json");
             } catch (IllegalArgumentException ex) {
                 writeError(exchange, 400, "invalid_request", ex.getMessage());
             } catch (ContractViolationException ex) {

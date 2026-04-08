@@ -2,6 +2,9 @@ package com.autocode.controlplane.api;
 
 import com.autocode.controlplane.service.protocol.ProtocolValidationException;
 import jakarta.validation.ConstraintViolationException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
@@ -10,8 +13,11 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
+import java.util.UUID;
+
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+    private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
     @ExceptionHandler(ProtocolValidationException.class)
     public ResponseEntity<ApiResponse<Object>> handleProtocolValidation(ProtocolValidationException ex) {
@@ -55,7 +61,30 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiResponse<Object>> handleUnknown(Exception ex) {
+        String requestId = resolveRequestId();
+        log.error("Unhandled exception, requestId={}", requestId, ex);
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body(ApiResponse.error("internal error: " + ex.getMessage()));
+                .body(ApiResponse.error("internal error (requestId=" + requestId + ")"));
+    }
+
+    private String resolveRequestId() {
+        String traceId = firstNonBlank(
+                MDC.get("traceId"),
+                MDC.get("trace_id"),
+                MDC.get("X-B3-TraceId")
+        );
+        if (traceId != null) {
+            return traceId;
+        }
+        return UUID.randomUUID().toString().replace("-", "");
+    }
+
+    private String firstNonBlank(String... values) {
+        for (String value : values) {
+            if (value != null && !value.isBlank()) {
+                return value;
+            }
+        }
+        return null;
     }
 }

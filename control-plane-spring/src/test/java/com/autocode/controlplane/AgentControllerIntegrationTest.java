@@ -347,6 +347,35 @@ class AgentControllerIntegrationTest extends OperatorProj1MembershipFixture {
                 .andExpect(jsonPath("$.error").value("forbidden"));
     }
 
+    @Test
+    void ingestEventShouldRejectMissingNodeIdForAssignedTask() throws Exception {
+        registerNode("node-ingest-required");
+        String profile = "guard" + Long.toHexString(System.nanoTime());
+        String taskId = createTaskAndGetId("assigned node required guard", profile);
+        assignTaskToNode(taskId, "node-ingest-required");
+
+        String payload = """
+                {
+                  "event": {
+                    "eventId": "evt-assigned-node-required-1",
+                    "type": "ASSISTANT_OUTPUT",
+                    "assistant": "codex",
+                    "payload": {
+                      "message": "missing nodeId should be rejected"
+                    }
+                  }
+                }
+                """;
+
+        mockMvc.perform(post("/api/v1/agent/tasks/{taskId}/events", taskId)
+                        .header("X-Agent-Token", "ag-a")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.ok").value(false))
+                .andExpect(jsonPath("$.error").value("forbidden"));
+    }
+
     private void registerNode(String nodeId) throws Exception {
         String payload = """
                 {

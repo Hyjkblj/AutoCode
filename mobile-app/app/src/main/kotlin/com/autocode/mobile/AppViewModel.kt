@@ -1,6 +1,17 @@
 package com.autocode.mobile
 
+import android.Manifest
 import android.app.Application
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -43,6 +54,7 @@ private object PrefsKeys {
     val GENERATION_TARGET = stringPreferencesKey("generation_target")
     val AGENT_PROFILE = stringPreferencesKey("agent_profile")
     val PUBLISH_HISTORY_JSON = stringPreferencesKey("publish_history_json")
+    val NOTIFICATIONS_ENABLED = booleanPreferencesKey("notifications_enabled")
 }
 
 data class UiState(
@@ -63,6 +75,7 @@ data class UiState(
     /** PR-3：发布/版本历史（本地持久化） */
     val publishHistory: List<PublishHistoryEntry> = emptyList(),
     val isRefreshingPublishHistory: Boolean = false,
+    val notificationsEnabled: Boolean = true,
 )
 
 class AppViewModel(application: Application) : AndroidViewModel(application) {
@@ -82,10 +95,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val _pendingApproval = MutableStateFlow<ApprovalRequest?>(null)
     val pendingApproval: StateFlow<ApprovalRequest?> = _pendingApproval.asStateFlow()
     private val wsClient = WebSocketClient()
+    private val taskNotificationCenter = TaskNotificationCenter(application)
     private var subscribedTaskId: String? = null
     private var subscribedBaseUrl: String? = null
     private var subscribedToken: String? = null
     private val maxTaskEventsPerTask = 300
+    private val lastRemoteStatusByTaskId = mutableMapOf<String, String>()
+    private val recentNotificationKeys = ArrayDeque<String>()
+    private val maxRecentNotificationKeys = 200
     private val fallbackProjectMap: Map<String, Project> by lazy {
         mockProjects.associateBy { it.id }
     }
@@ -118,6 +135,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val baseUrl = prefs[PrefsKeys.BASE_URL].orEmpty()
         val targetRaw = prefs[PrefsKeys.GENERATION_TARGET]
         val profileRaw = prefs[PrefsKeys.AGENT_PROFILE]
+        val notificationsEnabled = prefs[PrefsKeys.NOTIFICATIONS_ENABLED] ?: true
         val generationTarget =
             when (targetRaw?.trim()) {
                 "wechat_mini" -> GenerationTarget.WECHAT_MINI_PROGRAM
@@ -172,8 +190,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 generationTarget = generationTarget,
                 agentProfile = agentProfile,
                 publishHistory = publishHistory,
+                notificationsEnabled = notificationsEnabled,
             )
         }
+        seedRemoteStatusMemory(normalizedTasks, publishHistory)
         if (session != null && normalizedTasks != tasks) {
             persistTasks(normalizedTasks)
         }
@@ -197,6 +217,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             p[PrefsKeys.GENERATION_TARGET] = generationTargetStorageValue(s.generationTarget)
             p[PrefsKeys.AGENT_PROFILE] = agentProfileStorageValue(s.agentProfile)
             p[PrefsKeys.PUBLISH_HISTORY_JSON] = json.encodeToString(publishHistorySerializer, s.publishHistory)
+            p[PrefsKeys.NOTIFICATIONS_ENABLED] = s.notificationsEnabled
         }
     }
 
@@ -235,6 +256,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             persistAll()
             refreshProjectsInternal()
             refreshAgentNodesInternal()
+        }
+    }
+
+    fun setNotificationsEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(notificationsEnabled = enabled) }
+            persistAll()
         }
     }
 
@@ -283,8 +311,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             unsubscribeTaskEvents()
             _pendingApproval.value = null
+            lastRemoteStatusByTaskId.clear()
+            recentNotificationKeys.clear()
             val baseUrl = _uiState.value.baseUrl
             val target = _uiState.value.generationTarget
+            val profile = _uiState.value.agentProfile
+            val notificationsEnabled = _uiState.value.notificationsEnabled
             _uiState.update {
                 UiState(
                     isLoading = false,
@@ -295,7 +327,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     tasks = emptyList(),
                     baseUrl = baseUrl,
                     generationTarget = target,
+                    agentProfile = profile,
                     publishHistory = emptyList(),
+                    notificationsEnabled = notificationsEnabled,
                 )
             }
             getApplication<Application>().mobileDataStore.edit { p ->
@@ -847,7 +881,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 onEvent = { event ->
                     if (subscribedTaskId == normalizedTaskId) {
                         viewModelScope.launch {
-                            mergeTaskEvents(normalizedTaskId, listOf(event))
+                            mergeTaskEvents(normalizedTaskId, listOf(event), allowNotifications = true)
                         }
                     }
                 },
@@ -988,16 +1022,28 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val result = ControlPlaneClient.listTaskEvents(base, token, taskId, lastSeq)
         val events = result.getOrNull().orEmpty()
         if (events.isNotEmpty()) {
-            mergeTaskEvents(taskId, events)
+            mergeTaskEvents(taskId, events, allowNotifications = lastSeq > 0L)
         }
     }
 
-    private suspend fun mergeTaskEvents(taskId: String, incoming: List<TaskEventDto>) {
+    private suspend fun mergeTaskEvents(
+        taskId: String,
+        incoming: List<TaskEventDto>,
+        allowNotifications: Boolean = false,
+    ) {
         if (incoming.isEmpty()) return
         val sortedIncoming = incoming.sortedBy { it.seq }
         var publishHistoryChanged = false
+        var newlyMergedEvents: List<TaskEventDto> = emptyList()
         _uiState.update { state ->
-            val mergedEvents = mergeEventList(state.taskEvents[taskId].orEmpty(), sortedIncoming)
+            val existingEvents = state.taskEvents[taskId].orEmpty()
+            val existingKeys = existingEvents.asSequence().map { eventStableKey(taskId, it) }.toSet()
+            newlyMergedEvents =
+                sortedIncoming.filter { event ->
+                    val key = eventStableKey(taskId, event)
+                    !existingKeys.contains(key)
+                }
+            val mergedEvents = mergeEventList(existingEvents, sortedIncoming)
             val mergedTasks = sortedIncoming.fold(state.tasks) { acc, event ->
                 applyEventToTasks(acc, taskId, event)
             }
@@ -1010,6 +1056,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             )
         }
         syncPendingApprovalFromEvents(taskId, sortedIncoming)
+        if (allowNotifications && _uiState.value.notificationsEnabled && newlyMergedEvents.isNotEmpty()) {
+            notifyFromTaskEvents(taskId = taskId, events = newlyMergedEvents)
+        }
         if (publishHistoryChanged) {
             persistAll()
         } else {
@@ -1020,15 +1069,54 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private fun mergeEventList(existing: List<TaskEventDto>, incoming: List<TaskEventDto>): List<TaskEventDto> {
         val merged = LinkedHashMap<String, TaskEventDto>()
         (existing + incoming).sortedBy { it.seq }.forEach { event ->
-            val key =
-                when {
-                    !event.eventId.isNullOrBlank() -> "id:${event.eventId}"
-                    event.seq > 0L -> "seq:${event.seq}"
-                    else -> "raw:${event.type}:${event.timestamp}:${event.payload}"
-                }
+            val key = eventStableKey(taskId = "", event = event)
             merged[key] = event
         }
         return merged.values.sortedBy { it.seq }.takeLast(maxTaskEventsPerTask)
+    }
+
+    private fun eventStableKey(taskId: String, event: TaskEventDto): String {
+        val prefix = if (taskId.isBlank()) "" else "$taskId:"
+        return when {
+            !event.eventId.isNullOrBlank() -> "${prefix}id:${event.eventId}"
+            event.seq > 0L -> "${prefix}seq:${event.seq}"
+            else -> "${prefix}raw:${event.type}:${event.timestamp}:${event.payload}"
+        }
+    }
+
+    private fun notifyFromTaskEvents(taskId: String, events: List<TaskEventDto>) {
+        events.forEach { event ->
+            val type = event.type?.uppercase().orEmpty()
+            val eventKey = eventStableKey(taskId = taskId, event = event)
+            when (type) {
+                "APPROVAL_REQUIRED" -> {
+                    val summary =
+                        stringValue(event.payload, "reason", "message", "action")
+                            ?: "Task $taskId is waiting for your approval."
+                    if (rememberNotificationKey("approval:$eventKey")) {
+                        taskNotificationCenter.notifyApprovalRequired(taskId = taskId, message = summary)
+                    }
+                }
+                "TASK_DONE" -> {
+                    if (rememberNotificationKey("done:$eventKey")) {
+                        taskNotificationCenter.notifyTaskDone(
+                            taskId = taskId,
+                            message = "Task $taskId completed successfully.",
+                        )
+                    }
+                    lastRemoteStatusByTaskId[taskId] = "success"
+                }
+                "TASK_FAILED" -> {
+                    val reason =
+                        stringValue(event.payload, "reason", "message", "error")
+                            ?: "Task $taskId failed."
+                    if (rememberNotificationKey("failed:$eventKey")) {
+                        taskNotificationCenter.notifyTaskFailed(taskId = taskId, message = reason)
+                    }
+                    lastRemoteStatusByTaskId[taskId] = "failed"
+                }
+            }
+        }
     }
 
     private fun applyEventToTasks(tasks: List<TaskItem>, taskId: String, event: TaskEventDto): List<TaskItem> {
@@ -1293,6 +1381,42 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         return null
     }
 
+    private fun seedRemoteStatusMemory(tasks: List<TaskItem>, publishHistory: List<PublishHistoryEntry>) {
+        lastRemoteStatusByTaskId.clear()
+        tasks
+            .asSequence()
+            .filter { it.source == TaskSource.REMOTE }
+            .forEach { task ->
+                lastRemoteStatusByTaskId[task.id] = statusFromTask(task.status)
+            }
+        publishHistory.forEach { entry ->
+            val taskId = entry.taskId.trim()
+            if (taskId.isNotEmpty() && !lastRemoteStatusByTaskId.containsKey(taskId)) {
+                lastRemoteStatusByTaskId[taskId] = normalizePublishStatus(entry.status)
+            }
+        }
+    }
+
+    private fun statusFromTask(status: TaskStatus): String =
+        when (status) {
+            TaskStatus.QUEUED -> "queued"
+            TaskStatus.RUNNING -> "running"
+            TaskStatus.SUCCEEDED -> "success"
+            TaskStatus.FAILED -> "failed"
+        }
+
+    private fun isFailureStatus(status: String): Boolean =
+        status in setOf("failed", "canceled", "rejected", "error")
+
+    private fun rememberNotificationKey(key: String): Boolean {
+        if (recentNotificationKeys.contains(key)) return false
+        recentNotificationKeys.addLast(key)
+        while (recentNotificationKeys.size > maxRecentNotificationKeys) {
+            recentNotificationKeys.removeFirst()
+        }
+        return true
+    }
+
     private fun startLocalProgressTicker() {
         viewModelScope.launch {
             while (isActive) {
@@ -1355,6 +1479,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     private suspend fun mergeRemoteTask(dto: TaskSummaryDto) {
         val (st, prog) = mapServerStatus(dto.status)
+        val normalizedIncomingStatus = normalizePublishStatus(dto.status)
+        val previousRemoteStatus = lastRemoteStatusByTaskId[dto.taskId]
         var publishHistoryChanged = false
         _uiState.update { state ->
             val taskExists = state.tasks.any { it.id == dto.taskId }
@@ -1404,6 +1530,40 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 publishHistory = mergedHistory,
             )
         }
+        lastRemoteStatusByTaskId[dto.taskId] = normalizedIncomingStatus
+        val notificationsEnabled = _uiState.value.notificationsEnabled
+        if (notificationsEnabled && previousRemoteStatus != null && previousRemoteStatus != normalizedIncomingStatus) {
+            val promptLabel = dto.prompt?.trim()?.takeIf { it.isNotEmpty() } ?: "Task ${dto.taskId}"
+            when {
+                normalizedIncomingStatus == "waiting_approval" -> {
+                    val key = "approval:remote:${dto.taskId}:$normalizedIncomingStatus"
+                    if (rememberNotificationKey(key)) {
+                        taskNotificationCenter.notifyApprovalRequired(
+                            taskId = dto.taskId,
+                            message = "$promptLabel is waiting for approval.",
+                        )
+                    }
+                }
+                normalizedIncomingStatus == "success" -> {
+                    val key = "done:remote:${dto.taskId}:$normalizedIncomingStatus"
+                    if (rememberNotificationKey(key)) {
+                        taskNotificationCenter.notifyTaskDone(
+                            taskId = dto.taskId,
+                            message = "$promptLabel completed.",
+                        )
+                    }
+                }
+                isFailureStatus(normalizedIncomingStatus) && !isFailureStatus(previousRemoteStatus) -> {
+                    val key = "failed:remote:${dto.taskId}:$normalizedIncomingStatus"
+                    if (rememberNotificationKey(key)) {
+                        taskNotificationCenter.notifyTaskFailed(
+                            taskId = dto.taskId,
+                            message = "$promptLabel failed with status $normalizedIncomingStatus.",
+                        )
+                    }
+                }
+            }
+        }
         if (publishHistoryChanged) {
             persistAll()
         } else {
@@ -1414,7 +1574,120 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     override fun onCleared() {
         unsubscribeTaskEvents()
         _pendingApproval.value = null
+        lastRemoteStatusByTaskId.clear()
+        recentNotificationKeys.clear()
         super.onCleared()
+    }
+}
+
+private class TaskNotificationCenter(
+    private val application: Application,
+) {
+    fun notifyApprovalRequired(taskId: String, message: String) {
+        showNotification(
+            channelId = CHANNEL_APPROVALS,
+            notificationId = "approval:$taskId:$message".hashCode(),
+            title = "Approval Required",
+            message = message.ifBlank { "Task $taskId is waiting for approval." },
+            priority = NotificationCompat.PRIORITY_HIGH,
+            category = NotificationCompat.CATEGORY_RECOMMENDATION,
+        )
+    }
+
+    fun notifyTaskDone(taskId: String, message: String) {
+        showNotification(
+            channelId = CHANNEL_TASK_UPDATES,
+            notificationId = "done:$taskId:$message".hashCode(),
+            title = "Task Completed",
+            message = message.ifBlank { "Task $taskId completed successfully." },
+            priority = NotificationCompat.PRIORITY_DEFAULT,
+            category = NotificationCompat.CATEGORY_STATUS,
+        )
+    }
+
+    fun notifyTaskFailed(taskId: String, message: String) {
+        showNotification(
+            channelId = CHANNEL_TASK_UPDATES,
+            notificationId = "failed:$taskId:$message".hashCode(),
+            title = "Task Failed",
+            message = message.ifBlank { "Task $taskId failed. Open the app for details." },
+            priority = NotificationCompat.PRIORITY_HIGH,
+            category = NotificationCompat.CATEGORY_ERROR,
+        )
+    }
+
+    private fun showNotification(
+        channelId: String,
+        notificationId: Int,
+        title: String,
+        message: String,
+        priority: Int,
+        category: String,
+    ) {
+        if (!canPostNotifications()) return
+        ensureChannels()
+
+        val openAppIntent =
+            Intent(application, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            }
+        val pendingFlags =
+            PendingIntent.FLAG_UPDATE_CURRENT or
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0
+        val pendingIntent = PendingIntent.getActivity(application, notificationId, openAppIntent, pendingFlags)
+
+        val notification =
+            NotificationCompat
+                .Builder(application, channelId)
+                .setSmallIcon(android.R.drawable.stat_notify_more)
+                .setContentTitle(title)
+                .setContentText(message)
+                .setStyle(NotificationCompat.BigTextStyle().bigText(message))
+                .setAutoCancel(true)
+                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                .setPriority(priority)
+                .setCategory(category)
+                .setContentIntent(pendingIntent)
+                .build()
+
+        NotificationManagerCompat.from(application).notify(notificationId, notification)
+    }
+
+    private fun ensureChannels() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        val manager = application.getSystemService(NotificationManager::class.java) ?: return
+
+        val approvalsChannel =
+            NotificationChannel(
+                CHANNEL_APPROVALS,
+                "Task Approvals",
+                NotificationManager.IMPORTANCE_HIGH,
+            ).apply {
+                description = "Approval required notifications for agent tasks"
+            }
+        val taskUpdatesChannel =
+            NotificationChannel(
+                CHANNEL_TASK_UPDATES,
+                "Task Updates",
+                NotificationManager.IMPORTANCE_DEFAULT,
+            ).apply {
+                description = "Task completion and failure notifications"
+            }
+        manager.createNotificationChannel(approvalsChannel)
+        manager.createNotificationChannel(taskUpdatesChannel)
+    }
+
+    private fun canPostNotifications(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return true
+        return ContextCompat.checkSelfPermission(
+            application,
+            Manifest.permission.POST_NOTIFICATIONS,
+        ) == PackageManager.PERMISSION_GRANTED
+    }
+
+    private companion object {
+        private const val CHANNEL_APPROVALS = "agent_task_approvals"
+        private const val CHANNEL_TASK_UPDATES = "agent_task_updates"
     }
 }
 

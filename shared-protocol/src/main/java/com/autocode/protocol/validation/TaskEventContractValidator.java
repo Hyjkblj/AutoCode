@@ -110,6 +110,8 @@ public final class TaskEventContractValidator {
                 requireMap(payload, "payload");
                 requireString(payload, "requestId");
                 requireString(payload, "environment");
+                validateOptionalNonBlankString(payload, "traceId");
+                validateOptionalNonBlankString(payload, "runId");
                 requireArtifact(payload, "artifact");
                 if (payload.containsKey("context")) {
                     requireApprovalContext(payload, "context");
@@ -119,6 +121,8 @@ public final class TaskEventContractValidator {
                 requireMap(payload, "payload");
                 requireString(payload, "requestId");
                 requireString(payload, "status");
+                validateOptionalNonBlankString(payload, "traceId");
+                validateOptionalNonBlankString(payload, "runId");
                 validateOptionalArtifact(payload, "resultArtifact");
             }
             case ARTIFACT_READY -> {

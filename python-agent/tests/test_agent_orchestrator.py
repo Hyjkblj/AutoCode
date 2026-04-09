@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import zipfile
 from typing import Any
 
 from agents.reviewer_agent import ReviewResult
@@ -13,10 +14,35 @@ from tools.exec_tool import ExecResult
 class _FakeClient:
     def __init__(self) -> None:
         self.events: list[tuple[str, dict[str, Any]]] = []
+        self.upload_calls: list[dict[str, Any]] = []
 
     def publish_event(self, task_id: str, event: dict[str, Any]) -> dict[str, Any]:
         self.events.append((task_id, event))
         return {"eventId": event.get("eventId")}
+
+    def upload_artifact(
+        self,
+        task_id: str,
+        file_path: str,
+        *,
+        name: str | None = None,
+        content_type: str | None = None,
+    ) -> dict[str, Any]:
+        self.upload_calls.append(
+            {
+                "taskId": task_id,
+                "filePath": file_path,
+                "name": name,
+                "contentType": content_type,
+            }
+        )
+        return {
+            "artifactId": "art_uploaded_001",
+            "name": name or "export.zip",
+            "contentType": content_type or "application/zip",
+            "sizeBytes": 1024,
+            "sha256": "a" * 64,
+        }
 
 
 class _FakeExecTool:
@@ -797,6 +823,74 @@ def test_orchestrator_reuses_memory_context_for_second_code_change(monkeypatch, 
     ]
     assert memory_events
     assert memory_events[0]["lastTestCommand"] == "echo first_test_command"
+
+
+def test_orchestrator_publishes_artifact_ready_for_web_target(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("LLM_BACKEND", "openai")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    workspace = tmp_path / "workspace"
+    workspace.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("MVP_ALLOWED_WORKSPACE_PREFIXES", str(workspace))
+
+    task = {
+        "taskId": "task_105w",
+        "assistant": "ai-agent",
+        "sessionKey": "sess_105w",
+        "prompt": "build a simple web page",
+        "workspacePath": str(workspace),
+        "target": "web",
+    }
+    client = _FakeClient()
+    reviewer = _FakeReviewerAgent(ReviewResult(approved=True, summary="review passed", issues=[]))
+    tester = _FakeTesterAgent(
+        RunResult(
+            success=True,
+            attempts=1,
+            retries=0,
+            command="echo test",
+            status="ok",
+            reason=None,
+            trace_id="trc_task_105w",
+            run_id="run_task_105w",
+        )
+    )
+
+    AgentOrchestrator(reviewer_agent=reviewer, tester_agent=tester).handle_task(task, client)
+
+    types = [event["type"] for _, event in client.events]
+    assert "ARTIFACT_READY" in types
+    assert types[-1] == "TASK_DONE"
+    ready_event = [event for _, event in client.events if event["type"] == "ARTIFACT_READY"][0]
+    artifact = ready_event["payload"]["artifact"]
+    assert artifact["artifactId"] == "art_uploaded_001"
+    assert artifact["type"] == "zip"
+    assert artifact["name"] == "export.zip"
+
+    assert client.upload_calls
+    zip_path = client.upload_calls[0]["filePath"]
+    with zipfile.ZipFile(zip_path, "r") as zipf:
+        names = sorted(zipf.namelist())
+    assert names == ["README.generated.md", "app.js", "index.html", "styles.css"]
+
+
+def test_orchestrator_rejects_unsupported_target(monkeypatch) -> None:
+    monkeypatch.setenv("LLM_BACKEND", "openai")
+    monkeypatch.setenv("OPENAI_API_KEY", "dummy")
+    task = {
+        "taskId": "task_106t",
+        "assistant": "ai-agent",
+        "sessionKey": "sess_106t",
+        "prompt": "generate miniapp",
+        "target": "miniapp",
+    }
+    client = _FakeClient()
+
+    AgentOrchestrator().handle_task(task, client)
+
+    types = [event["type"] for _, event in client.events]
+    assert types == ["TASK_FAILED"]
+    assert client.events[0][1]["payload"]["reason"] == "unsupported_target"
+    assert client.events[0][1]["payload"]["errorCode"] == "UNSUPPORTED_TARGET"
 
 
 def test_resolve_fix_loop_max_attempts_bounds(monkeypatch) -> None:

@@ -10,6 +10,7 @@ from llm.llm_client import LLMClient
 from tools.file_tool import FileTool
 from tools.search_tool import SearchTool
 from utils.diff_utils import generate_unified_diff, has_substantial_change
+from utils.web_template import WebTemplateGenerator
 
 
 class CoderAgent:
@@ -18,10 +19,12 @@ class CoderAgent:
         file_tool: FileTool | None = None,
         search_tool: SearchTool | None = None,
         llm_client: LLMClient | None = None,
+        web_template_generator: WebTemplateGenerator | None = None,
     ) -> None:
         self.file_tool = file_tool or FileTool()
         self.search_tool = search_tool or SearchTool()
         self.llm_client = llm_client or LLMClient()
+        self.web_template_generator = web_template_generator or WebTemplateGenerator(llm_client=self.llm_client)
 
     def execute(
         self,
@@ -32,6 +35,10 @@ class CoderAgent:
     ) -> bool:
         workspace = self._resolve_workspace(task)
         prompt = str(task.get("prompt", "")).strip()
+        target = str(task.get("target", "")).strip().lower()
+        if target == "web":
+            return self._generate_web_project(task, plan, publish_event, workspace, prompt)
+
         target_files = self._resolve_target_files(task, workspace, prompt)
 
         modified_count = 0
@@ -110,6 +117,78 @@ class CoderAgent:
 
         task["generatedDiffs"] = generated_diffs
         task["latestDiff"] = generated_diffs[-1] if generated_diffs else ""
+        return modified_count > 0
+
+    def _generate_web_project(
+        self,
+        task: dict[str, Any],
+        plan: PlanResult,
+        publish_event: EventPublisher,
+        workspace: Path,
+        prompt: str,
+    ) -> bool:
+        template = self.web_template_generator.generate(prompt, target="web")
+        generated_diffs: list[str] = []
+        generated_files: list[str] = []
+        modified_count = 0
+
+        for relative, content in template.files.items():
+            target_path = self._resolve_target_path(relative, workspace)
+            try:
+                existed_before = target_path.exists()
+                before = self.file_tool.read_text(target_path) if existed_before else ""
+                patch = generate_unified_diff(before, content, relative)
+                if not has_substantial_change(patch):
+                    continue
+                self.file_tool.write_text(target_path, content)
+                publish_event(
+                    {
+                        "format": "unified",
+                        "patch": patch,
+                        "files": [{"path": relative, "changeType": "modify" if existed_before else "add"}],
+                    },
+                    event_type="FILE_PATCH_PREVIEW",
+                )
+                generated_diffs.append(patch)
+                generated_files.append(relative)
+                modified_count += 1
+            except PermissionError as exc:
+                publish_event(
+                    {
+                        "stage": "CoderAgent",
+                        "message": "Write blocked by workspace allowlist.",
+                        "file": relative,
+                        "error": str(exc),
+                    },
+                )
+                publish_event(
+                    {
+                        "reason": "path_not_allowed",
+                        "errorCode": _error_code_from_reason("path_not_allowed"),
+                        "detail": str(exc),
+                        "file": relative,
+                    },
+                    event_type="TASK_FAILED",
+                )
+                continue
+
+        task["_generated_files"] = generated_files if generated_files else list(template.files.keys())
+        task["_llm_fallback"] = bool(template.used_fallback)
+        task["_llm_generation_reason"] = template.reason
+        task["generatedDiffs"] = generated_diffs
+        task["latestDiff"] = generated_diffs[-1] if generated_diffs else ""
+
+        publish_event(
+            {
+                "stage": "CoderAgent",
+                "message": "Web template generated.",
+                "planName": plan.plan_name,
+                "target": "web",
+                "fileCount": len(task["_generated_files"]),
+                "fallbackUsed": task["_llm_fallback"],
+                "reason": task["_llm_generation_reason"],
+            },
+        )
         return modified_count > 0
 
     def _resolve_target_files(self, task: dict[str, Any], workspace: Path, prompt: str) -> list[Path]:

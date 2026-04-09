@@ -6,6 +6,7 @@ from agents.coder_agent import CoderAgent
 from agents.planner_agent import PlanResult
 from llm.llm_client import LLMClient
 from tools.file_tool import FileTool
+from utils.web_template import WebTemplateGenerator
 
 
 class _FakeClient:
@@ -146,3 +147,59 @@ def test_coder_agent_skips_write_when_no_substantial_change(tmp_path, monkeypatc
     assert [kind for kind, _ in events] == ["ASSISTANT_OUTPUT"]
     assert events[0][1]["message"].startswith("No substantial change")
     assert target.read_text(encoding="utf-8") == "same\n"
+
+
+def test_coder_agent_generates_web_template_files(tmp_path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir(parents=True, exist_ok=True)
+    task = {"workspacePath": str(workspace), "prompt": "build a landing page", "target": "web"}
+    events: list[tuple[str, dict[str, Any]]] = []
+
+    def publish(payload: dict[str, Any], event_type: str = "ASSISTANT_OUTPUT") -> None:
+        events.append((event_type, payload))
+
+    coder = CoderAgent(file_tool=FileTool([str(workspace)]))
+    ok = coder.execute(
+        task=task,
+        client=_FakeClient(),
+        plan=PlanResult(plan_name="code_change_pipeline", steps=["generate", "package"]),
+        publish_event=publish,
+    )
+
+    assert ok is True
+    assert (workspace / "index.html").exists()
+    assert (workspace / "styles.css").exists()
+    assert (workspace / "app.js").exists()
+    assert (workspace / "README.generated.md").exists()
+    assert task["_generated_files"] == ["index.html", "styles.css", "app.js", "README.generated.md"]
+    assert any(kind == "FILE_PATCH_PREVIEW" for kind, _ in events)
+
+
+def test_coder_agent_web_generation_falls_back_when_llm_errors(tmp_path, monkeypatch) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("LLM_BACKEND", "openai")
+    monkeypatch.setenv("OPENAI_API_KEY", "dummy")
+
+    def broken_provider(backend, messages, model, temperature):  # noqa: ANN001, ARG001
+        raise RuntimeError("model timeout")
+
+    generator = WebTemplateGenerator(llm_client=LLMClient(response_provider=broken_provider))
+    coder = CoderAgent(file_tool=FileTool([str(workspace)]), web_template_generator=generator)
+    task = {"workspacePath": str(workspace), "prompt": "build a dashboard", "target": "web"}
+    events: list[tuple[str, dict[str, Any]]] = []
+
+    def publish(payload: dict[str, Any], event_type: str = "ASSISTANT_OUTPUT") -> None:
+        events.append((event_type, payload))
+
+    ok = coder.execute(
+        task=task,
+        client=_FakeClient(),
+        plan=PlanResult(plan_name="code_change_pipeline", steps=["generate", "package"]),
+        publish_event=publish,
+    )
+
+    assert ok is True
+    assert task["_llm_fallback"] is True
+    assert str(task["_llm_generation_reason"]).startswith("llm_fallback:")
+    assert any(kind == "FILE_PATCH_PREVIEW" for kind, _ in events)

@@ -51,6 +51,8 @@ class AgentOrchestrator(BaseAgent):
         hints = _build_memory_hints(history)
         _apply_memory_hints(working_task, hints)
         target = str(working_task.get("target", "")).strip().lower()
+        export_mode = _resolve_export_mode(working_task)
+        working_task["_export_mode"] = export_mode
 
         if target and target != "web":
             self.publish_event(
@@ -71,6 +73,29 @@ class AgentOrchestrator(BaseAgent):
                     "reason": "unsupported_target",
                     "errorCode": _error_code_from_reason("unsupported_target"),
                     "target": target,
+                },
+            )
+            return
+
+        if export_mode != "zip":
+            self.publish_event(
+                working_task,
+                client,
+                "TASK_FAILED",
+                _task_failed_payload(
+                    "unsupported_export_mode",
+                    exportMode=export_mode,
+                    supportedExportModes=["zip"],
+                ),
+            )
+            self.memory_store.append(
+                project_key,
+                {
+                    "intent": "code_change",
+                    "status": "failed",
+                    "reason": "unsupported_export_mode",
+                    "errorCode": _error_code_from_reason("unsupported_export_mode"),
+                    "exportMode": export_mode,
                 },
             )
             return
@@ -367,9 +392,14 @@ class AgentOrchestrator(BaseAgent):
     def _publish_web_artifact(self, task: dict[str, Any], client: ControlPlaneClient) -> dict[str, Any]:
         workspace = _resolve_workspace(task)
         generated_files = _resolve_generated_files(task, workspace)
-        bundle = build_export_zip(workspace, generated_files, file_name="export.zip")
+        bundle = build_export_zip(workspace, generated_files, file_name=_artifact_file_name(task))
         uploaded = self._try_upload_artifact(task, client, bundle)
         payload = _build_artifact_ready_payload(bundle, uploaded)
+        payload["target"] = "web"
+        payload["exportMode"] = _resolve_export_mode(task)
+        template_id = _resolve_template_id(task)
+        if template_id:
+            payload["templateId"] = template_id
         self.publish_event(task, client, "ARTIFACT_READY", payload)
         return payload["artifact"]
 
@@ -835,6 +865,34 @@ def _is_web_generation_task(task: dict[str, Any]) -> bool:
         return target == "web"
     prompt = str(task.get("prompt", "")).strip().lower()
     return any(marker in prompt for marker in ("web", "website", "html", "page"))
+
+
+def _resolve_export_mode(task: dict[str, Any]) -> str:
+    explicit = str(task.get("exportMode", "")).strip().lower()
+    if explicit:
+        return explicit
+    alternate = str(task.get("export_mode", "")).strip().lower()
+    if alternate:
+        return alternate
+    return "zip"
+
+
+def _artifact_file_name(task: dict[str, Any]) -> str:
+    export_mode = _resolve_export_mode(task)
+    if export_mode == "zip":
+        return "export.zip"
+    return f"export.{export_mode}"
+
+
+def _resolve_template_id(task: dict[str, Any]) -> str | None:
+    explicit = str(task.get("templateId", "")).strip()
+    if explicit:
+        return explicit
+    alternate = str(task.get("template_id", "")).strip()
+    if alternate:
+        return alternate
+    template_runtime = str(task.get("_template_id", "")).strip()
+    return template_runtime or None
 
 
 def _resolve_workspace(task: dict[str, Any]) -> Path:

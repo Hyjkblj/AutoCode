@@ -839,6 +839,8 @@ def test_orchestrator_publishes_artifact_ready_for_web_target(monkeypatch, tmp_p
         "prompt": "build a simple web page",
         "workspacePath": str(workspace),
         "target": "web",
+        "templateId": "product",
+        "exportMode": "zip",
     }
     client = _FakeClient()
     reviewer = _FakeReviewerAgent(ReviewResult(approved=True, summary="review passed", issues=[]))
@@ -865,6 +867,9 @@ def test_orchestrator_publishes_artifact_ready_for_web_target(monkeypatch, tmp_p
     assert artifact["artifactId"] == "art_uploaded_001"
     assert artifact["type"] == "zip"
     assert artifact["name"] == "export.zip"
+    assert ready_event["payload"]["target"] == "web"
+    assert ready_event["payload"]["templateId"] == "product"
+    assert ready_event["payload"]["exportMode"] == "zip"
 
     assert client.upload_calls
     zip_path = client.upload_calls[0]["filePath"]
@@ -891,6 +896,27 @@ def test_orchestrator_rejects_unsupported_target(monkeypatch) -> None:
     assert types == ["TASK_FAILED"]
     assert client.events[0][1]["payload"]["reason"] == "unsupported_target"
     assert client.events[0][1]["payload"]["errorCode"] == "UNSUPPORTED_TARGET"
+
+
+def test_orchestrator_rejects_unsupported_export_mode(monkeypatch) -> None:
+    monkeypatch.setenv("LLM_BACKEND", "openai")
+    monkeypatch.setenv("OPENAI_API_KEY", "dummy")
+    task = {
+        "taskId": "task_106x",
+        "assistant": "ai-agent",
+        "sessionKey": "sess_106x",
+        "prompt": "build web app",
+        "target": "web",
+        "exportMode": "tar",
+    }
+    client = _FakeClient()
+
+    AgentOrchestrator().handle_task(task, client)
+
+    types = [event["type"] for _, event in client.events]
+    assert types == ["TASK_FAILED"]
+    assert client.events[0][1]["payload"]["reason"] == "unsupported_export_mode"
+    assert client.events[0][1]["payload"]["errorCode"] == "UNSUPPORTED_EXPORT_MODE"
 
 
 def test_resolve_fix_loop_max_attempts_bounds(monkeypatch) -> None:

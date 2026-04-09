@@ -127,10 +127,34 @@ class CoderAgent:
         workspace: Path,
         prompt: str,
     ) -> bool:
-        template = self.web_template_generator.generate(prompt, target="web")
+        try:
+            template_id = _resolve_template_id(task)
+            template = self.web_template_generator.generate(prompt, target="web", template_id=template_id)
+        except Exception as exc:  # noqa: BLE001
+            reason = "unsupported_template_id" if "unsupported_template_id" in str(exc) else "web_generation_failed"
+            publish_event(
+                {
+                    "stage": "CoderAgent",
+                    "message": "Failed to generate web template.",
+                    "planName": plan.plan_name,
+                    "target": "web",
+                    "error": str(exc),
+                },
+            )
+            publish_event(
+                {
+                    "reason": reason,
+                    "errorCode": _error_code_from_reason(reason),
+                    "detail": str(exc),
+                },
+                event_type="TASK_FAILED",
+            )
+            return False
+
         generated_diffs: list[str] = []
         generated_files: list[str] = []
         modified_count = 0
+        had_write_errors = False
 
         for relative, content in template.files.items():
             target_path = self._resolve_target_path(relative, workspace)
@@ -153,6 +177,7 @@ class CoderAgent:
                 generated_files.append(relative)
                 modified_count += 1
             except PermissionError as exc:
+                had_write_errors = True
                 publish_event(
                     {
                         "stage": "CoderAgent",
@@ -175,6 +200,7 @@ class CoderAgent:
         task["_generated_files"] = generated_files if generated_files else list(template.files.keys())
         task["_llm_fallback"] = bool(template.used_fallback)
         task["_llm_generation_reason"] = template.reason
+        task["_template_id"] = template.template_id
         task["generatedDiffs"] = generated_diffs
         task["latestDiff"] = generated_diffs[-1] if generated_diffs else ""
 
@@ -184,12 +210,13 @@ class CoderAgent:
                 "message": "Web template generated.",
                 "planName": plan.plan_name,
                 "target": "web",
+                "templateId": template.template_id,
                 "fileCount": len(task["_generated_files"]),
                 "fallbackUsed": task["_llm_fallback"],
                 "reason": task["_llm_generation_reason"],
             },
         )
-        return modified_count > 0
+        return bool(task["_generated_files"]) and (modified_count > 0 or not had_write_errors)
 
     def _resolve_target_files(self, task: dict[str, Any], workspace: Path, prompt: str) -> list[Path]:
         raw_targets = task.get("target_files")
@@ -312,3 +339,13 @@ def _error_code_from_reason(reason: str) -> str:
     if not normalized:
         return "UNKNOWN_ERROR"
     return normalized.upper()
+
+
+def _resolve_template_id(task: dict[str, Any]) -> str:
+    explicit = str(task.get("templateId", "")).strip()
+    if explicit:
+        return explicit
+    alternate = str(task.get("template_id", "")).strip()
+    if alternate:
+        return alternate
+    return "starter"

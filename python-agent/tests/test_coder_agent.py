@@ -152,7 +152,12 @@ def test_coder_agent_skips_write_when_no_substantial_change(tmp_path, monkeypatc
 def test_coder_agent_generates_web_template_files(tmp_path) -> None:
     workspace = tmp_path / "workspace"
     workspace.mkdir(parents=True, exist_ok=True)
-    task = {"workspacePath": str(workspace), "prompt": "build a landing page", "target": "web"}
+    task = {
+        "workspacePath": str(workspace),
+        "prompt": "build a landing page",
+        "target": "web",
+        "templateId": "product",
+    }
     events: list[tuple[str, dict[str, Any]]] = []
 
     def publish(payload: dict[str, Any], event_type: str = "ASSISTANT_OUTPUT") -> None:
@@ -172,6 +177,7 @@ def test_coder_agent_generates_web_template_files(tmp_path) -> None:
     assert (workspace / "app.js").exists()
     assert (workspace / "README.generated.md").exists()
     assert task["_generated_files"] == ["index.html", "styles.css", "app.js", "README.generated.md"]
+    assert task["_template_id"] == "product"
     assert any(kind == "FILE_PATCH_PREVIEW" for kind, _ in events)
 
 
@@ -203,3 +209,31 @@ def test_coder_agent_web_generation_falls_back_when_llm_errors(tmp_path, monkeyp
     assert task["_llm_fallback"] is True
     assert str(task["_llm_generation_reason"]).startswith("llm_fallback:")
     assert any(kind == "FILE_PATCH_PREVIEW" for kind, _ in events)
+
+
+def test_coder_agent_reports_unsupported_template_id(tmp_path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir(parents=True, exist_ok=True)
+    task = {
+        "workspacePath": str(workspace),
+        "prompt": "build a page",
+        "target": "web",
+        "templateId": "not-supported",
+    }
+    events: list[tuple[str, dict[str, Any]]] = []
+
+    def publish(payload: dict[str, Any], event_type: str = "ASSISTANT_OUTPUT") -> None:
+        events.append((event_type, payload))
+
+    coder = CoderAgent(file_tool=FileTool([str(workspace)]))
+    ok = coder.execute(
+        task=task,
+        client=_FakeClient(),
+        plan=PlanResult(plan_name="code_change_pipeline", steps=["generate", "package"]),
+        publish_event=publish,
+    )
+
+    assert ok is False
+    assert events[0][0] == "ASSISTANT_OUTPUT"
+    assert events[1][0] == "TASK_FAILED"
+    assert events[1][1]["reason"] == "unsupported_template_id"

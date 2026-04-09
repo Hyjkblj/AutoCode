@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import zipfile
 
+import pytest
+
 from llm.llm_client import LLMClient
 from utils.artifact_utils import build_export_zip
 from utils.web_template import WebTemplateGenerator
@@ -24,10 +26,11 @@ def test_web_template_generator_uses_llm_json(monkeypatch) -> None:
         return fenced
 
     generator = WebTemplateGenerator(llm_client=LLMClient(response_provider=provider))
-    result = generator.generate("build a page", target="web")
+    result = generator.generate("build a page", target="web", template_id="product")
 
     assert result.used_fallback is False
     assert result.files == files
+    assert result.template_id == "product"
 
 
 def test_build_export_zip_packages_generated_files(tmp_path) -> None:
@@ -49,3 +52,14 @@ def test_build_export_zip_packages_generated_files(tmp_path) -> None:
     with zipfile.ZipFile(bundle.file_path, "r") as zipf:
         names = sorted(zipf.namelist())
     assert names == ["README.generated.md", "app.js", "index.html", "styles.css"]
+
+
+def test_web_template_generator_rejects_unsupported_template(monkeypatch) -> None:
+    monkeypatch.setenv("LLM_BACKEND", "openai")
+    monkeypatch.setenv("OPENAI_API_KEY", "dummy")
+    generator = WebTemplateGenerator(llm_client=LLMClient(response_provider=lambda *_args: "{}"))
+
+    with pytest.raises(ValueError) as exc:
+        generator.generate("build a page", target="web", template_id="unknown-template")
+
+    assert "unsupported_template_id" in str(exc.value)

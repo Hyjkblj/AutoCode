@@ -46,8 +46,10 @@ public class TokenWebSocketAuthInterceptor implements ChannelInterceptor {
             return MessageBuilder.createMessage(message.getPayload(), accessor.getMessageHeaders());
         }
 
-        if (StompCommand.SUBSCRIBE.equals(accessor.getCommand()) && accessor.getUser() == null) {
-            throw new AccessDeniedException("unauthenticated subscribe");
+        if ((StompCommand.SUBSCRIBE.equals(accessor.getCommand())
+                || StompCommand.SEND.equals(accessor.getCommand()))
+                && accessor.getUser() == null) {
+            throw new AccessDeniedException("unauthenticated websocket frame");
         }
 
         return message;

@@ -395,6 +395,7 @@ class AgentOrchestrator(BaseAgent):
         bundle = build_export_zip(workspace, generated_files, file_name=_artifact_file_name(task))
         uploaded = self._try_upload_artifact(task, client, bundle)
         payload = _build_artifact_ready_payload(bundle, uploaded)
+        _apply_web_artifact_run_hints(payload)
         payload["target"] = "web"
         payload["exportMode"] = _resolve_export_mode(task)
         template_id = _resolve_template_id(task)
@@ -938,3 +939,17 @@ def _build_artifact_ready_payload(bundle: ArtifactBundle, uploaded: dict[str, An
         if isinstance(size, int) and size >= 0:
             artifact["size"] = size
     return payload
+
+
+def _apply_web_artifact_run_hints(payload: dict[str, Any]) -> None:
+    artifact = payload.get("artifact")
+    if not isinstance(artifact, dict):
+        return
+    artifact["entryPath"] = "index.html"
+    artifact["run"] = {
+        "command": "python -m http.server 8000",
+        "hints": [
+            "Run the command in the extracted artifact directory.",
+            "Open http://localhost:8000/index.html in a browser.",
+        ],
+    }

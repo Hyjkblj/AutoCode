@@ -2,6 +2,7 @@ package com.autocode.mobile
 
 import androidx.activity.ComponentActivity
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.test.assertDoesNotExist
 import androidx.compose.ui.test.assertExists
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
@@ -166,6 +167,98 @@ class CriticalUiRegressionTest {
         composeRule.runOnIdle {
             assertTrue(preview.truncated)
         }
+    }
+
+    @Test
+    fun toolStartEventCard_toggleExpansionShowsCwd() {
+        val payload =
+            buildJsonObject {
+                put("tool", "shell")
+                put("command", "git status --short")
+                put("cwd", "/workspace/demo")
+            }
+        val event =
+            TaskEventDto(
+                eventId = "ev_tool_start",
+                taskId = "task_tool",
+                type = "TOOL_START",
+                payload = payload,
+                seq = 21L,
+                timestamp = "2026-04-10T08:00:00Z",
+            )
+
+        composeRule.setContent {
+            MaterialTheme {
+                AgentEventItem(event = event, fallbackLine = "工具调用")
+            }
+        }
+
+        composeRule.onNodeWithText("工具调用: shell").assertExists()
+        composeRule.onNodeWithText("cwd: /workspace/demo").assertDoesNotExist()
+        composeRule.onNodeWithText("展开").assertExists().performClick()
+        composeRule.onNodeWithText("cwd: /workspace/demo").assertExists()
+        composeRule.onNodeWithText("收起").assertExists().performClick()
+        composeRule.onNodeWithText("cwd: /workspace/demo").assertDoesNotExist()
+    }
+
+    @Test
+    fun deployResultEventCard_showsEndpointAndReason() {
+        val payload =
+            buildJsonObject {
+                put("status", "FAILED")
+                put("endpointUrl", "https://staging.example.app")
+                put("requestId", "req-20260410-01")
+                put("reason", "health check timeout")
+            }
+        val event =
+            TaskEventDto(
+                eventId = "ev_deploy_result",
+                taskId = "task_deploy",
+                type = "DEPLOY_RESULT",
+                payload = payload,
+                seq = 88L,
+                timestamp = "2026-04-10T08:30:00Z",
+            )
+
+        composeRule.setContent {
+            MaterialTheme {
+                AgentEventItem(event = event, fallbackLine = "部署结果")
+            }
+        }
+
+        composeRule.onNodeWithText("Deploy Result").assertExists()
+        composeRule.onNodeWithText("Status: FAILED").assertExists()
+        composeRule.onNodeWithText("Endpoint: https://staging.example.app").assertExists()
+        composeRule.onNodeWithText("Request ID: req-20260410-01").assertExists()
+        composeRule.onNodeWithText("Reason: health check timeout").assertExists()
+    }
+
+    @Test
+    fun filePatchPreviewEvent_showsExpandForLongDiff() {
+        val patch = (1..240).joinToString(separator = "\n") { "+line $it" }
+        val payload =
+            buildJsonObject {
+                put("patch", patch)
+            }
+        val event =
+            TaskEventDto(
+                eventId = "ev_patch_preview",
+                taskId = "task_patch",
+                type = "FILE_PATCH_PREVIEW",
+                payload = payload,
+                seq = 55L,
+                timestamp = "2026-04-10T09:00:00Z",
+            )
+
+        composeRule.setContent {
+            MaterialTheme {
+                AgentEventItem(event = event, fallbackLine = "代码变更预览")
+            }
+        }
+
+        composeRule.onNodeWithText("代码变更预览").assertExists()
+        composeRule.onNodeWithText("展开完整 diff").assertExists().performClick()
+        composeRule.onNodeWithText("收起完整 diff").assertExists()
     }
 }
 

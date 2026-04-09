@@ -286,6 +286,29 @@ class TaskEventContractValidatorTest {
     }
 
     @Test
+    void approval_required_rejects_out_of_range_risk_score() {
+        TaskEvent event = new TaskEvent();
+        event.setEventId("e4a");
+        event.setTaskId("t4a");
+        event.setType(EventType.APPROVAL_REQUIRED);
+        event.setTimestamp(Instant.parse("2026-04-09T00:00:00Z"));
+        event.setSeq(0);
+        event.setEventVersion(1);
+        event.setPayload(Map.of(
+                "approvalId", "apr_001",
+                "riskScore", 1.1,
+                "context", Map.of(
+                        "action", "app.publish",
+                        "tool", "deploy.execute",
+                        "workspaceRef", "D:/workspace/test",
+                        "inputsHash", "sha256:abc"
+                )
+        ));
+
+        assertThrows(ContractViolationException.class, () -> TaskEventContractValidator.validate(event));
+    }
+
+    @Test
     void approval_result_rejects_negative_wait_ms() {
         TaskEvent event = new TaskEvent();
         event.setEventId("e4b");

@@ -22,8 +22,15 @@ class ApprovalPayloadSerdeTest {
             assertNotNull(payloadNode);
             ApprovalRequiredPayload payload = MAPPER.treeToValue(payloadNode, ApprovalRequiredPayload.class);
             assertEquals("apr_test_001", payload.getApprovalId());
-            assertEquals("app.publish", payload.getContext().getAction());
-            assertEquals("publish.run", payload.getContext().getTool());
+            assertEquals("app.generate", payload.getAction());
+            assertEquals("command.exec", payload.getTool());
+            assertEquals("mvn -q test", payload.getCommand());
+            assertEquals("D:/workspace/test", payload.getWorkspaceRef());
+            assertEquals(120, payload.getApprovalTimeoutSeconds());
+            assertEquals(0.91d, payload.getRiskScore(), 0.000001d);
+            assertEquals(3, payload.getRequiredPolicies().size());
+            assertEquals("app.generate", payload.getContext().getAction());
+            assertEquals("build.run", payload.getContext().getTool());
         }
     }
 

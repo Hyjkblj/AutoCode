@@ -32,6 +32,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.annotation.Propagation;
@@ -207,7 +208,24 @@ public class TaskService {
      */
     @Transactional(readOnly = true)
     public Optional<TaskSummary> getTaskSummary(String taskId) {
-        return taskRepository.findById(taskId).map(modelMapper::toSummary);
+        return taskRepository.findById(taskId).map(task -> {
+            if (task.getStatus() != TaskStatus.FAILED) {
+                return modelMapper.toSummary(task);
+            }
+            Map<String, Object> latestFailurePayload = taskEventRepository
+                    .findTopByTaskIdAndEventTypeOrderBySeqNumDesc(taskId, EventType.TASK_FAILED)
+                    .map(TaskEventEntity::getPayloadJson)
+                    .map(this::readPayload)
+                    .orElseGet(HashMap::new);
+            String failureReason = asNonBlankString(latestFailurePayload.get("reason"), null);
+            String failureErrorCode = asNonBlankString(latestFailurePayload.get("errorCode"), null);
+            return modelMapper.toSummary(task, failureReason, failureErrorCode);
+        });
+    }
+
+    @Transactional(readOnly = true)
+    public boolean taskExists(String taskId) {
+        return taskRepository.existsById(taskId);
     }
 
     /**
@@ -444,6 +462,10 @@ public class TaskService {
      * 摄取 Agent 上报事件：去重、分配 seq、驱动状态机、落库并通过 WS 广播。
      */
     public Optional<TaskSummary> ingestAgentEvent(String taskId, TaskEvent event) {
+        return ingestAgentEvent(taskId, event, null);
+    }
+
+    public Optional<TaskSummary> ingestAgentEvent(String taskId, TaskEvent event, String nodeId) {
         taskEventValidator.validateOrThrow(event);
         // Lock task row to make seq allocation and status folding stable under concurrent ingest.
         TaskEntity task = taskRepository.findOptionalByIdForUpdate(taskId).orElse(null);
@@ -451,6 +473,7 @@ public class TaskService {
             return Optional.empty();
         }
 
+        validateAssignedNodeForIngest(task, nodeId);
         ensureEventId(event);
         if (taskEventRepository.existsById(event.getEventId())) {
             return Optional.of(modelMapper.toSummary(task));
@@ -486,6 +509,19 @@ public class TaskService {
         return Optional.of(modelMapper.toSummary(task));
     }
 
+    private void validateAssignedNodeForIngest(TaskEntity task, String nodeId) {
+        String assignedNodeId = task.getAssignedNodeId();
+        if (assignedNodeId == null || assignedNodeId.isBlank()) {
+            return;
+        }
+        if (nodeId == null || nodeId.isBlank()) {
+            throw new AccessDeniedException("nodeId is required for assigned task");
+        }
+        if (!assignedNodeId.equals(nodeId)) {
+            throw new AccessDeniedException("task not assigned to this node");
+        }
+    }
+
     private void ensureEventId(TaskEvent event) {
         if (event.getEventId() == null || event.getEventId().isBlank()) {
             throw new IllegalArgumentException("event.eventId is required");
@@ -503,7 +539,10 @@ public class TaskService {
         }
         if (event.getPayload() == null) {
             event.setPayload(new HashMap<>());
+        } else {
+            event.setPayload(new HashMap<>(event.getPayload()));
         }
+        normalizeReviewPayloadAliases(event.getPayload());
         event.setSeq(task.getNextSeq());
         task.setNextSeq(task.getNextSeq() + 1);
     }
@@ -555,34 +594,82 @@ public class TaskService {
                 }
             }
         } else if (event.getType() == EventType.DEPLOY_PLAN) {
-            if (task.getApprovalId() != null && !task.getApprovalId().isBlank()) {
-                ApprovalEntity approval = approvalRepository.findById(task.getApprovalId()).orElse(null);
-                if (approval != null) {
-                    Map<String, Object> expected = readPayload(approval.getApprovalContextJson());
-                    Map<String, Object> actual = buildApprovalContext(event.getPayload());
-                    if (!expected.isEmpty() && !isApprovalContextEqualForDeployPlan(expected, actual)) {
-                        markFailed(task);
-                        event.getPayload().put("approvalContextMismatch", true);
-                        event.getPayload().put("expectedApprovalContext", expected);
-                        event.getPayload().put("actualApprovalContext", actual);
-                        auditService.log(task.getTaskId(), "control-plane", "deploy.authz.denied", Map.of(
-                                "reason", "approval_context_mismatch",
-                                "requestId", asNonBlankString(event.getPayload().get("requestId"), "")
-                        ));
-                        return;
-                    }
-                }
+            if (!authorizeDeployEvent(task, event, true)) {
+                return;
             }
             task.setStatus(TaskStatus.RUNNING);
             auditService.log(task.getTaskId(), "agent", "deploy.plan", deployPlanAuditDetails(event.getPayload()));
         } else if (event.getType() == EventType.DEPLOY_RESULT) {
+            if (!authorizeDeployEvent(task, event, false)) {
+                return;
+            }
             applyDeployResultStatus(task, event.getPayload());
             auditService.log(task.getTaskId(), "agent", "deploy.result", deployResultAuditDetails(event.getPayload()));
         } else if (event.getType() == EventType.TASK_DONE) {
             task.setStatus(TaskStatus.DONE);
         } else if (event.getType() == EventType.TASK_FAILED) {
             markFailed(task);
+            auditTaskFailureDetails(task, event);
         }
+        auditReviewResultIfPresent(task, event);
+    }
+
+    private void normalizeReviewPayloadAliases(Map<String, Object> payload) {
+        if (payload == null) {
+            return;
+        }
+        String riskLevel = asNonBlankString(payload.get("riskLevel"), null);
+        String legacyRiskLevel = asNonBlankString(payload.get("risk_level"), null);
+        if (riskLevel == null && legacyRiskLevel != null) {
+            payload.put("riskLevel", legacyRiskLevel);
+        }
+        if (legacyRiskLevel == null && riskLevel != null) {
+            payload.put("risk_level", riskLevel);
+        }
+    }
+
+    private void auditReviewResultIfPresent(TaskEntity task, TaskEvent event) {
+        if (event.getType() != EventType.ASSISTANT_OUTPUT && event.getType() != EventType.TASK_FAILED) {
+            return;
+        }
+        if (event.getPayload() == null) {
+            return;
+        }
+        String riskLevel = asNonBlankString(firstNonNull(
+                event.getPayload().get("riskLevel"),
+                event.getPayload().get("risk_level")
+        ), null);
+        Object issues = event.getPayload().get("issues");
+        if (riskLevel == null && !(issues instanceof List<?>)) {
+            return;
+        }
+
+        Map<String, Object> details = new HashMap<>();
+        putIfPresent(details, "riskLevel", riskLevel);
+        if (issues instanceof List<?> issueList) {
+            details.put("issues", issueList);
+        }
+        putIfPresent(details, "summary", asNonBlankString(event.getPayload().get("summary"), null));
+        details.put("eventType", event.getType().name());
+        details.put("seq", event.getSeq());
+        auditService.log(task.getTaskId(), "agent", "review.result", details);
+    }
+
+    private void auditTaskFailureDetails(TaskEntity task, TaskEvent event) {
+        if (event.getPayload() == null) {
+            return;
+        }
+        String reason = asNonBlankString(event.getPayload().get("reason"), null);
+        if (reason == null || !"fix_loop_exhausted".equalsIgnoreCase(reason)) {
+            return;
+        }
+        Map<String, Object> details = new HashMap<>();
+        details.put("reason", "fix_loop_exhausted");
+        putIfPresent(details, "attempt", asInteger(event.getPayload().get("attempt")));
+        putIfPresent(details, "maxAttempts", asInteger(event.getPayload().get("maxAttempts")));
+        putIfPresent(details, "lastTestError", asNonBlankString(event.getPayload().get("lastTestError"), null));
+        details.put("seq", event.getSeq());
+        auditService.log(task.getTaskId(), "agent", "fix_loop.exhausted", details);
     }
 
     private Map<String, Object> buildApprovalContext(Map<String, Object> payload) {
@@ -650,6 +737,52 @@ public class TaskService {
                 && contextFieldMatches(expected, actual, "inputsHash", true);
     }
 
+    /**
+     * Deploy events are privileged actions. If a task has an approvalId bound, deploy plan/result
+     * must only be accepted after explicit APPROVE, and deploy plan must match approved context.
+     */
+    private boolean authorizeDeployEvent(TaskEntity task, TaskEvent event, boolean validateContext) {
+        if (task.getApprovalId() == null || task.getApprovalId().isBlank()) {
+            return true;
+        }
+        ApprovalEntity approval = approvalRepository.findById(task.getApprovalId()).orElse(null);
+        if (approval == null) {
+            denyDeploy(task, event, "approval_missing", null);
+            markFailed(task);
+            return false;
+        }
+
+        ApprovalDecision decision = approval.getDecision();
+        if (decision != ApprovalDecision.APPROVE) {
+            String decisionText = decision == null ? "pending" : decision.name().toLowerCase(Locale.ROOT);
+            denyDeploy(task, event, "approval_not_approved", decisionText);
+            return false;
+        }
+
+        if (validateContext) {
+            Map<String, Object> expected = readPayload(approval.getApprovalContextJson());
+            Map<String, Object> actual = buildApprovalContext(event.getPayload());
+            if (!expected.isEmpty() && !isApprovalContextEqualForDeployPlan(expected, actual)) {
+                event.getPayload().put("approvalContextMismatch", true);
+                event.getPayload().put("expectedApprovalContext", expected);
+                event.getPayload().put("actualApprovalContext", actual);
+                denyDeploy(task, event, "approval_context_mismatch", "approve");
+                markFailed(task);
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private void denyDeploy(TaskEntity task, TaskEvent event, String reason, String approvalDecision) {
+        Map<String, Object> details = new HashMap<>();
+        details.put("reason", reason);
+        String requestId = asNonBlankString(event.getPayload().get("requestId"), null);
+        putIfPresent(details, "requestId", requestId);
+        putIfPresent(details, "approvalDecision", approvalDecision);
+        auditService.log(task.getTaskId(), "control-plane", "deploy.authz.denied", details);
+    }
+
     private boolean contextFieldMatches(
             Map<String, Object> expected,
             Map<String, Object> actual,
@@ -698,6 +831,9 @@ public class TaskService {
     }
 
     private void applyDeployResultStatus(TaskEntity task, Map<String, Object> payload) {
+        if (isTerminalStatus(task.getStatus())) {
+            return;
+        }
         String status = asNonBlankString(payload == null ? null : payload.get("status"), "")
                 .toLowerCase(Locale.ROOT);
         switch (status) {
@@ -709,6 +845,10 @@ public class TaskService {
                 // Keep existing status for unknown values to avoid accidental regressions.
             }
         }
+    }
+
+    private boolean isTerminalStatus(TaskStatus status) {
+        return status == TaskStatus.DONE || status == TaskStatus.FAILED || status == TaskStatus.CANCELED;
     }
 
     private void markFailed(TaskEntity task) {
@@ -757,6 +897,23 @@ public class TaskService {
             return s;
         }
         return fallback;
+    }
+
+    private Integer asInteger(Object value) {
+        if (value instanceof Number number) {
+            return number.intValue();
+        }
+        if (value instanceof String text) {
+            String trimmed = text.trim();
+            if (!trimmed.isEmpty()) {
+                try {
+                    return Integer.parseInt(trimmed);
+                } catch (NumberFormatException ignored) {
+                    return null;
+                }
+            }
+        }
+        return null;
     }
 
     private String extractOrCreateApprovalId(TaskEvent event) {

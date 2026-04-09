@@ -1,5 +1,7 @@
 package com.autocode.agent.runtime.tool;
 
+import com.autocode.protocol.model.ToolManifest;
+
 import java.util.Map;
 
 /**
@@ -8,7 +10,20 @@ import java.util.Map;
  * MVP: tools are invoked by name and return structured payloads for TOOL_START/TOOL_END events.
  */
 public interface Tool {
-    String name();
+    /**
+     * Self-describing manifest including name/version/arg schema/permission metadata.
+     */
+    ToolManifest manifest();
+
+    default String name() {
+        ToolManifest m = manifest();
+        return m == null ? null : m.getName();
+    }
+
+    default String version() {
+        ToolManifest m = manifest();
+        return m == null ? null : m.getVersion();
+    }
 
     ToolPolicy policy();
 

@@ -1,9 +1,9 @@
 /**
- * Task artifacts API (B-stage): upload/list/download.
+ * Task artifacts API (B-stage): upload/list/download/preview.
  *
  * Notes:
  * - Upload/list are JSON endpoints using shared-protocol gateway envelope.
- * - Download returns bytes, but still enforces default-deny authz and writes audit hash-chain on success.
+ * - Download/preview return bytes with the same shared-token gate; preview uses inline disposition for UI.
  */
 package com.autocode.controlplane.api;
 
@@ -47,33 +47,14 @@ public class ArtifactsController {
         }
         String artifactName = (name == null || name.isBlank()) ? file.getOriginalFilename() : name;
         ArtifactRecord record = artifactsService.upload(taskId, artifactName, file.getContentType(), file.getInputStream());
-        return ResponseEntity.ok(GatewayResponses.ok(Map.of(
-                "artifactId", record.artifactId(),
-                "taskId", record.taskId(),
-                "name", record.name(),
-                "contentType", record.contentType(),
-                "sizeBytes", record.sizeBytes(),
-                "sha256", record.sha256(),
-                "createdAt", record.createdAt().toString()
-        )));
+        return ResponseEntity.ok(GatewayResponses.ok(toArtifactMap(record)));
     }
 
     @GetMapping
     @PreAuthorize("@projectAuthz.canAccessTask(#p0)")
     public ResponseEntity<GatewayResponse> list(@PathVariable("taskId") String taskId) {
         List<ArtifactRecord> list = artifactsService.list(taskId);
-        // Map.of(...) disallows null values, but contentType/name can be null.
-        List<Map<String, Object>> items = list.stream().map(r -> {
-            Map<String, Object> m = new HashMap<>();
-            m.put("artifactId", r.artifactId());
-            m.put("taskId", r.taskId());
-            m.put("name", r.name());
-            m.put("contentType", r.contentType());
-            m.put("sizeBytes", r.sizeBytes());
-            m.put("sha256", r.sha256());
-            m.put("createdAt", r.createdAt() == null ? null : r.createdAt().toString());
-            return m;
-        }).toList();
+        List<Map<String, Object>> items = list.stream().map(ArtifactsController::toArtifactMap).toList();
         return ResponseEntity.ok(GatewayResponses.ok(Map.of("taskId", taskId, "items", items)));
     }
 
@@ -85,6 +66,21 @@ public class ArtifactsController {
             @RequestParam(value = "token", required = false) String token
     ) {
         ArtifactContent content = artifactsService.download(taskId, artifactId, token);
+        return toStreamingResponse(content, "attachment");
+    }
+
+    @GetMapping("/{artifactId}/preview")
+    @PreAuthorize("@projectAuthz.canAccessTask(#p0)")
+    public ResponseEntity<StreamingResponseBody> preview(
+            @PathVariable("taskId") String taskId,
+            @PathVariable("artifactId") String artifactId,
+            @RequestParam(value = "token", required = false) String token
+    ) {
+        ArtifactContent content = artifactsService.preview(taskId, artifactId, token);
+        return toStreamingResponse(content, "inline");
+    }
+
+    private static ResponseEntity<StreamingResponseBody> toStreamingResponse(ArtifactContent content, String disposition) {
         ArtifactRecord r = content.record();
         MediaType mediaType = (r.contentType() == null || r.contentType().isBlank())
                 ? MediaType.APPLICATION_OCTET_STREAM
@@ -102,7 +98,7 @@ public class ArtifactsController {
         };
         return ResponseEntity.ok()
                 .contentType(mediaType)
-                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + safeFilename(r.name()) + "\"")
+                .header(HttpHeaders.CONTENT_DISPOSITION, disposition + "; filename=\"" + safeFilename(r.name()) + "\"")
                 .header("X-Artifact-Id", r.artifactId())
                 .header("X-Artifact-Sha256", r.sha256())
                 .contentLength(r.sizeBytes())
@@ -112,6 +108,22 @@ public class ArtifactsController {
     private static String safeFilename(String name) {
         if (name == null || name.isBlank()) return "artifact.bin";
         return name.replaceAll("[\\r\\n\\\\\"]", "_");
+    }
+
+    private static Map<String, Object> toArtifactMap(ArtifactRecord record) {
+        // Keep both legacy and nl2web aliases so clients can migrate field names gradually.
+        Map<String, Object> item = new HashMap<>();
+        item.put("artifactId", record.artifactId());
+        item.put("taskId", record.taskId());
+        item.put("name", record.name());
+        item.put("fileName", record.name());
+        item.put("contentType", record.contentType());
+        item.put("mimeType", record.contentType());
+        item.put("sizeBytes", record.sizeBytes());
+        item.put("size", record.sizeBytes());
+        item.put("sha256", record.sha256());
+        item.put("createdAt", record.createdAt() == null ? null : record.createdAt().toString());
+        return item;
     }
 
     // GatewayResponses centralizes response construction for gateway-style endpoints.

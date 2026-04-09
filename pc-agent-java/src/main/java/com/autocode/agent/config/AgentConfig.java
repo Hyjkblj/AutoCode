@@ -4,12 +4,18 @@
 package com.autocode.agent.config;
 
 import java.util.Arrays;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Properties;
 
 public class AgentConfig {
 
     private static final String DEFAULT_AGENT_VERSION = "0.1.0";
+    private static final String DEFAULT_INTENT_TOOL = "command.exec";
+    private static final String DEFAULT_INTENT_ACTION = "run_command";
 
     /**
      * OkHttp timeouts for control-plane calls. Defaults match the previous hard-coded client behavior.
@@ -141,18 +147,63 @@ public class AgentConfig {
 
         public static ClientTls fromEnv() {
             String ks = readEnv("MVP_AGENT_TLS_KEYSTORE_PATH", "");
-            if (ks == null || ks.isBlank()) {
+            String trust = readEnv("MVP_AGENT_TLS_TRUSTSTORE_PATH", "");
+            String keyPath = (ks == null || ks.isBlank()) ? null : ks.trim();
+            String trustPath = (trust == null || trust.isBlank()) ? null : trust.trim();
+            if (keyPath == null && trustPath == null) {
                 return DISABLED;
             }
-            String trust = readEnv("MVP_AGENT_TLS_TRUSTSTORE_PATH", "");
-            String trustPath = (trust == null || trust.isBlank()) ? null : trust.trim();
             return new ClientTls(
-                    ks.trim(),
+                    keyPath,
                     readEnv("MVP_AGENT_TLS_KEYSTORE_PASSWORD", ""),
                     readEnv("MVP_AGENT_TLS_KEYSTORE_TYPE", "PKCS12"),
                     trustPath,
                     readEnv("MVP_AGENT_TLS_TRUSTSTORE_PASSWORD", ""),
                     readEnv("MVP_AGENT_TLS_TRUSTSTORE_TYPE", "JKS"));
+        }
+
+        /**
+         * Override TLS settings from a {@code .properties} file (same keys as env). Unset keys keep {@code base} values.
+         * Blank {@code MVP_AGENT_TLS_KEYSTORE_PATH} disables client-certificate key material while still allowing a
+         * truststore-only TLS configuration.
+         */
+        public static ClientTls mergeFromProperties(ClientTls base, Properties props) {
+            ClientTls b = base != null ? base : DISABLED;
+            if (props == null) {
+                return b;
+            }
+
+            String keyStorePath = overridePath(props, "MVP_AGENT_TLS_KEYSTORE_PATH", b.keyStorePath);
+            String trustStorePath = overridePath(props, "MVP_AGENT_TLS_TRUSTSTORE_PATH", b.trustStorePath);
+            if ((keyStorePath == null || keyStorePath.isBlank())
+                    && (trustStorePath == null || trustStorePath.isBlank())) {
+                return DISABLED;
+            }
+
+            return new ClientTls(
+                    keyStorePath,
+                    overrideText(props, "MVP_AGENT_TLS_KEYSTORE_PASSWORD", b.keyStorePassword),
+                    overrideText(props, "MVP_AGENT_TLS_KEYSTORE_TYPE", b.keyStoreType),
+                    trustStorePath,
+                    overrideText(props, "MVP_AGENT_TLS_TRUSTSTORE_PASSWORD", b.trustStorePassword),
+                    overrideText(props, "MVP_AGENT_TLS_TRUSTSTORE_TYPE", b.trustStoreType));
+        }
+
+        private static String overridePath(Properties props, String key, String fallback) {
+            String raw = props.getProperty(key);
+            if (raw == null) {
+                return fallback;
+            }
+            String trimmed = raw.trim();
+            return trimmed.isEmpty() ? null : trimmed;
+        }
+
+        private static String overrideText(Properties props, String key, String fallback) {
+            String raw = props.getProperty(key);
+            if (raw == null) {
+                return fallback;
+            }
+            return raw;
         }
 
         private static String readEnv(String key, String fallback) {
@@ -165,6 +216,14 @@ public class AgentConfig {
 
         public boolean isKeyMaterialConfigured() {
             return keyStorePath != null && !keyStorePath.isBlank();
+        }
+
+        public boolean isTrustMaterialConfigured() {
+            return trustStorePath != null && !trustStorePath.isBlank();
+        }
+
+        public boolean isTlsConfigured() {
+            return isKeyMaterialConfigured() || isTrustMaterialConfigured();
         }
 
         public String getKeyStorePath() {
@@ -192,6 +251,47 @@ public class AgentConfig {
         }
     }
 
+    /**
+     * Rule-based intent routing entry loaded from {@code MVP_INTENT_RULES}.
+     * <p>
+     * Rule format (semicolon-separated): {@code profile=<p>|skill=<s>} or
+     * {@code keywords=<k1,k2>|skill=<s>} with optional {@code tool/action/command}.
+     */
+    public record IntentRule(
+            String profile,
+            List<String> keywords,
+            String skill,
+            String tool,
+            String action,
+            String command) {
+
+        public IntentRule {
+            profile = normalizeProfile(profile);
+            keywords = normalizeKeywords(keywords);
+            skill = firstNonBlank(skill, DEFAULT_INTENT_TOOL);
+            tool = firstNonBlank(tool, DEFAULT_INTENT_TOOL);
+            action = firstNonBlank(action, DEFAULT_INTENT_ACTION);
+            command = trimToNull(command);
+        }
+
+        public boolean matchesProfile(String candidate) {
+            String normalized = normalizeProfile(candidate);
+            return profile != null && profile.equals(normalized);
+        }
+
+        public String firstMatchedKeyword(String promptLowerCase) {
+            if (promptLowerCase == null || promptLowerCase.isBlank() || keywords.isEmpty()) {
+                return null;
+            }
+            for (String keyword : keywords) {
+                if (promptLowerCase.contains(keyword)) {
+                    return keyword;
+                }
+            }
+            return null;
+        }
+    }
+
     private final String baseUrl;
     private final String nodeId;
     private final String agentToken;
@@ -206,6 +306,7 @@ public class AgentConfig {
     private final ClientTls clientTls;
     /** Reported to control plane on register; override with {@code MVP_AGENT_VERSION}. */
     private final String agentVersion;
+    private final List<IntentRule> intentRules;
 
     /**
      * Preserves previous behavior: {@code networkAllowed == true} (prefix allowlist only).
@@ -337,6 +438,39 @@ public class AgentConfig {
             ClientTls clientTls,
             String agentVersion
     ) {
+        this(
+                baseUrl,
+                nodeId,
+                agentToken,
+                pollIntervalMs,
+                heartbeatIntervalMs,
+                approvalTimeoutSeconds,
+                allowedCommandPrefixes,
+                allowedWorkspacePrefixes,
+                agentProfile,
+                networkAllowed,
+                httpTimeouts,
+                clientTls,
+                agentVersion,
+                List.of());
+    }
+
+    public AgentConfig(
+            String baseUrl,
+            String nodeId,
+            String agentToken,
+            long pollIntervalMs,
+            long heartbeatIntervalMs,
+            long approvalTimeoutSeconds,
+            List<String> allowedCommandPrefixes,
+            List<String> allowedWorkspacePrefixes,
+            String agentProfile,
+            boolean networkAllowed,
+            HttpTimeouts httpTimeouts,
+            ClientTls clientTls,
+            String agentVersion,
+            List<IntentRule> intentRules
+    ) {
         this.baseUrl = baseUrl;
         this.nodeId = nodeId;
         this.agentToken = agentToken;
@@ -351,6 +485,7 @@ public class AgentConfig {
         this.clientTls = clientTls != null ? clientTls : ClientTls.DISABLED;
         String v = agentVersion == null ? "" : agentVersion.trim();
         this.agentVersion = v.isBlank() ? DEFAULT_AGENT_VERSION : v;
+        this.intentRules = intentRules == null ? List.of() : List.copyOf(intentRules);
     }
 
     public static AgentConfig fromEnv() {
@@ -377,6 +512,7 @@ public class AgentConfig {
         if (agentVersion.isBlank()) {
             agentVersion = DEFAULT_AGENT_VERSION;
         }
+        List<IntentRule> intentRules = parseIntentRules(read("MVP_INTENT_RULES", ""));
         return new AgentConfig(
                 baseUrl,
                 nodeId,
@@ -390,8 +526,72 @@ public class AgentConfig {
                 networkAllowed,
                 HttpTimeouts.fromEnv(),
                 ClientTls.fromEnv(),
-                agentVersion
+                agentVersion,
+                intentRules
         );
+    }
+
+    public static List<IntentRule> parseIntentRules(String raw) {
+        String value = trimToNull(raw);
+        if (value == null) {
+            return List.of();
+        }
+        ArrayList<IntentRule> rules = new ArrayList<>();
+        for (String ruleRaw : value.split(";")) {
+            String spec = trimToNull(ruleRaw);
+            if (spec == null) {
+                continue;
+            }
+            Map<String, String> kv = parseIntentRuleSegments(spec);
+            String profile = kv.get("profile");
+            List<String> keywords = splitCsv(firstNonBlank(kv.get("keyword"), kv.get("keywords")));
+            if (profile == null && keywords.isEmpty()) {
+                continue;
+            }
+            rules.add(new IntentRule(
+                    profile,
+                    keywords,
+                    firstNonBlank(kv.get("skill"), kv.get("intent"), kv.get("target")),
+                    kv.get("tool"),
+                    kv.get("action"),
+                    kv.get("command")));
+        }
+        return rules.isEmpty() ? List.of() : List.copyOf(rules);
+    }
+
+    private static Map<String, String> parseIntentRuleSegments(String spec) {
+        HashMap<String, String> kv = new HashMap<>();
+        for (String tokenRaw : spec.split("\\|")) {
+            String token = trimToNull(tokenRaw);
+            if (token == null) {
+                continue;
+            }
+            int split = token.indexOf('=');
+            if (split <= 0) {
+                continue;
+            }
+            String key = token.substring(0, split).trim().toLowerCase(Locale.ROOT);
+            String val = token.substring(split + 1).trim();
+            if (!key.isEmpty()) {
+                kv.put(key, val);
+            }
+        }
+        return kv;
+    }
+
+    private static List<String> splitCsv(String raw) {
+        String value = trimToNull(raw);
+        if (value == null) {
+            return List.of();
+        }
+        ArrayList<String> parts = new ArrayList<>();
+        for (String p : value.split(",")) {
+            String normalized = normalizeKeyword(p);
+            if (normalized != null) {
+                parts.add(normalized);
+            }
+        }
+        return parts.isEmpty() ? List.of() : List.copyOf(parts);
     }
 
     private static String read(String key, String fallback) {
@@ -465,5 +665,54 @@ public class AgentConfig {
 
     public String getAgentVersion() {
         return agentVersion;
+    }
+
+    public List<IntentRule> getIntentRules() {
+        return intentRules;
+    }
+
+    private static String trimToNull(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    private static String firstNonBlank(String... values) {
+        if (values == null) {
+            return null;
+        }
+        for (String value : values) {
+            String normalized = trimToNull(value);
+            if (normalized != null) {
+                return normalized;
+            }
+        }
+        return null;
+    }
+
+    private static String normalizeProfile(String value) {
+        String normalized = trimToNull(value);
+        return normalized == null ? null : normalized.toLowerCase(Locale.ROOT);
+    }
+
+    private static String normalizeKeyword(String value) {
+        String normalized = trimToNull(value);
+        return normalized == null ? null : normalized.toLowerCase(Locale.ROOT);
+    }
+
+    private static List<String> normalizeKeywords(List<String> keywords) {
+        if (keywords == null || keywords.isEmpty()) {
+            return List.of();
+        }
+        ArrayList<String> normalized = new ArrayList<>();
+        for (String keyword : keywords) {
+            String value = normalizeKeyword(keyword);
+            if (value != null) {
+                normalized.add(value);
+            }
+        }
+        return normalized.isEmpty() ? List.of() : List.copyOf(normalized);
     }
 }

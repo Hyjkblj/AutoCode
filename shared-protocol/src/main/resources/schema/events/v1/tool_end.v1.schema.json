@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autocode.example/schema/events/v1/tool_end.v1.schema.json",
+  "title": "TOOL_END TaskEvent v1",
+  "allOf": [
+    { "$ref": "task_event.v1.schema.json" },
+    {
+      "type": "object",
+      "properties": {
+        "type": { "const": "TOOL_END" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["tool", "status"],
+          "properties": {
+            "tool": { "type": "string", "minLength": 1 },
+            "status": { "type": "string", "minLength": 1 },
+            "exitCode": { "type": "integer" },
+            "output": { "type": "string" },
+            "error": { "type": "string" },
+            "toolVersion": { "type": "string" },
+            "approvalId": { "type": "string" },
+            "traceId": { "type": "string" },
+            "runId": { "type": "string" }
+          }
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "eventId": "evt_test_tool_start_001",
+  "taskId": "task_test_123",
+  "sessionId": "sess_test_abc",
+  "assistant": "test",
+  "type": "TOOL_START",
+  "timestamp": "2026-04-05T10:00:00Z",
+  "seq": 30,
+  "eventVersion": 1,
+  "payload": {
+    "tool": "command.exec",
+    "action": "run_command",
+    "command": "echo hello",
+    "cwd": "D:/workspace/test",
+    "workspaceRef": "D:/workspace/test",
+    "toolVersion": "1.0.0",
+    "traceId": "trc_task_test_123",
+    "runId": "run_test_001",
+    "intentSkill": "skill.code.author",
+    "intentRoute": "rule_based"
+  }
+}

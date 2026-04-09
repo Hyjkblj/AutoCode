@@ -1,0 +1,17 @@
+{
+  "eventId": "evt_test_build_log_001",
+  "taskId": "task_test_123",
+  "sessionId": "sess_test_abc",
+  "assistant": "test",
+  "type": "BUILD_LOG",
+  "timestamp": "2026-04-05T10:10:05Z",
+  "seq": 51,
+  "eventVersion": 1,
+  "payload": {
+    "traceId": "trc_task_test_123",
+    "runId": "run_test_build_001",
+    "buildId": "build_test_001",
+    "level": "info",
+    "message": "vite build"
+  }
+}

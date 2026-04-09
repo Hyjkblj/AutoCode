@@ -1,0 +1,19 @@
+{
+  "eventId": "evt_test_tool_end_001",
+  "taskId": "task_test_123",
+  "sessionId": "sess_test_abc",
+  "assistant": "test",
+  "type": "TOOL_END",
+  "timestamp": "2026-04-05T10:00:05Z",
+  "seq": 31,
+  "eventVersion": 1,
+  "payload": {
+    "tool": "command.exec",
+    "status": "ok",
+    "exitCode": 0,
+    "output": "hello",
+    "toolVersion": "1.0.0",
+    "traceId": "trc_task_test_123",
+    "runId": "run_test_001"
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "eventId": "evt_test_patch_001",
+  "taskId": "task_test_123",
+  "sessionId": "sess_test_abc",
+  "assistant": "test",
+  "type": "FILE_PATCH_PREVIEW",
+  "timestamp": "2026-04-05T10:20:00Z",
+  "seq": 70,
+  "eventVersion": 1,
+  "payload": {
+    "traceId": "trc_task_test_123",
+    "runId": "run_test_patch_001",
+    "target": "web",
+    "templateId": "web-basic",
+    "exportMode": "zip",
+    "format": "unified",
+    "patch": "diff --git a/src/main.ts b/src/main.ts\nindex aaa1111..bbb2222 100644\n--- a/src/main.ts\n+++ b/src/main.ts\n@@ -1,2 +1,3 @@\n console.log('hello');\n+console.log('world');\n",
+    "files": [
+      {
+        "path": "src/main.ts",
+        "changeType": "modify",
+        "beforeHash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "afterHash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      }
+    ],
+    "previewHash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  }
+}

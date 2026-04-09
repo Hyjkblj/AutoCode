@@ -22,7 +22,9 @@ class OpenApiIntegrationTest {
         mockMvc.perform(get("/v3/api-docs"))
                 .andExpect(status().isOk())
                 .andExpect(content().string(org.hamcrest.Matchers.containsString("/api/v1/tasks/{taskId}/events")))
-                .andExpect(content().string(org.hamcrest.Matchers.containsString("lastSeq")));
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("lastSeq")))
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("/artifacts/{artifactId}/preview")))
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("/artifacts/derived")));
     }
 }
 

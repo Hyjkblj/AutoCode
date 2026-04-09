@@ -1,5 +1,6 @@
 四 Agent 任务划分（工作区严格独立，移动端独立开发）
 日期：2026-04-01
+最后更新：2026-04-05
 
 目标
 - 将当前主线剩余问题拆分为 4 个互不干扰的开发任务（其中移动端单独一条线）。
@@ -16,196 +17,349 @@
 4. 提交前必须执行 git status --short，若出现白名单外文件，必须先还原再提交。
 5. 禁止提交临时文件（__pycache__、*.pyc、日志、IDE 文件）。
 6. 交叉路径禁改（移动端必须区别于 Agent-1/2/3）：
-   - Agent-1/2/3：禁止修改移动端白名单路径（mobile-app/**、app-mobile/**、apps/mobile/**）。
-   - Agent-4：禁止修改 control-plane-spring/**、shared-protocol/**、pc-agent-java/**（如需能力支持，必须拆分为对应 Agent 的 PR 先合入）。
+   - Agent-1/2/3：禁止修改移动端白名单路径（mobile-app/**）。
+   - Agent-4：禁止修改 control-plane-spring/**、shared-protocol/**、pc-agent-java/**、python-agent/**。
 
-二、Agent-1（控制面权限修复，P0）
-角色
-- Control Plane Security Agent
+二、Agent 角色定义
+- Agent-1：Control Plane Security Agent（控制面安全 + 策略引擎 + TLS）
+  白名单：control-plane-spring/src/main/** + control-plane-spring/src/test/**
+- Agent-2：Shared Protocol Contract Agent（协议契约 + Java 基础设施 + 沙箱 HTTP 接口）
+  白名单：shared-protocol/src/main/** + shared-protocol/src/test/** + pc-agent-java/sandbox-server/**
+- Agent-3：Java/Python Agent Runtime Agent（Java Agent 运行时重构 + Python Agent 全部）
+  白名单：pc-agent-java/src/main/** + pc-agent-java/src/test/** + python-agent/**
+- Agent-4：Mobile Visual App Agent（移动端全部）
+  白名单：mobile-app/**
 
-任务
-1. 修复项目级访问控制语义，确保非成员访问 artifacts 返回 404。
-2. 保持管理员/运维角色策略可解释、可配置，不放大越权面。
-3. 修复并通过对应集成测试（ArtifactsIntegrationTest 相关失败用例）。
-
-允许修改路径（白名单）
-- control-plane-spring/src/main/**
-- control-plane-spring/src/test/**
-
-禁止修改路径
-- shared-protocol/**
-- pc-agent-java/**
-- docs/**
-- scripts/**
-- pom.xml（仓库根）
-
-验收命令
-- mvn -pl shared-protocol,control-plane-spring -am -DskipTests compile
-- mvn -pl shared-protocol,control-plane-spring -am -Dtest=ArtifactsIntegrationTest test
-
-三、Agent-2（协议契约收口，P1）
-角色
-- Shared Protocol Contract Agent
-
-任务
-1. 收口 ARTIFACT_READY 契约（schema/DTO/example/validator 一致性）。
-2. 确保 eventVersion=1 下新增事件的兼容策略清晰且可测试。
-3. 清理示例文件与测试资源的不一致（路径与内容一致）。
-
-允许修改路径（白名单）
-- shared-protocol/src/main/**
-- shared-protocol/src/test/**
-- shared-protocol/src/main/resources/**
-- shared-protocol/src/test/resources/**
-- shared-protocol/COMPATIBILITY.md
-- shared-protocol/pom.xml
-
-禁止修改路径
-- control-plane-spring/**
-- pc-agent-java/**
-- docs/**
-- scripts/**
-- pom.xml（仓库根）
-
-验收命令
-- mvn -pl shared-protocol test
-
-四、Agent-3（Java Agent 契约对齐，P1）
-角色
-- Java Agent Runtime Agent
-
-任务
-1. 将 Java Agent 的 ARTIFACT_READY payload 生成逻辑与 shared-protocol 对齐。
-2. 确保上报事件字段（eventId/eventVersion/payload）与控制面校验兼容。
-3. 增补或修复 pc-agent-java 对应单测，避免回归。
-
-允许修改路径（白名单）
-- pc-agent-java/src/main/**
-- pc-agent-java/src/test/**
-- pc-agent-java/pom.xml
-- pom.xml（仅 dependencyManagement 必要改动）
-
-禁止修改路径
-- control-plane-spring/**
-- shared-protocol/**
-- docs/**
-- scripts/**
-
-验收命令
-- mvn -pl shared-protocol,pc-agent-java -am test
-
-五、Agent-4（移动端可视化 App，P1）
-角色
-- Mobile Visual App Agent
-
-任务
-1. 构建移动端可视化 App：登录、项目选择、自然语言输入、任务进度、产物预览/发布入口、历史与版本。
-2. 与控制面/协议契约对齐，但禁止直接修改 control-plane-spring/shared-protocol/pc-agent-java（通过提需求给对应 Agent 来补齐缺口）。
-3. 提供最小可用的端到端手动测试路径（至少能完成一次“发起生成→看到进度→看到产物入口”）。
-
-允许修改路径（白名单）
-- mobile-app/**
-- app-mobile/**
-- apps/mobile/**
-
-禁止修改路径
-- control-plane-spring/**
-- shared-protocol/**
-- pc-agent-java/**
-- docs/**
-- scripts/**
-- pom.xml（仓库根）
-
-验收命令
-- 以移动端模块自身的构建/测试命令为准（在 mobile-app/ 内执行），并要求 git status --short 干净
-
-六、合并顺序（主控执行）
-1. 先合 Agent-2（协议）到 master。
-2. 再合 Agent-1（控制面权限修复）。
-3. 再合 Agent-3（Java Agent 契约对齐）。
-4. 最后合 Agent-4（移动端可视化 App）。
-
-七、主控最终门禁
+三、主控最终门禁
 1. git status --short 必须干净。
 2. Java 回归：
    - mvn -B -q -pl shared-protocol,control-plane-spring,pc-agent-java -am test
-3. 如恢复 Python Runner 后，再补：
-   - cd claudecode-runner && python -m pytest -q
+3. Python Agent 回归（PY-AG-01 合入后）：
+   - cd python-agent && pytest -q
 4. 移动端回归：
-   - 在移动端模块内执行其构建/测试命令（至少能完成一次端到端手动验证流程）
+   - cd mobile-app && .\gradlew.bat :app:assembleDebug
 
-八、提交模板（每个 Agent）
-1. git status --short
-2. git add <白名单内文件>
-3. git commit -m "fix(<scope>): <summary>"
-4. git status --short（确认仅剩本分支预期变更或已干净）
+四、PR 完成状态（2026-04-05，以 origin/master PR #1~#19 为准）
 
-九、当前任务看板（仅保留未完成项，更新：2026-04-04）
-说明
-- 本节仅保留未完成任务；已完成项统一归档到“十、PR 进度同步”。
-- 基线统一以 `origin/master` 为准。
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+M1：底座闭环  ✅ 全部完成
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+[DONE] PR #1  Agent-3  fix(pc-agent-java): align ARTIFACT_READY payload and event envelope
+[DONE] PR #2  Agent-2  fix(shared-protocol): finalize ARTIFACT_READY v1 contract
+[DONE] PR #3  Agent-1  fix(control-plane): hide artifacts from non-members
 
-1. 当前待执行（M3）
-- `fix/a1-m3-runtime-metadata-authz`
-  - 负责人：Agent-1（control-plane-spring）
-  - 目标：runtime metadata 校验/透传 + 非成员 404 语义
-  - 状态：未开始（待建分支）
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+M2：稳定产出工程  ✅ 全部完成
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+[DONE] PR #7  Agent-2  fix(shared-protocol): standardize artifact manifest fields (v1 compatible)
+[DONE] PR #8  Agent-1  fix(control-plane): enforce artifact visibility for list/download/preview
+[DONE] PR #9  Agent-3  fix(pc-agent-java): tighten M1/M2 artifact events and multi-file upload
+[DONE] PR #10 Agent-1  fix(security): require auth by default and secure websocket connect
+[DONE] PR #11 Agent-3  fix(protocol): align sessionId propagation with legacy sessionKey fallback
+[DONE] PR #12 Agent-1  test(workflow): stabilize lease requeue integration coverage
 
-2. 当前待执行（M4）
-- `fix/a1-m4-deploy-authz-audit-state`
-  - 负责人：Agent-1（control-plane-spring）
-  - 目标：部署权限/审计/状态机推进
-  - 状态：未开始（待建分支）
-- `fix/a3-m4-deploy-gate-execution-reporting`
-  - 负责人：Agent-3（pc-agent-java）
-  - 目标：部署执行与审批门禁联动、结果上报
-  - 状态：未开始（待建分支）
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+M3：能跑起来  ✅ 全部完成
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+[DONE] PR #15 Agent-2  fix(shared-protocol): define service runtime descriptor (v1)
+[DONE] PR #17 Agent-1  fix(control-plane): validate artifact runtime metadata for M3
+[DONE] PR #14 Agent-3  fix(pc-agent-java): minimal run/health reporting and runtime payload alignment
 
-3. 合并顺序（最新）
-- 先推进 M3：`a1`。
-- 再推进 M4：`a1 -> a3`。
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+M4：能部署  ✅ 全部完成
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+[DONE] PR #13 Agent-2  fix(shared-protocol): add deploy plan/result v1 contracts
+[DONE] PR #19 Agent-1  fix(control-plane): enforce deploy approval gate and state invariants
+[DONE] PR #18 Agent-3  fix(pc-agent-java): add deploy gate execution and reporting
 
-十、PR 进度同步（2026-04-04）
-1. 已完成并合入 `origin/master`（归档）
-- #1 `fix/a3-java-agent-artifact-payload`
-- #2 `fix/a2-shared-protocol-contract`
-- #3 `fix/a1-control-plane-authz`
-- #4 `feat/a4-mobile-visual-app`（第一阶段）
-- #5 `feat/a4-mobile-visual-app`（第二阶段）
-- #7 `fix/a2-service-runtime-descriptor-v1`
-- #8 `fix/a1-m2-artifact-visibility`
-- #9 `fix/a3-m2-standard-artifact-manifest`
-- #10 `fix/a1-m2-authz-hardening-token-default`
-- #11 `fix/a3-m2-session-field-alignment`
-- #12 `test/a1-m2-lease-requeue-stability`
-- #13 `fix/a2-m4-deploy-plan-result-payloads`
-- #14 `fix/a3-m3-minimal-run-health-reporting`
-- #15 `fix/a2-service-runtime-descriptor-v1`（本轮收口）
-- #16 `feat/a4-mobile-visual-app`（PR-3）
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+M5：移动端可视化 App  ✅ 全部完成
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+[DONE] PR #4  Agent-4  feat(mobile-app): bootstrap app with auth & project selection
+[DONE] PR #5  Agent-4  feat(mobile-app): prompt-to-task flow with progress UI
+[DONE] PR #16 Agent-4  feat(mobile-app): implement artifact preview and publish history flow
 
-2. 当前主线活跃 PR 分支
-- 无（主线分支已合入并删除远端分支）。
+五、Java Agent 升级 PR（AG-UP 系列）
 
-3. 当前保留远端分支（非主线任务）
-- `origin/feat/pr2-control-plane`（ahead=1，相对 `origin/master`）
+背景：M1~M5 全部完成后，pc-agent-java 的 PromptCommandExtractor 启发式提取脆弱、
+TaskExecutor 单类 ~1100 行、无 Skill 层、无意图路由，需要在接入 Python AI Agent 前完成重构。
+详细设计：docs/agent-upgrade-plan-2026-04.md
 
-十一、分支与工作区现状（最新）
-1. 本地保留分支
-- `feat/a4-mobile-visual-app`
-- `feat/pr2-control-plane`
-- `fix/a2-m4-deploy-plan-result-payloads`
-- `fix/a2-service-runtime-descriptor-v1`
-- `fix/a3-m3-minimal-run-health-reporting`
-- `master`
-- `review/integration-20260401`
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+AG-UP-01：IntentRouter — 替换启发式命令提取  [TODO]
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+负责人：Agent-3
+优先级：P0（其他升级的前置）
+分支：feat/a3-agent-intent-router
+worktree：D:/Develop/Project/AutoCode-a3
+白名单：pc-agent-java/src/main/** + pc-agent-java/src/test/**
+新增：intent/IntentRouter.java、intent/RoutedIntent.java、intent/RuleBasedIntentRouter.java
+验收：mvn -pl shared-protocol,pc-agent-java -am test
 
-2. 远端保留分支
-- `origin/master`
-- `origin/feat/pr2-control-plane`
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+AG-UP-02：Tool Manifest — 工具自描述与版本化  [TODO]
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+负责人：Agent-2
+优先级：P0（Skill 层的前置）
+分支：feat/a2-tool-manifest
+worktree：D:/Develop/Project/AutoCode-a2
+白名单：shared-protocol/src/main/** + shared-protocol/src/test/** + pc-agent-java/src/main/** + pc-agent-java/src/test/**
+新增（shared-protocol）：model/ToolManifest.java、model/ToolParamSpec.java、model/ToolPermissions.java
+变更（pc-agent-java）：Tool 接口增加 manifest()、ToolRegistry 版本化查找
+验收：mvn -pl shared-protocol,pc-agent-java -am test
 
-3. 当前 worktree
-- `D:/Develop/Project/AutoCode` -> `fix/a2-service-runtime-descriptor-v1`
-- `D:/Develop/Project/AutoCode-a2-m4` -> `fix/a2-m4-deploy-plan-result-payloads`
-- `D:/Develop/Project/AutoCode-a3` -> `fix/a3-m3-minimal-run-health-reporting`
-- `D:/Develop/Project/AutoCode-a4` -> `feat/a4-mobile-visual-app`
-- `D:/Develop/Project/AutoCode-agent2` -> `feat/pr2-control-plane`
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+AG-UP-03：Skill 层 — 多步骤任务编排  [TODO]
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+负责人：Agent-3
+优先级：P1（依赖 AG-UP-01 + AG-UP-02）
+分支：feat/a3-skill-layer
+worktree：D:/Develop/Project/AutoCode-a3
+白名单：pc-agent-java/src/main/** + pc-agent-java/src/test/**
+新增：skill/Skill.java、skill/SkillRegistry.java、skill/impl/CodeExecSkill.java、skill/impl/DeployExecuteSkill.java
+变更：TaskExecutor 瘦身为纯路由入口
+验收：mvn -pl shared-protocol,pc-agent-java -am test
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+AG-UP-04：策略引擎深化 — 最小权限运行  [TODO]
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+负责人：Agent-1
+优先级：P1（依赖 AG-UP-03）
+分支：feat/a1-policy-engine-v2
+worktree：D:/Develop/Project/AutoCode-a1
+白名单：pc-agent-java/src/main/** + pc-agent-java/src/test/**
+新增：NetworkAccessPolicy、FileReadWritePolicy、ElevationDetectionPolicy、EnvVarAccessPolicy
+验收：mvn -pl shared-protocol,pc-agent-java -am test
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+AG-UP-05：运行时健康上报 — ServiceRuntimeDescriptor 完整集成  [TODO]
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+负责人：Agent-3（Agent 侧）+ Agent-1（控制平面侧 Flyway V12）
+优先级：P1（依赖 AG-UP-03）
+分支：feat/a3-runtime-health-report（Agent-3）/ feat/a1-capabilities-store（Agent-1）
+白名单：pc-agent-java/src/main/** + control-plane-spring/src/main/**（Flyway V12）
+验收：mvn -pl shared-protocol,pc-agent-java,control-plane-spring -am test
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+AG-UP-06：mTLS 客户端完整实现  [TODO]
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+负责人：Agent-1
+优先级：P2（可独立并行）
+分支：feat/a1-mtls-client
+worktree：D:/Develop/Project/AutoCode-a1
+白名单：pc-agent-java/src/main/** + pc-agent-java/src/test/** + scripts/**
+验收：本地 mTLS 联调通过，无证书时 /api/v1/agent/** 返回 403
+
+六、Python AI Agent 集群 PR（PY-AG 系列）
+
+背景：用户输入自然语言 → Python LLM Agent 集群理解意图、规划步骤、调用工具、执行代码 → 结果回传。
+Python AI 层负责"想"，Java 执行沙箱负责"做"，控制平面负责"管"。
+详细设计：docs/real-agent-cluster-design-2026-04.md
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PY-AG-01：Python Agent 基础框架  [TODO]
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+负责人：Agent-3
+优先级：P0（其他 PY-AG-* 的前置）
+分支：feat/a3-py-agent-foundation
+worktree：D:/Develop/Project/AutoCode-a3
+白名单：python-agent/**（新增目录）+ pc-agent-java/src/main/**（最小改动）
+新增：python-agent/main.py、runner.py、agents/base_agent.py、client/control_plane_client.py
+控制平面侧（Agent-1 配合）：AgentRegisterRequest 新增可选 capabilities 字段、Flyway V12
+验收：cd python-agent && pytest -q；能注册到控制平面并轮询 profile=ai-agent 任务
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PY-AG-02：IntentAgent + PlannerAgent  [TODO]
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+负责人：Agent-3
+优先级：P0
+分支：feat/a3-py-agent-intent-planner
+worktree：D:/Develop/Project/AutoCode-a3
+依赖：PY-AG-01
+白名单：python-agent/**
+环境变量：LLM_BACKEND=claude|openai、ANTHROPIC_API_KEY 或 OPENAI_API_KEY
+新增：agents/intent_agent.py、agents/planner_agent.py、orchestrator/agent_orchestrator.py
+验收：自然语言输入后控制平面事件流出现 IntentAgent/PlannerAgent 的 ASSISTANT_OUTPUT 事件
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PY-AG-03：CoderAgent + 文件工具  [TODO]
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+负责人：Agent-3
+优先级：P1
+分支：feat/a3-py-agent-coder
+worktree：D:/Develop/Project/AutoCode-a3
+依赖：PY-AG-02
+白名单：python-agent/**
+新增：agents/coder_agent.py、tools/file_tool.py、tools/search_tool.py
+安全约束：FileTool 写操作必须校验路径在 MVP_ALLOWED_WORKSPACE_PREFIXES 内
+验收：CoderAgent 读取文件生成修改，上报 FILE_PATCH_PREVIEW；越界路径被拒绝
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PY-AG-04：ExecTool — Java 沙箱集成  [TODO]
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+负责人：Agent-3（Python ExecTool）+ Agent-2（Java SandboxHttpServer）
+优先级：P1
+分支：feat/a3-py-agent-exec-tool（Agent-3）/ feat/a2-java-sandbox-server（Agent-2）
+worktree：D:/Develop/Project/AutoCode-a3（Python）/ D:/Develop/Project/AutoCode-a2（Java）
+依赖：PY-AG-03
+白名单：python-agent/**（Agent-3）+ pc-agent-java/src/main/**（Agent-2，新增 sandbox/SandboxHttpServer.java）
+安全约束：SandboxHttpServer 只绑定 127.0.0.1；所有命令仍经过 CommandSafetyPolicy 校验
+验收：Python Agent 发起命令 → Java 沙箱执行 → 事件上报；审批流程完整保留
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PY-AG-05：ReviewerAgent + TesterAgent  [TODO]
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+负责人：Agent-3
+优先级：P2
+分支：feat/a3-py-agent-reviewer-tester
+worktree：D:/Develop/Project/AutoCode-a3
+依赖：PY-AG-04
+白名单：python-agent/**
+新增：agents/reviewer_agent.py、agents/tester_agent.py
+验收：完整流水线（意图→规划→编码→审查→测试）端到端跑通；测试失败时最多重试 3 次
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PY-AG-06：并行执行 + 跨任务记忆  [TODO]
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+负责人：Agent-3
+优先级：P2
+分支：feat/a3-py-agent-parallel-memory
+worktree：D:/Develop/Project/AutoCode-a3
+依赖：PY-AG-05
+白名单：python-agent/**
+新增：memory/redis_memory.py；Orchestrator 升级为 DAG 并行调度
+验收：无依赖步骤并行执行；第二次同项目任务能利用 Redis 历史上下文
+
+七、移动端 Agent 对接升级 PR（MOB 系列）
+
+背景：M5 完成了基础骨架（登录/任务/产物），但缺少 WebSocket 实时流、审批卡片、语音输入。
+接入 Python AI Agent 后这些是核心展示层，必须补齐。
+详细设计：docs/mobile-agent-pr-plan-2026-04.txt
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+MOB-01：WebSocket 实时事件流  [TODO]
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+负责人：Agent-4
+优先级：P0（AI Agent 接入后最核心的展示层）
+分支：feat/a4-mob-websocket-events
+worktree：D:/Develop/Project/AutoCode-a4
+白名单：mobile-app/**
+新增：network/WebSocketClient.kt、network/EventDto.kt
+变更：AppViewModel 新增 subscribeTaskEvents()；TaskDetailTab 实时渲染事件流
+验收：任务详情页实时出现事件流；断线后自动重连续流（lastSeq 正确）
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+MOB-02：审批交互卡片  [TODO]
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+负责人：Agent-4
+优先级：P0
+分支：feat/a4-mob-approval-card
+worktree：D:/Develop/Project/AutoCode-a4
+依赖：MOB-01
+白名单：mobile-app/**
+新增：ApprovalCard Composable（展示 command/cwd/riskScore/倒计时）
+变更：ControlPlaneClient 新增 submitApproval()；AppViewModel 新增 pendingApproval StateFlow
+验收：AI Agent 触发高风险命令时弹出审批卡片；批准/拒绝后任务正确继续/终止
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+MOB-03：语音输入  [TODO]
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+负责人：Agent-4
+优先级：P1（独立，可与 MOB-01 并行）
+分支：feat/a4-mob-voice-input
+worktree：D:/Develop/Project/AutoCode-a4
+白名单：mobile-app/**
+变更：AndroidManifest 新增 RECORD_AUDIO 权限；TaskListTab 增加麦克风按钮
+验收：语音识别结果填入输入框；权限拒绝时友好降级
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+MOB-04：项目列表动态拉取  [TODO]
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+负责人：Agent-4
+优先级：P1（独立，可与 MOB-01 并行）
+分支：feat/a4-mob-dynamic-projects
+worktree：D:/Develop/Project/AutoCode-a4
+白名单：mobile-app/**
+变更：mockProjects 改为动态拉取；离线时兜底 proj-1/2/3
+验收：登录后项目列表从控制平面加载；离线不报错
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+MOB-05：AI Agent 工作过程可视化  [TODO]
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+负责人：Agent-4
+优先级：P1
+分支：feat/a4-mob-agent-visualization
+worktree：D:/Develop/Project/AutoCode-a4
+依赖：MOB-01
+白名单：mobile-app/**
+新增：AgentEventItem Composable（按事件类型渲染气泡/工具卡片/diff 高亮）
+变更：TaskDetailTab 事件流列表替换原有 logs 文本
+验收：各 Agent 气泡、FILE_PATCH_PREVIEW diff、TOOL_START/END 卡片实时展示
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+MOB-06：发布流程真实 API 对接  [TODO]
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+负责人：Agent-4
+优先级：P2
+分支：feat/a4-mob-publish-api
+worktree：D:/Develop/Project/AutoCode-a4
+依赖：MOB-05
+白名单：mobile-app/**
+变更：recordPublishEntry() 改为调用控制平面 deploy 任务 API；历史从控制平面拉取
+验收：发布申请触发真实部署任务；WebSocket 收到 DEPLOY_RESULT 展示结果
+
+八、待开发 PR 分配总览（2026-04-05）
+
+分配原则
+- Agent-1：控制面安全 + 策略引擎 + TLS（白名单：control-plane-spring + pc-agent-java 安全包）
+- Agent-2：协议契约 + Java 基础设施 + 沙箱 HTTP 接口（白名单：shared-protocol + pc-agent-java 沙箱包）
+- Agent-3：Java Agent 运行时重构 + Python Agent 全部（白名单：pc-agent-java 运行时 + python-agent）
+- Agent-4：移动端全部（白名单：mobile-app/**）
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│  PR 编号    │  标题                          │  负责人    │  优先级  │  依赖  │
+├──────────────────────────────────────────────────────────────────────────────┤
+│  AG-UP-01  │  IntentRouter（Java）           │  Agent-3  │   P0     │  无    │
+│  AG-UP-02  │  Tool Manifest（Java+协议）     │  Agent-2  │   P0     │  无    │
+│  AG-UP-03  │  Skill 层（Java）               │  Agent-3  │   P1     │ 01+02  │
+│  AG-UP-04  │  策略引擎深化（Java）           │  Agent-1  │   P1     │  03    │
+│  AG-UP-05  │  健康上报（Java+控制平面）      │  Agent-3+1│   P1     │  03    │
+│  AG-UP-06  │  mTLS 客户端（Java）            │  Agent-1  │   P2     │  无    │
+├──────────────────────────────────────────────────────────────────────────────┤
+│  PY-AG-01  │  Python Agent 基础框架          │  Agent-3  │   P0     │  无    │
+│  PY-AG-02  │  IntentAgent + PlannerAgent     │  Agent-3  │   P0     │  01    │
+│  PY-AG-03  │  CoderAgent + 文件工具          │  Agent-3  │   P1     │  02    │
+│  PY-AG-04  │  ExecTool + Java 沙箱（双端）   │  Agent-3+2│   P1     │  03    │
+│  PY-AG-05  │  ReviewerAgent + TesterAgent    │  Agent-3  │   P2     │  04    │
+│  PY-AG-06  │  并行执行 + 跨任务记忆          │  Agent-3  │   P2     │  05    │
+├──────────────────────────────────────────────────────────────────────────────┤
+│  MOB-01    │  WebSocket 实时事件流           │  Agent-4  │   P0     │  无    │
+│  MOB-02    │  审批交互卡片                   │  Agent-4  │   P0     │  01    │
+│  MOB-03    │  语音输入                       │  Agent-4  │   P1     │  无    │
+│  MOB-04    │  项目列表动态拉取               │  Agent-4  │   P1     │  无    │
+│  MOB-05    │  AI Agent 工作过程可视化        │  Agent-4  │   P1     │  01    │
+│  MOB-06    │  发布流程真实 API 对接          │  Agent-4  │   P2     │  05    │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+各 Agent 工作量
+- Agent-1：AG-UP-04 / AG-UP-05（控制平面侧）/ AG-UP-06  →  3 个 PR
+- Agent-2：AG-UP-02 / PY-AG-04（Java 沙箱侧）           →  2 个 PR
+- Agent-3：AG-UP-01/03/05 + PY-AG-01~06                 →  9 个 PR（主力）
+- Agent-4：MOB-01~06                                     →  6 个 PR
+
+P0 阶段并行开工（无依赖，可立即开始）
+- Agent-1：AG-UP-06（mTLS）
+- Agent-2：AG-UP-02（Tool Manifest）
+- Agent-3：AG-UP-01（IntentRouter）+ PY-AG-01（Python 基础框架）两条线并行
+- Agent-4：MOB-01（WebSocket）+ MOB-03（语音）+ MOB-04（项目列表）三条线并行
+
+九、历史修复记录（2026-04-03）
+
+1. 已执行修复
+- P0：AutoCode-agent3-m2 执行 stash 保护，mobile-app/** 误改已隔离，Agent-3 白名单边界已恢复。
+- P1：AutoCode-a4 的 .gradle-local/ 已加入 .gitignore 并提交。
+- P1：AutoCode-agent2 的 control-plane-spring/build/ 已加入 .gitignore 并提交。
+- P1：AutoCode-a1 的两处测试文件改动确认为纯行尾差异，已还原。
+
+2. 详细执行文档
+- 详见：docs/branch-isolation-repair-and-pr-plan-update-2026-04-03.md

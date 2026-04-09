@@ -30,19 +30,38 @@ public class AgentMtlsEnforcementFilter extends OncePerRequestFilter {
             filterChain.doFilter(request, response);
             return;
         }
-        String path = request.getRequestURI();
-        if (path == null || !path.startsWith("/api/v1/agent/")) {
+        String path = pathWithinApplication(request);
+        if (!isAgentEndpoint(path)) {
             filterChain.doFilter(request, response);
             return;
         }
         Object attr = request.getAttribute("jakarta.servlet.request.X509Certificate");
         X509Certificate[] chain = (attr instanceof X509Certificate[]) ? (X509Certificate[]) attr : null;
         if (chain == null || chain.length == 0) {
-            response.setStatus(HttpStatus.UNAUTHORIZED.value());
+            response.setStatus(HttpStatus.FORBIDDEN.value());
             response.getWriter().write("{\"ok\":false,\"error\":\"mtls required for agent\"}");
             return;
         }
         filterChain.doFilter(request, response);
+    }
+
+    private static String pathWithinApplication(HttpServletRequest request) {
+        String uri = request.getRequestURI();
+        if (uri == null) {
+            return null;
+        }
+        String contextPath = request.getContextPath();
+        if (contextPath == null || contextPath.isEmpty()) {
+            return uri;
+        }
+        if (uri.startsWith(contextPath)) {
+            return uri.substring(contextPath.length());
+        }
+        return uri;
+    }
+
+    private static boolean isAgentEndpoint(String path) {
+        return "/api/v1/agent".equals(path) || (path != null && path.startsWith("/api/v1/agent/"));
     }
 }
 

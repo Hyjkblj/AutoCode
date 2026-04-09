@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autocode.example/schema/sandbox/v1/sandbox_tools_response.v1.schema.json",
+  "title": "SandboxToolsResponse v1",
+  "type": "object",
+  "required": ["ok", "tools"],
+  "properties": {
+    "ok": { "const": true },
+    "tools": {
+      "type": "array",
+      "items": { "$ref": "../../manifest/v1/tool_manifest.v1.schema.json" }
+    }
+  },
+  "additionalProperties": true
+}

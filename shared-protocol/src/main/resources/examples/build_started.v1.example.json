@@ -1,0 +1,17 @@
+{
+  "eventId": "evt_01HQ9BUILDSTART001",
+  "taskId": "task_123",
+  "sessionId": "sess_abc",
+  "assistant": "gpt",
+  "type": "BUILD_STARTED",
+  "timestamp": "2026-04-05T10:10:00Z",
+  "seq": 50,
+  "eventVersion": 1,
+  "payload": {
+    "traceId": "trc_task_123",
+    "runId": "run_01HQ9BUILD001",
+    "buildId": "build_01HQ9B001",
+    "tool": "build.run",
+    "target": "web"
+  }
+}

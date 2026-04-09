@@ -43,6 +43,7 @@ public class CreateTaskRequestSerdeTest {
         assertEquals("p1", req.getIdentity().getProjectId());
         assertNotNull(req.getIntent());
         assertEquals("web", req.getIntent().getTarget());
+        assertEquals("zip", req.getIntent().getExportMode());
         assertNotNull(req.getExecution());
         assertEquals("D:/w", req.getExecution().getWorkspaceRef());
         assertNotNull(req.getRisk());
@@ -61,6 +62,8 @@ public class CreateTaskRequestSerdeTest {
         req.setIntent(new CreateTaskRequest.Intent());
         req.getIntent().setPrompt("do x");
         req.getIntent().setTarget("web");
+        req.getIntent().setTemplateId("web-basic");
+        req.getIntent().setExportMode("zip");
         req.getIntent().setOptions(Map.of("templateDigest", "sha256:abc"));
 
         String json = MAPPER.writeValueAsString(req);
@@ -68,5 +71,7 @@ public class CreateTaskRequestSerdeTest {
         assertEquals("p1", restored.getProjectId());
         assertEquals("p1", restored.getIdentity().getProjectId());
         assertEquals("web", restored.getIntent().getTarget());
+        assertEquals("web-basic", restored.getIntent().getTemplateId());
+        assertEquals("zip", restored.getIntent().getExportMode());
     }
 }

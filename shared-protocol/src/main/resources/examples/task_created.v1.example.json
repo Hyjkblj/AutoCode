@@ -1,0 +1,15 @@
+{
+  "eventId": "evt_01HQATASKCREATED001",
+  "taskId": "task_123",
+  "sessionId": "sess_abc",
+  "assistant": "gpt",
+  "type": "TASK_CREATED",
+  "timestamp": "2026-04-08T09:00:00Z",
+  "seq": 1,
+  "eventVersion": 1,
+  "payload": {
+    "projectId": "proj_demo_001",
+    "assistant": "gpt",
+    "riskPolicy": "default"
+  }
+}

@@ -12,6 +12,7 @@ public class TaskSummary {
     private String assistant;
     private String workspacePath;
     private String agentProfile;
+    private String sessionId;
     private String sessionKey;
     private TaskStatus status;
     private String assignedNodeId;
@@ -64,6 +65,14 @@ public class TaskSummary {
 
     public void setAgentProfile(String agentProfile) {
         this.agentProfile = agentProfile;
+    }
+
+    public String getSessionId() {
+        return sessionId;
+    }
+
+    public void setSessionId(String sessionId) {
+        this.sessionId = sessionId;
     }
 
     public String getSessionKey() {

@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autocode.example/schema/events/v1/tool_start.v1.schema.json",
+  "title": "TOOL_START TaskEvent v1",
+  "allOf": [
+    { "$ref": "task_event.v1.schema.json" },
+    {
+      "type": "object",
+      "properties": {
+        "type": { "const": "TOOL_START" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["tool"],
+          "properties": {
+            "tool": { "type": "string", "minLength": 1 },
+            "action": { "type": "string" },
+            "command": { "type": "string" },
+            "cwd": { "type": "string" },
+            "workspaceRef": { "type": "string" },
+            "toolVersion": { "type": "string" },
+            "approvalId": { "type": "string" },
+            "traceId": { "type": "string" },
+            "runId": { "type": "string" },
+            "intentSkill": { "type": "string" },
+            "intentRoute": { "type": "string" }
+          }
+        }
+      }
+    }
+  ]
+}

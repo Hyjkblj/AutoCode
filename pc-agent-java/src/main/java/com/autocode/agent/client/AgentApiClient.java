@@ -4,9 +4,11 @@
 package com.autocode.agent.client;
 
 import com.autocode.agent.config.AgentConfig;
+import com.autocode.agent.runtime.RuntimeSignalParser;
 import com.autocode.protocol.model.ApprovalDecision;
 import com.autocode.protocol.model.ArtifactMetadata;
 import com.autocode.protocol.model.GatewayResponse;
+import com.autocode.protocol.model.ServiceRuntimeDescriptor;
 import com.autocode.protocol.model.TaskEvent;
 import com.autocode.protocol.model.TaskSummary;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -21,6 +23,10 @@ import okhttp3.RequestBody;
 import okhttp3.Response;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
@@ -94,10 +100,11 @@ public class AgentApiClient {
      * 注册节点到控制平面（用于可见性与在线状态管理）。
      */
     public void register(String nodeId) throws IOException {
+        String capabilities = buildCapabilities(agentProfile, System.getenv());
         Map<String, Object> body = Map.of(
                 "nodeId", nodeId,
                 "version", agentVersion,
-                "capabilities", "codex,events,approval,profile:" + agentProfile
+                "capabilities", capabilities
         );
         Request request = post("/api/v1/agent/register", body);
         executeNoPayload(request);
@@ -183,7 +190,7 @@ public class AgentApiClient {
             if (!gateway.isOk() || gateway.getPayload() == null) {
                 throw new IOException("artifact upload rejected: " + (gateway.getError() != null ? gateway.getError() : "no payload"));
             }
-            return objectMapper.convertValue(gateway.getPayload(), ArtifactMetadata.class);
+            return toArtifactMetadata(gateway.getPayload());
         }
     }
 
@@ -241,5 +248,120 @@ public class AgentApiClient {
                 throw new IOException("request failed: " + response.code() + " " + error);
             }
         }
+    }
+
+    private ArtifactMetadata toArtifactMetadata(Object payload) {
+        ArtifactMetadata metadata = objectMapper.convertValue(payload, ArtifactMetadata.class);
+        if (!(payload instanceof Map<?, ?> map)) {
+            return metadata;
+        }
+        if (isBlank(metadata.getHash())) {
+            String hash = asTrimmedString(map.get("sha256"));
+            if (hash != null) {
+                metadata.setHash(hash);
+            }
+        }
+        if (metadata.getSize() == null) {
+            Long size = asLong(map.get("sizeBytes"));
+            if (size != null) {
+                metadata.setSize(size);
+            }
+        }
+        if (isBlank(metadata.getMime())) {
+            String contentType = asTrimmedString(map.get("contentType"));
+            if (contentType != null) {
+                metadata.setMime(contentType);
+            }
+        }
+        if (isBlank(metadata.getName())) {
+            String name = asTrimmedString(map.get("name"));
+            if (name != null) {
+                metadata.setName(name);
+            }
+        }
+        return metadata;
+    }
+
+    private static Long asLong(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof Number n) {
+            return n.longValue();
+        }
+        if (value instanceof String s) {
+            try {
+                return Long.parseLong(s.trim());
+            } catch (NumberFormatException ignored) {
+                return null;
+            }
+        }
+        return null;
+    }
+
+    private static String asTrimmedString(Object value) {
+        if (!(value instanceof String s)) {
+            return null;
+        }
+        String trimmed = s.trim();
+        return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    private static boolean isBlank(String value) {
+        return value == null || value.trim().isEmpty();
+    }
+
+    static String buildCapabilities(String agentProfile, Map<String, String> env) {
+        String profile = isBlank(agentProfile) ? "coder" : agentProfile.trim().toLowerCase(Locale.ROOT);
+        LinkedHashSet<String> capabilities = new LinkedHashSet<>();
+        capabilities.add("codex");
+        capabilities.add("events");
+        capabilities.add("approval");
+        capabilities.add("profile:" + profile);
+
+        String runtimeServiceId = trimToNull(env == null ? null : env.get("MVP_RUNTIME_SERVICE_ID"));
+        Integer runtimePort = RuntimeSignalParser.parsePositivePort(env == null ? null : env.get("MVP_RUNTIME_PORT"));
+        List<ServiceRuntimeDescriptor.PortBinding> runtimePorts = RuntimeSignalParser.parsePortBindings(
+                env == null ? null : env.get("MVP_RUNTIME_PORTS"));
+        String runtimeHealthPath = RuntimeSignalParser.normalizeHealthPath(
+                trimToNull(env == null ? null : env.get("MVP_RUNTIME_HEALTH_PATH")));
+        String runtimeHealthUrl = trimToNull(env == null ? null : env.get("MVP_RUNTIME_HEALTH_URL"));
+        if (runtimeServiceId != null || runtimePort != null || !runtimePorts.isEmpty()
+                || runtimeHealthPath != null || runtimeHealthUrl != null) {
+            capabilities.add("runtime.descriptor.v1");
+            if (runtimeServiceId != null) {
+                capabilities.add("runtime.service:" + sanitizeCapabilityValue(runtimeServiceId));
+            }
+            if (runtimePort != null) {
+                capabilities.add("runtime.port:" + runtimePort);
+            } else if (!runtimePorts.isEmpty()) {
+                capabilities.add("runtime.port:" + runtimePorts.get(0).getPort());
+                capabilities.add("runtime.ports.count:" + runtimePorts.size());
+            }
+            if (runtimeHealthPath != null) {
+                capabilities.add("runtime.health.path:" + sanitizeCapabilityValue(runtimeHealthPath));
+            }
+            if (runtimeHealthUrl != null) {
+                capabilities.add("runtime.health.url");
+            }
+        }
+        return String.join(",", new ArrayList<>(capabilities));
+    }
+
+    private static String sanitizeCapabilityValue(String value) {
+        String trimmed = trimToNull(value);
+        if (trimmed == null) {
+            return "";
+        }
+        String safe = trimmed.replace(",", "_").replace(' ', '_');
+        return safe;
+    }
+
+    private static String trimToNull(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
     }
 }

@@ -35,10 +35,12 @@ class TaskExecutorArtifactReadyContractTest {
         TaskSummary task = new TaskSummary();
         task.setTaskId("task_1");
         task.setAssistant("codex");
+        task.setSessionId("sess_id_1");
         task.setSessionKey("sess_1");
         TaskEvent e = TaskExecutor.buildEvent(task, "trc_1", "run_1", EventType.ARTIFACT_READY, merged, 3);
         e.setPayload(merged);
         TaskEventContractValidator.validate(e);
+        assertEquals("sess_id_1", e.getSessionId());
     }
 
     @Test

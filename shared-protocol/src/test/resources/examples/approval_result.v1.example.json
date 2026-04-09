@@ -1,0 +1,24 @@
+{
+  "eventId": "evt_test_approval_result_001",
+  "taskId": "task_test_123",
+  "sessionId": "sess_test_abc",
+  "assistant": "test",
+  "type": "APPROVAL_RESULT",
+  "timestamp": "2026-04-05T10:01:00Z",
+  "seq": 41,
+  "eventVersion": 1,
+  "payload": {
+    "approvalId": "apr_test_001",
+    "decision": "reject",
+    "traceId": "trc_task_test_123",
+    "runId": "run_test_approval_001",
+    "waitMs": 950,
+    "message": "blocked by reviewer",
+    "context": {
+      "action": "app.publish",
+      "tool": "publish.run",
+      "workspaceRef": "D:/workspace/test",
+      "inputsHash": "sha256:13d1746e51afcf6962ec8f0fc70823ea89993f31708bcfb5f4f2467f7af450f9"
+    }
+  }
+}

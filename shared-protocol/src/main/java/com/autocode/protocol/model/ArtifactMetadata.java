@@ -8,11 +8,17 @@ import java.util.List;
 public class ArtifactMetadata {
     private String artifactId;
     private String hash;
+    /** Optional hash alias (preferred for nl2web contracts). */
+    private String sha256;
     private Long size;
     private String mime;
+    /** Optional mime alias (preferred for nl2web contracts). */
+    private String mimeType;
     private String type;
     /** Optional human label (e.g. file name). */
     private String name;
+    /** Optional file name alias (preferred for nl2web contracts). */
+    private String fileName;
     /** Optional direct download URL when hosted. */
     private String downloadUrl;
     /** Optional primary entry path inside a bundle (zip, etc.). */
@@ -31,11 +37,25 @@ public class ArtifactMetadata {
     }
 
     public String getHash() {
-        return hash;
+        return coalesce(hash, sha256);
     }
 
     public void setHash(String hash) {
         this.hash = hash;
+        if (!isBlank(hash)) {
+            this.sha256 = hash;
+        }
+    }
+
+    public String getSha256() {
+        return coalesce(sha256, hash);
+    }
+
+    public void setSha256(String sha256) {
+        this.sha256 = sha256;
+        if (!isBlank(sha256) && isBlank(this.hash)) {
+            this.hash = sha256;
+        }
     }
 
     public Long getSize() {
@@ -47,11 +67,25 @@ public class ArtifactMetadata {
     }
 
     public String getMime() {
-        return mime;
+        return coalesce(mime, mimeType);
     }
 
     public void setMime(String mime) {
         this.mime = mime;
+        if (!isBlank(mime)) {
+            this.mimeType = mime;
+        }
+    }
+
+    public String getMimeType() {
+        return coalesce(mimeType, mime);
+    }
+
+    public void setMimeType(String mimeType) {
+        this.mimeType = mimeType;
+        if (!isBlank(mimeType) && isBlank(this.mime)) {
+            this.mime = mimeType;
+        }
     }
 
     public String getType() {
@@ -63,11 +97,25 @@ public class ArtifactMetadata {
     }
 
     public String getName() {
-        return name;
+        return coalesce(name, fileName);
     }
 
     public void setName(String name) {
         this.name = name;
+        if (!isBlank(name)) {
+            this.fileName = name;
+        }
+    }
+
+    public String getFileName() {
+        return coalesce(fileName, name);
+    }
+
+    public void setFileName(String fileName) {
+        this.fileName = fileName;
+        if (!isBlank(fileName) && isBlank(this.name)) {
+            this.name = fileName;
+        }
     }
 
     public String getDownloadUrl() {
@@ -142,6 +190,14 @@ public class ArtifactMetadata {
         public void setHints(List<String> hints) {
             this.hints = hints;
         }
+    }
+
+    private static String coalesce(String primary, String fallback) {
+        return !isBlank(primary) ? primary : fallback;
+    }
+
+    private static boolean isBlank(String value) {
+        return value == null || value.trim().isEmpty();
     }
 }
 

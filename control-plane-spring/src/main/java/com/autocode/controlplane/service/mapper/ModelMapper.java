@@ -13,6 +13,10 @@ import org.springframework.stereotype.Component;
 public class ModelMapper {
 
     public TaskSummary toSummary(TaskEntity task) {
+        return toSummary(task, null, null);
+    }
+
+    public TaskSummary toSummary(TaskEntity task, String failureReason, String failureErrorCode) {
         TaskSummary summary = new TaskSummary();
         summary.setTaskId(task.getTaskId());
         summary.setProjectId(task.getProjectId());
@@ -21,7 +25,11 @@ public class ModelMapper {
         // Backward/forward compatible with shared-protocol: these fields may not exist in older versions.
         invokeSetterIfPresent(summary, "setWorkspacePath", String.class, task.getWorkspacePath());
         invokeSetterIfPresent(summary, "setAgentProfile", String.class, task.getAgentProfile());
+        invokeSetterIfPresent(summary, "setSessionId", String.class, task.getSessionId());
         invokeSetterIfPresent(summary, "setSessionKey", String.class, task.getSessionKey());
+        invokeSetterIfPresent(summary, "setFailureReason", String.class, failureReason);
+        invokeSetterIfPresent(summary, "setFailureErrorCode", String.class, failureErrorCode);
+        invokeSetterIfPresent(summary, "setErrorCode", String.class, failureErrorCode);
         summary.setStatus(task.getStatus());
         summary.setAssignedNodeId(task.getAssignedNodeId());
         summary.setCreatedAt(task.getCreatedAt());

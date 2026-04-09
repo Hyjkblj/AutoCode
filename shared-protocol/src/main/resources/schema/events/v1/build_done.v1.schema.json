@@ -12,6 +12,8 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
+            "traceId": { "type": "string", "minLength": 1 },
+            "runId": { "type": "string", "minLength": 1 },
             "buildId": { "type": "string" },
             "status": { "type": "string" },
             "durationMs": { "type": "integer", "minimum": 0 },

@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autocode.example/schema/events/v1/heartbeat.v1.schema.json",
+  "title": "HEARTBEAT TaskEvent v1",
+  "allOf": [
+    { "$ref": "task_event.v1.schema.json" },
+    {
+      "type": "object",
+      "properties": {
+        "type": { "const": "HEARTBEAT" },
+        "payload": {
+          "type": "object",
+          "properties": {
+            "nodeId": { "type": "string" },
+            "status": { "type": "string" },
+            "uptimeMs": { "type": "integer", "minimum": 0 }
+          },
+          "additionalProperties": true
+        }
+      }
+    }
+  ]
+}

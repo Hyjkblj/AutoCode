@@ -3,6 +3,7 @@
  */
 package com.autocode.controlplane;
 
+import com.autocode.controlplane.persistence.repo.ProjectMembershipEntityRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -28,6 +29,9 @@ class TaskControllerIntegrationTest extends OperatorProj1MembershipFixture {
     @Autowired
     private ObjectMapper objectMapper;
 
+    @Autowired
+    private ProjectMembershipEntityRepository membershipRepository;
+
     @Test
     void createTaskRequiresOperatorToken() throws Exception {
         String payload = """
@@ -42,6 +46,39 @@ class TaskControllerIntegrationTest extends OperatorProj1MembershipFixture {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(payload))
                 .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void nonApiEndpointsShouldNotBePermitAllInTokenMode() throws Exception {
+        mockMvc.perform(get("/api/v1/agent/nodes"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void agentEndpointShouldRejectOperatorBearerToken() throws Exception {
+        mockMvc.perform(get("/api/v1/agent/tasks/next")
+                        .param("nodeId", "node-a")
+                        .header("Authorization", "Bearer op-a"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.ok").value(false));
+    }
+
+    @Test
+    void operatorEndpointShouldRejectAgentTokenOnly() throws Exception {
+        String payload = """
+                {
+                  "projectId": "proj-1",
+                  "assistant": "codex",
+                  "prompt": "should fail with agent token"
+                }
+                """;
+
+        mockMvc.perform(post("/api/v1/tasks")
+                        .header("X-Agent-Token", "ag-a")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.ok").value(false));
     }
 
     @Test
@@ -118,6 +155,80 @@ class TaskControllerIntegrationTest extends OperatorProj1MembershipFixture {
                         .param("lastEventId", "0"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.payload").isArray());
+    }
+
+    @Test
+    void createTaskShouldExposeSessionIdInSummary() throws Exception {
+        String response = createTask("session id field");
+        String sessionId = objectMapper.readTree(response).path("payload").path("sessionId").asText();
+
+        org.junit.jupiter.api.Assertions.assertTrue(sessionId != null && sessionId.startsWith("ses_"));
+    }
+
+    @Test
+    void createTaskShouldReturnRuntimeMetadataFields() throws Exception {
+        String payload = """
+                {
+                  "projectId": "proj-1",
+                  "assistant": "codex",
+                  "prompt": "runtime metadata roundtrip",
+                  "workspacePath": "D:/repoA",
+                  "agentProfile": "reviewer",
+                  "sessionKey": "lane-alpha"
+                }
+                """;
+
+        mockMvc.perform(post("/api/v1/tasks")
+                        .header("Authorization", "Bearer op-a")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.ok").value(true))
+                .andExpect(jsonPath("$.payload.workspacePath").value("D:/repoA"))
+                .andExpect(jsonPath("$.payload.agentProfile").value("reviewer"))
+                .andExpect(jsonPath("$.payload.sessionKey").value("lane-alpha"));
+    }
+
+    @Test
+    void taskScopedEndpointsShouldReturn404ForNonMember() throws Exception {
+        String createResponse = createTask("non-member 404 semantics");
+        String taskId = objectMapper.readTree(createResponse).path("payload").path("taskId").asText();
+
+        // Remove project membership; task-scoped APIs must become non-enumerable.
+        membershipRepository.deleteAll();
+
+        mockMvc.perform(get("/api/v1/tasks/{taskId}", taskId)
+                        .header("Authorization", "Bearer op-a"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.ok").value(false))
+                .andExpect(jsonPath("$.error").value("not found"));
+
+        mockMvc.perform(get("/api/v1/tasks/{taskId}/events", taskId)
+                        .header("Authorization", "Bearer op-a"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.ok").value(false))
+                .andExpect(jsonPath("$.error").value("not found"));
+
+        String approvalPayload = """
+                {
+                  "approvalId": "apr_non_member_1",
+                  "decision": "approve",
+                  "comment": "should not be reachable"
+                }
+                """;
+        mockMvc.perform(post("/api/v1/tasks/{taskId}/approval", taskId)
+                        .header("Authorization", "Bearer op-a")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(approvalPayload))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.ok").value(false))
+                .andExpect(jsonPath("$.error").value("not found"));
+
+        mockMvc.perform(post("/api/v1/tasks/{taskId}/cancel", taskId)
+                        .header("Authorization", "Bearer op-a"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.ok").value(false))
+                .andExpect(jsonPath("$.error").value("not found"));
     }
 
     private String createTask(String prompt) throws Exception {

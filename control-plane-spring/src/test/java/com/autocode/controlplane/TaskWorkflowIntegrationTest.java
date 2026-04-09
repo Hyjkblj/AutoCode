@@ -5,8 +5,8 @@ package com.autocode.controlplane;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.Disabled;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -39,7 +39,7 @@ class TaskWorkflowIntegrationTest extends OperatorProj1MembershipFixture {
     private com.autocode.controlplane.persistence.repo.TaskEntityRepository taskEntityRepository;
 
     @Autowired
-    private com.autocode.controlplane.service.queue.TaskQueuePort taskQueue;
+    private EntityManager entityManager;
 
     @Test
     void approvalFlowCanResumeAndCompleteTask() throws Exception {
@@ -114,15 +114,18 @@ class TaskWorkflowIntegrationTest extends OperatorProj1MembershipFixture {
 
     @Test
     void profileRoutingShouldPreferMatchingProfile() throws Exception {
+        registerAgentNode("node-reviewer-1");
+        String isolatedProfile = "reviewer-routing-test";
+
         String t1 = objectMapper.readTree(createTask("need coder")).path("payload").path("taskId").asText();
         String t2Payload = """
                 {
                   "projectId": "proj-1",
                   "assistant": "codex",
                   "prompt": "need reviewer",
-                  "agentProfile": "reviewer"
+                  "agentProfile": "%s"
                 }
-                """;
+                """.formatted(isolatedProfile);
         String t2Resp = mockMvc.perform(post("/api/v1/tasks")
                         .header("Authorization", "Bearer operator-dev-token")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -135,7 +138,7 @@ class TaskWorkflowIntegrationTest extends OperatorProj1MembershipFixture {
         for (int i = 0; i < 20; i++) {
             var res = mockMvc.perform(get("/api/v1/agent/tasks/next")
                             .param("nodeId", "node-reviewer-1")
-                            .param("profile", "reviewer")
+                            .param("profile", isolatedProfile)
                             .header("X-Agent-Token", "agent-dev-token"))
                     .andReturn();
             if (res.getResponse().getStatus() == 204) {
@@ -147,7 +150,22 @@ class TaskWorkflowIntegrationTest extends OperatorProj1MembershipFixture {
                 return;
             }
         }
-        org.junit.jupiter.api.Assertions.fail("reviewer profile did not receive reviewer task " + t2);
+        org.junit.jupiter.api.Assertions.fail("isolated profile did not receive routing task " + t2);
+    }
+
+    private void registerAgentNode(String nodeId) throws Exception {
+        String payload = """
+                {
+                  "nodeId": "%s",
+                  "version": "test-1"
+                }
+                """.formatted(nodeId);
+
+        mockMvc.perform(post("/api/v1/agent/register")
+                        .header("X-Agent-Token", "agent-dev-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(status().isOk());
     }
 
     @Test
@@ -222,6 +240,190 @@ class TaskWorkflowIntegrationTest extends OperatorProj1MembershipFixture {
             }
         }
         assertEquals(1, assistantOutputCount);
+    }
+
+    @Test
+    void assistantOutputReviewFieldsShouldBeNormalizedAndAudited() throws Exception {
+        String createResponse = createTask("Review payload compatibility");
+        String taskId = objectMapper.readTree(createResponse).path("payload").path("taskId").asText();
+
+        String reviewEvent = """
+                {
+                  "event": {
+                    "eventId": "evt-review-compat-1",
+                    "type": "ASSISTANT_OUTPUT",
+                    "assistant": "codex",
+                    "payload": {
+                      "stage": "ReviewerAgent",
+                      "risk_level": "high",
+                      "summary": "review says high risk",
+                      "issues": ["unsafe command", "sql injection pattern"]
+                    }
+                  }
+                }
+                """;
+
+        mockMvc.perform(post("/api/v1/agent/tasks/{taskId}/events", taskId)
+                        .header("X-Agent-Token", "agent-dev-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(reviewEvent))
+                .andExpect(status().isOk());
+
+        String eventsResponse = mockMvc.perform(get("/api/v1/tasks/{taskId}/events", taskId)
+                        .header("Authorization", "Bearer operator-dev-token"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        JsonNode events = objectMapper.readTree(eventsResponse).path("payload");
+        JsonNode reviewPayload = null;
+        for (JsonNode event : events) {
+            if ("evt-review-compat-1".equals(event.path("eventId").asText())) {
+                reviewPayload = event.path("payload");
+                break;
+            }
+        }
+        assertTrue(reviewPayload != null, "review compatibility event should exist");
+        assertEquals("high", reviewPayload.path("riskLevel").asText());
+        assertEquals("high", reviewPayload.path("risk_level").asText());
+        assertEquals("review says high risk", reviewPayload.path("summary").asText());
+        assertEquals(2, reviewPayload.path("issues").size());
+
+        String auditResponse = mockMvc.perform(get("/api/v1/audits/export")
+                        .param("taskId", taskId)
+                        .header("Authorization", "Bearer operator-dev-token"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        JsonNode items = objectMapper.readTree(auditResponse).path("payload").path("items");
+        boolean hasReviewAudit = false;
+        for (JsonNode item : items) {
+            if (!"review.result".equals(item.path("action").asText())) {
+                continue;
+            }
+            JsonNode details = objectMapper.readTree(item.path("detailsJson").asText("{}"));
+            if ("ASSISTANT_OUTPUT".equals(details.path("eventType").asText())
+                    && "high".equals(details.path("riskLevel").asText())) {
+                hasReviewAudit = true;
+                assertEquals("review says high risk", details.path("summary").asText());
+                assertEquals(2, details.path("issues").size());
+            }
+        }
+        assertTrue(hasReviewAudit, "review.result audit should be recorded");
+    }
+
+    @Test
+    void taskFailedFixLoopExhaustedShouldWriteFailureAudit() throws Exception {
+        String createResponse = createTask("Fix loop failure semantics");
+        String taskId = objectMapper.readTree(createResponse).path("payload").path("taskId").asText();
+
+        String taskFailedEvent = """
+                {
+                  "event": {
+                    "eventId": "evt-fix-loop-failed-1",
+                    "type": "TASK_FAILED",
+                    "assistant": "codex",
+                    "payload": {
+                      "reason": "fix_loop_exhausted",
+                      "attempt": 3,
+                      "maxAttempts": 3,
+                      "lastTestError": "AssertionError: expected 200 got 500"
+                    }
+                  }
+                }
+                """;
+
+        mockMvc.perform(post("/api/v1/agent/tasks/{taskId}/events", taskId)
+                        .header("X-Agent-Token", "agent-dev-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(taskFailedEvent))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.payload.status").value("FAILED"));
+
+        mockMvc.perform(get("/api/v1/tasks/{taskId}", taskId)
+                        .header("Authorization", "Bearer operator-dev-token"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.payload.status").value("FAILED"));
+
+        String auditResponse = mockMvc.perform(get("/api/v1/audits/export")
+                        .param("taskId", taskId)
+                        .header("Authorization", "Bearer operator-dev-token"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        JsonNode items = objectMapper.readTree(auditResponse).path("payload").path("items");
+        boolean hasFixLoopAudit = false;
+        for (JsonNode item : items) {
+            if (!"fix_loop.exhausted".equals(item.path("action").asText())) {
+                continue;
+            }
+            JsonNode details = objectMapper.readTree(item.path("detailsJson").asText("{}"));
+            if ("fix_loop_exhausted".equals(details.path("reason").asText())) {
+                hasFixLoopAudit = true;
+                assertEquals(3, details.path("attempt").asInt());
+                assertEquals(3, details.path("maxAttempts").asInt());
+                assertEquals("AssertionError: expected 200 got 500", details.path("lastTestError").asText());
+            }
+        }
+        assertTrue(hasFixLoopAudit, "fix_loop.exhausted audit should be recorded");
+    }
+
+    @Test
+    void taskFailedReasonShouldBeQueryableViaTaskEvents() throws Exception {
+        String createResponse = createTask("nl2web unsupported target");
+        String taskId = objectMapper.readTree(createResponse).path("payload").path("taskId").asText();
+
+        String taskFailedEvent = """
+                {
+                  "event": {
+                    "eventId": "evt-nl2web-failed-reason-1",
+                    "type": "TASK_FAILED",
+                    "assistant": "ai-agent",
+                    "payload": {
+                      "reason": "unsupported_target",
+                      "errorCode": "UNSUPPORTED_TARGET",
+                      "summary": "only target=web is supported in mvp"
+                    }
+                  }
+                }
+                """;
+
+        mockMvc.perform(post("/api/v1/agent/tasks/{taskId}/events", taskId)
+                        .header("X-Agent-Token", "agent-dev-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(taskFailedEvent))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.payload.status").value("FAILED"));
+
+        String taskResponse = mockMvc.perform(get("/api/v1/tasks/{taskId}", taskId)
+                        .header("Authorization", "Bearer operator-dev-token"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        JsonNode taskPayload = objectMapper.readTree(taskResponse).path("payload");
+        assertEquals("FAILED", taskPayload.path("status").asText());
+        JsonNode failureReason = taskPayload.get("failureReason");
+        if (failureReason != null && !failureReason.isNull()) {
+            assertEquals("unsupported_target", failureReason.asText());
+        }
+
+        String eventsResponse = mockMvc.perform(get("/api/v1/tasks/{taskId}/events", taskId)
+                        .header("Authorization", "Bearer operator-dev-token"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        JsonNode events = objectMapper.readTree(eventsResponse).path("payload");
+        boolean hasFailureReason = false;
+        for (JsonNode event : events) {
+            if (!"evt-nl2web-failed-reason-1".equals(event.path("eventId").asText())) {
+                continue;
+            }
+            hasFailureReason = true;
+            JsonNode payload = event.path("payload");
+            assertEquals("unsupported_target", payload.path("reason").asText());
+            assertEquals("UNSUPPORTED_TARGET", payload.path("errorCode").asText());
+            assertEquals("only target=web is supported in mvp", payload.path("summary").asText());
+            break;
+        }
+        assertTrue(hasFailureReason, "TASK_FAILED reason should be queryable from /events");
     }
 
     @Test
@@ -438,6 +640,184 @@ class TaskWorkflowIntegrationTest extends OperatorProj1MembershipFixture {
     }
 
     @Test
+    void deployPlanShouldBeDeniedBeforeApprovalDecision() throws Exception {
+        String createResponse = createTask("Deploy pending approval");
+        String taskId = objectMapper.readTree(createResponse).path("payload").path("taskId").asText();
+
+        String approvalRequiredEvent = """
+                {
+                  "event": {
+                    "eventId": "evt-approval-required-deploy-pending-1",
+                    "type": "APPROVAL_REQUIRED",
+                    "assistant": "codex",
+                    "payload": {
+                      "approvalId": "apr-deploy-pending-1",
+                      "action": "app.generate",
+                      "tool": "deploy.execute",
+                      "command": "deploy --env staging",
+                      "cwd": "D:/repoA",
+                      "context": {
+                        "action": "app.generate",
+                        "tool": "deploy.execute",
+                        "workspaceRef": "workspace://proj-1",
+                        "inputsHash": "ih_deploy_pending_1"
+                      }
+                    }
+                  }
+                }
+                """;
+        mockMvc.perform(post("/api/v1/agent/tasks/{taskId}/events", taskId)
+                        .header("X-Agent-Token", "agent-dev-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(approvalRequiredEvent))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.payload.status").value("WAITING_APPROVAL"));
+
+        String deployPlanEvent = """
+                {
+                  "event": {
+                    "eventId": "evt-deploy-plan-pending-1",
+                    "type": "DEPLOY_PLAN",
+                    "assistant": "codex",
+                    "payload": {
+                      "requestId": "dep_req_pending_1",
+                      "environment": "staging",
+                      "artifact": {
+                        "artifactId": "art_deploy_pending_1",
+                        "type": "zip"
+                      },
+                      "context": {
+                        "action": "app.generate",
+                        "tool": "deploy.execute",
+                        "workspaceRef": "workspace://proj-1",
+                        "inputsHash": "ih_deploy_pending_1"
+                      }
+                    }
+                  }
+                }
+                """;
+
+        mockMvc.perform(post("/api/v1/agent/tasks/{taskId}/events", taskId)
+                        .header("X-Agent-Token", "agent-dev-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(deployPlanEvent))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.payload.status").value("WAITING_APPROVAL"));
+
+        String auditResponse = mockMvc.perform(get("/api/v1/audits/export")
+                        .param("taskId", taskId)
+                        .header("Authorization", "Bearer operator-dev-token"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        JsonNode items = objectMapper.readTree(auditResponse).path("payload").path("items");
+        boolean hasDenied = false;
+        for (JsonNode item : items) {
+            if (!"deploy.authz.denied".equals(item.path("action").asText())) {
+                continue;
+            }
+            JsonNode details = objectMapper.readTree(item.path("detailsJson").asText("{}"));
+            if ("approval_not_approved".equals(details.path("reason").asText())) {
+                hasDenied = true;
+                assertEquals("pending", details.path("approvalDecision").asText());
+                assertEquals("dep_req_pending_1", details.path("requestId").asText());
+            }
+        }
+        assertTrue(hasDenied, "deploy.authz.denied audit should be recorded when approval is pending");
+    }
+
+    @Test
+    void deployResultShouldNotOverrideCanceledStatusAfterReject() throws Exception {
+        String createResponse = createTask("Deploy reject gate");
+        String taskId = objectMapper.readTree(createResponse).path("payload").path("taskId").asText();
+
+        String approvalRequiredEvent = """
+                {
+                  "event": {
+                    "eventId": "evt-approval-required-deploy-reject-1",
+                    "type": "APPROVAL_REQUIRED",
+                    "assistant": "codex",
+                    "payload": {
+                      "approvalId": "apr-deploy-reject-1",
+                      "action": "app.generate",
+                      "tool": "deploy.execute",
+                      "command": "deploy --env staging",
+                      "cwd": "D:/repoA",
+                      "context": {
+                        "action": "app.generate",
+                        "tool": "deploy.execute",
+                        "workspaceRef": "workspace://proj-1",
+                        "inputsHash": "ih_deploy_reject_1"
+                      }
+                    }
+                  }
+                }
+                """;
+        mockMvc.perform(post("/api/v1/agent/tasks/{taskId}/events", taskId)
+                        .header("X-Agent-Token", "agent-dev-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(approvalRequiredEvent))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.payload.status").value("WAITING_APPROVAL"));
+
+        String rejectBody = """
+                {
+                  "approvalId": "apr-deploy-reject-1",
+                  "decision": "reject",
+                  "comment": "rejected in integration test"
+                }
+                """;
+        mockMvc.perform(post("/api/v1/tasks/{taskId}/approval", taskId)
+                        .header("Authorization", "Bearer operator-dev-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(rejectBody))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.payload.status").value("CANCELED"));
+
+        String deployResultEvent = """
+                {
+                  "event": {
+                    "eventId": "evt-deploy-result-reject-1",
+                    "type": "DEPLOY_RESULT",
+                    "assistant": "codex",
+                    "payload": {
+                      "requestId": "dep_req_reject_1",
+                      "status": "success",
+                      "environment": "staging"
+                    }
+                  }
+                }
+                """;
+        mockMvc.perform(post("/api/v1/agent/tasks/{taskId}/events", taskId)
+                        .header("X-Agent-Token", "agent-dev-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(deployResultEvent))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.payload.status").value("CANCELED"));
+
+        String auditResponse = mockMvc.perform(get("/api/v1/audits/export")
+                        .param("taskId", taskId)
+                        .header("Authorization", "Bearer operator-dev-token"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        JsonNode items = objectMapper.readTree(auditResponse).path("payload").path("items");
+        boolean hasDenied = false;
+        for (JsonNode item : items) {
+            if (!"deploy.authz.denied".equals(item.path("action").asText())) {
+                continue;
+            }
+            JsonNode details = objectMapper.readTree(item.path("detailsJson").asText("{}"));
+            if ("approval_not_approved".equals(details.path("reason").asText())) {
+                hasDenied = true;
+                assertEquals("reject", details.path("approvalDecision").asText());
+                assertEquals("dep_req_reject_1", details.path("requestId").asText());
+            }
+        }
+        assertTrue(hasDenied, "deploy.authz.denied audit should be recorded when approval is rejected");
+    }
+
+    @Test
     void deployPlanAndResultShouldAdvanceStateAndWriteAudit() throws Exception {
         String createResponse = createTask("Deploy flow");
         String taskId = objectMapper.readTree(createResponse).path("payload").path("taskId").asText();
@@ -514,7 +894,6 @@ class TaskWorkflowIntegrationTest extends OperatorProj1MembershipFixture {
 
     @Test
     @Transactional
-    @Disabled("Flaky in shared queue integration suite; lease logic covered by service-level behavior.")
     void expiredLeaseTaskShouldBeRequeuedAndPollable() throws Exception {
         String createResponse = createTask("Lease expiry");
         String taskId = objectMapper.readTree(createResponse).path("payload").path("taskId").asText();
@@ -527,29 +906,24 @@ class TaskWorkflowIntegrationTest extends OperatorProj1MembershipFixture {
         task.setLeaseExpiresAt(Instant.now().minusSeconds(60));
         taskEntityRepository.saveAndFlush(task);
 
-        // Deterministic recovery: explicitly requeue when lease expired, then ensure it becomes pollable.
-        int updated = taskEntityRepository.requeueIfLeaseExpired(taskId, Instant.now());
+        // Deterministic recovery: explicitly requeue when lease expired.
+        Instant now = Instant.now();
+        int updated = taskEntityRepository.requeueIfLeaseExpired(taskId, now);
         assertEquals(1, updated);
 
-        // Drain existing queue items to make assertion deterministic.
-        for (int i = 0; i < 200; i++) {
-            var result = mockMvc.perform(get("/api/v1/agent/tasks/next")
-                            .param("nodeId", "node-local-1")
-                            .header("X-Agent-Token", "agent-dev-token"))
-                    .andReturn();
-            if (result.getResponse().getStatus() == 204) {
-                break;
-            }
-        }
+        // Pollability: once re-queued, claim should succeed and move task back to RUNNING.
+        int claimed = taskEntityRepository.claimQueuedTask(
+                taskId,
+                "node-local-1",
+                now.plusSeconds(1),
+                now.plusSeconds(61)
+        );
+        assertEquals(1, claimed);
 
-        taskQueue.enqueue(taskId);
-
-        mockMvc.perform(get("/api/v1/agent/tasks/next")
-                        .param("nodeId", "node-local-1")
-                        .header("X-Agent-Token", "agent-dev-token"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.payload.taskId").value(taskId))
-                .andExpect(jsonPath("$.payload.assignedNodeId").value("node-local-1"));
+        entityManager.clear();
+        var claimedTask = taskEntityRepository.findById(taskId).orElseThrow();
+        assertEquals(com.autocode.protocol.model.TaskStatus.RUNNING, claimedTask.getStatus());
+        assertEquals("node-local-1", claimedTask.getAssignedNodeId());
     }
 
     private String createTask(String prompt) throws Exception {

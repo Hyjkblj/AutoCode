@@ -22,6 +22,9 @@ class SpecProposedPayloadSerdeTest {
             SpecProposedPayload payload = MAPPER.treeToValue(payloadNode, SpecProposedPayload.class);
             assertEquals("trc_task_test_spec", payload.getTraceId());
             assertEquals("run_test_spec_001", payload.getRunId());
+            assertEquals("web", payload.getTarget());
+            assertEquals("web-basic", payload.getTemplateId());
+            assertEquals("zip", payload.getExportMode());
             assertNotNull(payload.getArtifact());
             assertEquals("art_spec_test_001", payload.getArtifact().getArtifactId());
             assertEquals("spec", payload.getArtifact().getType());

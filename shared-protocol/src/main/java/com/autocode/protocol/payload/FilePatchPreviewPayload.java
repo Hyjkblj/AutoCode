@@ -20,6 +20,21 @@ public class FilePatchPreviewPayload {
     private String runId;
 
     /**
+     * Optional. Requested generation target (MVP: web).
+     */
+    private String target;
+
+    /**
+     * Optional. Selected template identifier.
+     */
+    private String templateId;
+
+    /**
+     * Optional. Requested export mode (e.g. zip).
+     */
+    private String exportMode;
+
+    /**
      * Suggested values: unified | files.
      */
     private String format;
@@ -53,6 +68,30 @@ public class FilePatchPreviewPayload {
 
     public void setRunId(String runId) {
         this.runId = runId;
+    }
+
+    public String getTarget() {
+        return target;
+    }
+
+    public void setTarget(String target) {
+        this.target = target;
+    }
+
+    public String getTemplateId() {
+        return templateId;
+    }
+
+    public void setTemplateId(String templateId) {
+        this.templateId = templateId;
+    }
+
+    public String getExportMode() {
+        return exportMode;
+    }
+
+    public void setExportMode(String exportMode) {
+        this.exportMode = exportMode;
     }
 
     public String getFormat() {
@@ -89,10 +128,12 @@ public class FilePatchPreviewPayload {
 
     public static class FileChange {
         private String path;
+
         /**
-         * Suggested values: add | modify | delete | rename
+         * Suggested values: add | modify | delete | rename.
          */
         private String changeType;
+
         private String beforeHash;
         private String afterHash;
 
@@ -129,4 +170,3 @@ public class FilePatchPreviewPayload {
         }
     }
 }
-

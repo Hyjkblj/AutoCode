@@ -10,6 +10,9 @@
   "payload": {
     "traceId": "trc_task_123",
     "runId": "run_01HQ7FZK2B1KQ3S3GAP9V1Q2M8",
+    "target": "web",
+    "templateId": "web-basic",
+    "exportMode": "zip",
     "artifact": {
       "artifactId": "art_spec_001",
       "hash": "sha256:1b2c3d4e5f60718293a4b5c6d7e8f901234567890abcdef1234567890abcdef",
@@ -22,4 +25,3 @@
     "schemaVersion": "v1"
   }
 }
-

@@ -19,6 +19,21 @@ public class SpecProposedPayload {
     private String runId;
 
     /**
+     * Optional. Requested generation target (MVP: web).
+     */
+    private String target;
+
+    /**
+     * Optional. Selected template identifier.
+     */
+    private String templateId;
+
+    /**
+     * Optional. Requested export mode (e.g. zip).
+     */
+    private String exportMode;
+
+    /**
      * Required. Artifact reference for the spec content.
      */
     private ArtifactMetadata artifact;
@@ -54,6 +69,30 @@ public class SpecProposedPayload {
         this.runId = runId;
     }
 
+    public String getTarget() {
+        return target;
+    }
+
+    public void setTarget(String target) {
+        this.target = target;
+    }
+
+    public String getTemplateId() {
+        return templateId;
+    }
+
+    public void setTemplateId(String templateId) {
+        this.templateId = templateId;
+    }
+
+    public String getExportMode() {
+        return exportMode;
+    }
+
+    public void setExportMode(String exportMode) {
+        this.exportMode = exportMode;
+    }
+
     public ArtifactMetadata getArtifact() {
         return artifact;
     }
@@ -86,4 +125,3 @@ public class SpecProposedPayload {
         this.schemaVersion = schemaVersion;
     }
 }
-

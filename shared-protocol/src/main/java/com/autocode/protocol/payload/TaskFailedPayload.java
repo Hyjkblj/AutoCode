@@ -5,8 +5,23 @@ import java.util.List;
 
 /**
  * Payload for {@code EventType.TASK_FAILED}.
+ *
+ * Recommended standardized reasons for nl2web MVP:
+ * <ul>
+ *   <li>{@link #REASON_UNSUPPORTED_TARGET}</li>
+ *   <li>{@link #REASON_TEMPLATE_GENERATION_FAILED}</li>
+ *   <li>{@link #REASON_ARTIFACT_PACK_FAILED}</li>
+ *   <li>{@link #REASON_ARTIFACT_PUBLISH_FAILED}</li>
+ *   <li>{@link #REASON_EVENT_PUBLISH_FAILED}</li>
+ * </ul>
  */
 public class TaskFailedPayload {
+    public static final String REASON_UNSUPPORTED_TARGET = "unsupported_target";
+    public static final String REASON_TEMPLATE_GENERATION_FAILED = "template_generation_failed";
+    public static final String REASON_ARTIFACT_PACK_FAILED = "artifact_pack_failed";
+    public static final String REASON_ARTIFACT_PUBLISH_FAILED = "artifact_publish_failed";
+    public static final String REASON_EVENT_PUBLISH_FAILED = "event_publish_failed";
+
     /**
      * Required. Machine-readable failure reason.
      */

@@ -23,12 +23,15 @@ This module is the single source of truth for cross-component DTOs and event sch
   - Runtime-aligned optional fields include `workspaceRef`, `intentSkill`, and `intentRoute`.
 - `TOOL_END` requires `tool` + `status`; output/error/exitCode remain optional for compatibility.
 - `SPEC_PROPOSED` requires `artifact`; runtime-aligned optional fields include `traceId` and `runId`.
+  - Optional nl2web intent hints are supported in v1: `target`, `templateId`, `exportMode`.
 - `BUILD_STARTED` has no required payload keys in v1; runtime-aligned optional fields include `traceId` and `runId`.
 - `BUILD_LOG` requires `message`; `buildId`/`level` are optional in v1.
   - Runtime-aligned optional fields include `traceId` and `runId`.
 - `BUILD_DONE` has no required payload keys in v1; runtime-aligned optional fields include `traceId` and `runId`.
 - `FILE_PATCH_PREVIEW` requires at least one of `patch` or `files` (either representation is valid in v1).
   - Runtime-aligned optional fields include `traceId` and `runId`.
+  - Optional nl2web intent hints are supported in v1: `target`, `templateId`, `exportMode`.
+- `ARTIFACT_READY` supports optional nl2web intent hints: `target`, `templateId`, `exportMode`.
 - `TASK_DONE` requires `result`; additional completion metadata remains optional.
   - LLM/orchestrator optional fields include `intent`, `planName`, `steps`, `reviewApproved`, `reviewSummary`,
     `testStatus`, `testAttempts`, `testRetries`, `attempt`, `maxAttempts`.
@@ -72,6 +75,9 @@ This module is the single source of truth for cross-component DTOs and event sch
   response requires `ok = true` and `tools[]`, where each tool entry follows `ToolManifest` v1 schema.
 - For `ArtifactMetadata.build`: the `build` object is optional; when present, `command` is required (JSON Schema and
   `ArtifactMetadataContractValidator` agree). `ArtifactManifest` lists must not contain duplicate `artifactId` values.
+  - For nl2web contracts, `fileName`/`sha256`/`mimeType` are alias fields to legacy `name`/`hash`/`mime`.
+    Producers may send either set, and consumers should tolerate both.
+- `CreateTaskRequest.intent` includes optional nl2web input fields: `target`, `templateId`, `exportMode`.
 - Service runtime descriptions (ports, health checks, env hints, startup) use `src/main/resources/schema/runtime/v1/`;
   `schemaVersion = 1` follows the same optional-additive rules.
 

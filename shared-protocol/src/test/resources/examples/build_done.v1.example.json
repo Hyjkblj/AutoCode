@@ -8,6 +8,8 @@
   "seq": 52,
   "eventVersion": 1,
   "payload": {
+    "traceId": "trc_task_test_123",
+    "runId": "run_test_build_001",
     "buildId": "build_test_001",
     "status": "success",
     "durationMs": 9000,

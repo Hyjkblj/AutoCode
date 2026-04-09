@@ -13,6 +13,8 @@
           "additionalProperties": false,
           "required": ["message"],
           "properties": {
+            "traceId": { "type": "string", "minLength": 1 },
+            "runId": { "type": "string", "minLength": 1 },
             "buildId": { "type": "string" },
             "level": { "type": "string" },
             "message": { "type": "string", "minLength": 1 }

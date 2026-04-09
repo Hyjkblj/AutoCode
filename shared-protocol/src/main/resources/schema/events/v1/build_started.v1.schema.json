@@ -12,6 +12,8 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
+            "traceId": { "type": "string", "minLength": 1 },
+            "runId": { "type": "string", "minLength": 1 },
             "buildId": { "type": "string" },
             "tool": { "type": "string" },
             "target": { "type": "string" }

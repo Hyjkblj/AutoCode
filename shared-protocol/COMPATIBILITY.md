@@ -39,7 +39,9 @@ This module is the single source of truth for cross-component DTOs and event sch
     `attempt`, `maxAttempts`, `lastTestError`.
 - `HEARTBEAT` requires `payload` object only; all current keys (`nodeId`/`status`/`uptimeMs`) are optional for compatibility.
 - `DEPLOY_PLAN` captures a normalized deployment request (required keys: `requestId`, `environment`, `artifact`).
+  - Runtime-aligned optional fields include `traceId` and `runId`.
 - `DEPLOY_RESULT` reports execution outcome (required keys: `requestId`, `status`).
+  - Runtime-aligned optional fields include `traceId` and `runId`.
 
 ## Backward compatibility rules
 

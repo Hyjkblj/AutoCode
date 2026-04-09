@@ -10,6 +10,8 @@
   "payload": {
     "requestId": "deploy_req_001",
     "environment": "staging",
+    "traceId": "trc_task_123",
+    "runId": "run_01HQ8DEPLOYPLAN001",
     "strategy": "rolling",
     "triggeredBy": "user:operator_001",
     "artifact": {

@@ -258,6 +258,25 @@ class TaskEventContractValidatorTest {
     }
 
     @Test
+    void deploy_plan_rejects_blank_trace_id_when_present() {
+        TaskEvent event = new TaskEvent();
+        event.setEventId("e2b");
+        event.setTaskId("t2b");
+        event.setType(EventType.DEPLOY_PLAN);
+        event.setTimestamp(Instant.parse("2026-04-09T00:00:00Z"));
+        event.setSeq(0);
+        event.setEventVersion(1);
+        event.setPayload(Map.of(
+                "requestId", "deploy_req_001",
+                "environment", "staging",
+                "traceId", "   ",
+                "artifact", Map.of("artifactId", "a1", "type", "zip")
+        ));
+
+        assertThrows(ContractViolationException.class, () -> TaskEventContractValidator.validate(event));
+    }
+
+    @Test
     void deploy_result_requires_status() {
         TaskEvent event = new TaskEvent();
         event.setEventId("e3");
@@ -267,6 +286,24 @@ class TaskEventContractValidatorTest {
         event.setSeq(0);
         event.setEventVersion(1);
         event.setPayload(Map.of("requestId", "deploy_req_001"));
+
+        assertThrows(ContractViolationException.class, () -> TaskEventContractValidator.validate(event));
+    }
+
+    @Test
+    void deploy_result_rejects_blank_run_id_when_present() {
+        TaskEvent event = new TaskEvent();
+        event.setEventId("e3b");
+        event.setTaskId("t3b");
+        event.setType(EventType.DEPLOY_RESULT);
+        event.setTimestamp(Instant.parse("2026-04-09T00:00:00Z"));
+        event.setSeq(0);
+        event.setEventVersion(1);
+        event.setPayload(Map.of(
+                "requestId", "deploy_req_001",
+                "status", "success",
+                "runId", "   "
+        ));
 
         assertThrows(ContractViolationException.class, () -> TaskEventContractValidator.validate(event));
     }

@@ -14,6 +14,7 @@ import org.springframework.test.web.servlet.MvcResult;
 
 import com.autocode.controlplane.persistence.entity.ProjectMembershipEntity;
 import com.autocode.controlplane.persistence.entity.UserEntity;
+import com.autocode.controlplane.persistence.repo.AuditLogRepository;
 import com.autocode.controlplane.persistence.repo.ProjectMembershipEntityRepository;
 import com.autocode.controlplane.persistence.repo.UserEntityRepository;
 
@@ -22,6 +23,7 @@ import java.time.Instant;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -43,6 +45,9 @@ class ArtifactsIntegrationTest {
 
     @Autowired
     private ProjectMembershipEntityRepository membershipRepository;
+
+    @Autowired
+    private AuditLogRepository auditLogRepository;
 
     @BeforeEach
     void setup() {
@@ -151,6 +156,53 @@ class ArtifactsIntegrationTest {
                 .andExpect(jsonPath("$.payload.taskId").value(taskId))
                 .andExpect(jsonPath("$.payload.chainValid").value(true))
                 .andExpect(jsonPath("$.payload.count").value(org.hamcrest.Matchers.greaterThanOrEqualTo(3)));
+    }
+
+    @Test
+    void auditExportShouldMarkInvalidWhenNonFirstEntryMissesPrevHash() throws Exception {
+        String createPayload = """
+                {
+                  "projectId": "proj-1",
+                  "assistant": "codex",
+                  "prompt": "audit chain strictness"
+                }
+                """;
+
+        String createResponse = mockMvc.perform(post("/api/v1/tasks")
+                        .header("Authorization", "Bearer operator-dev-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(createPayload))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        String taskId = objectMapper.readTree(createResponse).path("payload").path("taskId").asText();
+
+        MockMultipartFile file = new MockMultipartFile(
+                "file",
+                "export.zip",
+                "application/zip",
+                "zip-bytes".getBytes()
+        );
+
+        mockMvc.perform(multipart("/api/v1/tasks/{taskId}/artifacts", taskId)
+                        .file(file)
+                        .header("X-Agent-Token", "agent-dev-token"))
+                .andExpect(status().isOk());
+
+        var logs = auditLogRepository.findByTaskIdOrderByCreatedAtAscAuditIdAsc(taskId);
+        assertTrue(logs.size() >= 2, "expected at least two audit entries");
+
+        var second = logs.get(1);
+        second.setPrevHash(null);
+        auditLogRepository.saveAndFlush(second);
+
+        mockMvc.perform(get("/api/v1/audits/export")
+                        .param("taskId", taskId)
+                        .header("Authorization", "Bearer operator-dev-token"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.ok").value(true))
+                .andExpect(jsonPath("$.payload.taskId").value(taskId))
+                .andExpect(jsonPath("$.payload.chainValid").value(false));
     }
 
     @Test

@@ -498,12 +498,12 @@ public class TaskService {
     }
 
     private void validateAssignedNodeForIngest(TaskEntity task, String nodeId) {
-        if (nodeId == null || nodeId.isBlank()) {
-            return;
-        }
         String assignedNodeId = task.getAssignedNodeId();
         if (assignedNodeId == null || assignedNodeId.isBlank()) {
             return;
+        }
+        if (nodeId == null || nodeId.isBlank()) {
+            throw new AccessDeniedException("nodeId is required for assigned task");
         }
         if (!assignedNodeId.equals(nodeId)) {
             throw new AccessDeniedException("task not assigned to this node");

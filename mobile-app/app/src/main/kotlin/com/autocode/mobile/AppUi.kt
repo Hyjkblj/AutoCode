@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -68,6 +69,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.autocode.mobile.network.ArtifactListItem
 import com.autocode.mobile.network.TaskEventDto
+import com.mikepenz.markdown.coil3.Coil3ImageTransformerImpl
+import com.mikepenz.markdown.compose.components.markdownComponents
+import com.mikepenz.markdown.compose.elements.highlightedCodeBlock
+import com.mikepenz.markdown.compose.elements.highlightedCodeFence
+import com.mikepenz.markdown.m3.Markdown
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.PermissionStatus
 import com.google.accompanist.permissions.isGranted
@@ -326,6 +332,8 @@ private fun HomeTab(vm: AppViewModel) {
         Text("当前项目：${project?.name ?: state.selectedProjectId ?: "未选择"}")
         Spacer(Modifier.height(8.dp))
         Text("生成目标：${state.generationTarget.displayLabel()}")
+        Spacer(Modifier.height(8.dp))
+        Text("Agent 身份：${state.agentProfile.displayLabel()}")
         Spacer(Modifier.height(8.dp))
         Text(mode, style = MaterialTheme.typography.bodySmall)
         Spacer(Modifier.height(20.dp))
@@ -630,6 +638,9 @@ private fun TaskDetailTab(
             onTimeout = {
                 vm.dismissPendingApproval(taskId = approval.taskId, approvalId = approval.approvalId)
             },
+            onDismiss = {
+                vm.dismissPendingApproval(taskId = approval.taskId, approvalId = approval.approvalId)
+            },
         )
     }
 }
@@ -747,7 +758,23 @@ private fun AgentEventItem(event: TaskEventDto, fallbackLine: String) {
         }
         "FILE_PATCH_PREVIEW" -> {
             val patch = payloadText(payload, "patch", "diff", "preview", "content")
-            val lines = patch.orEmpty().lineSequence().take(120).toList()
+            val patchLines = patch.orEmpty().lineSequence().toList()
+            val previewLineLimit = 220
+            val truncated = patchLines.size > previewLineLimit
+            var expanded by rememberSaveable(eventStableKey(event)) { mutableStateOf(false) }
+            val shownPatch =
+                when {
+                    patchLines.isEmpty() -> ""
+                    expanded || !truncated -> patchLines.joinToString("\n")
+                    else -> patchLines.take(previewLineLimit).joinToString("\n")
+                }
+            val markdownContent = remember(shownPatch) { asDiffMarkdown(shownPatch) }
+            val mdComponents = remember {
+                markdownComponents(
+                    codeFence = highlightedCodeFence,
+                    codeBlock = highlightedCodeBlock,
+                )
+            }
             Card(
                 colors =
                     CardDefaults.cardColors(
@@ -758,26 +785,20 @@ private fun AgentEventItem(event: TaskEventDto, fallbackLine: String) {
                     Text("代码变更预览", style = MaterialTheme.typography.titleSmall)
                     Text(header, style = MaterialTheme.typography.labelSmall)
                     Spacer(Modifier.height(8.dp))
-                    if (lines.isEmpty()) {
+                    if (patchLines.isEmpty()) {
                         Text(fallbackLine, fontFamily = FontFamily.Monospace)
                     } else {
-                        lines.forEach { line ->
-                            val lineColor =
-                                when {
-                                    line.startsWith("+") -> Color(0xFF1B5E20)
-                                    line.startsWith("-") -> Color(0xFFB71C1C)
-                                    else -> MaterialTheme.colorScheme.onSurfaceVariant
-                                }
-                            Text(
-                                text = line,
-                                color = lineColor,
-                                fontFamily = FontFamily.Monospace,
-                                style = MaterialTheme.typography.bodySmall,
-                            )
-                        }
-                        if (patch != null && patch.lines().size > lines.size) {
+                        Markdown(
+                            content = markdownContent,
+                            modifier = Modifier.fillMaxWidth(),
+                            imageTransformer = Coil3ImageTransformerImpl,
+                            components = mdComponents,
+                        )
+                        if (truncated) {
                             Spacer(Modifier.height(6.dp))
-                            Text("… 预览已截断", style = MaterialTheme.typography.labelSmall)
+                            TextButton(onClick = { expanded = !expanded }) {
+                                Text(if (expanded) "收起完整 diff" else "展开完整 diff")
+                            }
                         }
                     }
                 }
@@ -807,6 +828,76 @@ private fun AgentEventItem(event: TaskEventDto, fallbackLine: String) {
                     reason?.let {
                         Spacer(Modifier.height(6.dp))
                         Text("原因: $it")
+                    }
+                }
+            }
+        }
+        "DEPLOY_PLAN" -> {
+            val environment = payloadText(payload, "environment", "env") ?: "staging"
+            val artifactId = payloadText(payload, "artifactId")
+            val version = payloadText(payload, "version", "versionLabel")
+            val requestId = payloadText(payload, "requestId", "deployRequestId", "request_id")
+            Card(
+                colors =
+                    CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    ),
+            ) {
+                Column(Modifier.padding(12.dp)) {
+                    Text("Deploy Plan", style = MaterialTheme.typography.titleSmall)
+                    Text(header, style = MaterialTheme.typography.labelSmall)
+                    Spacer(Modifier.height(6.dp))
+                    Text("Environment: $environment")
+                    artifactId?.let {
+                        Spacer(Modifier.height(4.dp))
+                        Text("Artifact: $it", fontFamily = FontFamily.Monospace)
+                    }
+                    version?.let {
+                        Spacer(Modifier.height(4.dp))
+                        Text("Version: $it")
+                    }
+                    requestId?.let {
+                        Spacer(Modifier.height(4.dp))
+                        Text("Request ID: $it", fontFamily = FontFamily.Monospace)
+                    }
+                }
+            }
+        }
+        "DEPLOY_RESULT" -> {
+            val rawStatus = payloadText(payload, "status", "result") ?: "unknown"
+            val status = rawStatus.trim().ifEmpty { "unknown" }
+            val normalized = status.lowercase()
+            val endpoint = payloadText(payload, "endpointUrl", "endpoint", "url")
+            val requestId = payloadText(payload, "requestId", "deployRequestId", "request_id")
+            val reason = payloadText(payload, "reason", "message", "error")
+            val cardColor =
+                when (normalized) {
+                    "success", "succeeded", "done", "ok" -> MaterialTheme.colorScheme.tertiaryContainer
+                    "failed", "error", "rejected", "canceled", "cancelled" -> MaterialTheme.colorScheme.errorContainer
+                    else -> MaterialTheme.colorScheme.secondaryContainer
+                }
+            Card(
+                colors =
+                    CardDefaults.cardColors(
+                        containerColor = cardColor,
+                    ),
+            ) {
+                Column(Modifier.padding(12.dp)) {
+                    Text("Deploy Result", style = MaterialTheme.typography.titleSmall)
+                    Text(header, style = MaterialTheme.typography.labelSmall)
+                    Spacer(Modifier.height(6.dp))
+                    Text("Status: $status", fontFamily = FontFamily.Monospace)
+                    endpoint?.let {
+                        Spacer(Modifier.height(4.dp))
+                        Text("Endpoint: $it", fontFamily = FontFamily.Monospace)
+                    }
+                    requestId?.let {
+                        Spacer(Modifier.height(4.dp))
+                        Text("Request ID: $it", fontFamily = FontFamily.Monospace)
+                    }
+                    reason?.let {
+                        Spacer(Modifier.height(4.dp))
+                        Text("Reason: $it")
                     }
                 }
             }
@@ -876,9 +967,10 @@ private fun payloadLongValue(payload: JsonObject, vararg keys: String): Long? {
 @Composable
 private fun ApprovalBottomSheet(
     approval: ApprovalRequest,
-    onApprove: (comment: String) -> Unit,
-    onReject: (comment: String) -> Unit,
+    onApprove: (comment: String?) -> Unit,
+    onReject: (comment: String?) -> Unit,
     onTimeout: () -> Unit,
+    onDismiss: () -> Unit,
 ) {
     var comment by rememberSaveable(approval.approvalId) { mutableStateOf("") }
     var handling by remember(approval.approvalId) { mutableStateOf(false) }
@@ -897,7 +989,11 @@ private fun ApprovalBottomSheet(
     }
 
     ModalBottomSheet(
-        onDismissRequest = { },
+        onDismissRequest = {
+            if (handling) return@ModalBottomSheet
+            handling = true
+            onDismiss()
+        },
     ) {
         Column(
             modifier =
@@ -960,7 +1056,7 @@ private fun ApprovalBottomSheet(
                     onClick = {
                         if (!handling) {
                             handling = true
-                            onApprove(comment)
+                            onApprove(comment.takeIf { it.isNotBlank() })
                         }
                     },
                     enabled = !handling,
@@ -972,7 +1068,7 @@ private fun ApprovalBottomSheet(
                     onClick = {
                         if (!handling) {
                             handling = true
-                            onReject(comment)
+                            onReject(comment.takeIf { it.isNotBlank() })
                         }
                     },
                     enabled = !handling,
@@ -1148,6 +1244,9 @@ private fun ArtifactDetailScreen(
     var previewErr by remember { mutableStateOf<String?>(null) }
     var previewLoading by remember { mutableStateOf(false) }
     var versionLabel by rememberSaveable(taskId, artifactId) { mutableStateOf(defaultVersionLabel()) }
+    var environment by rememberSaveable(taskId, artifactId) { mutableStateOf("staging") }
+    var publishSubmitting by remember { mutableStateOf(false) }
+    var publishError by remember { mutableStateOf<String?>(null) }
     var publishHint by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(taskId, artifactId) {
         loading = true
@@ -1157,6 +1256,9 @@ private fun ArtifactDetailScreen(
         previewErr = null
         previewLoading = false
         versionLabel = defaultVersionLabel()
+        environment = "staging"
+        publishSubmitting = false
+        publishError = null
         publishHint = null
         vm.loadArtifactsForTask(taskId).fold(
             onSuccess = { list ->
@@ -1254,7 +1356,7 @@ private fun ArtifactDetailScreen(
             }
             Spacer(Modifier.height(12.dp))
             Text(
-                "发布入口：填写版本号并记录到历史/版本页。",
+                "发布入口：填写版本号并提交到控制面 deploy API。",
                 style = MaterialTheme.typography.bodySmall,
             )
             Spacer(Modifier.height(8.dp))
@@ -1266,16 +1368,49 @@ private fun ArtifactDetailScreen(
                 modifier = Modifier.fillMaxWidth(),
             )
             Spacer(Modifier.height(8.dp))
+            OutlinedTextField(
+                value = environment,
+                onValueChange = { environment = it },
+                label = { Text("Environment (default staging)") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(Modifier.height(8.dp))
             Button(
                 onClick = {
-                    val version = versionLabel.trim()
-                    vm.recordPublishEntry(taskId, a.artifactId, a.name, version)
-                    publishHint = "已记录发布申请：$version"
+                    scope.launch {
+                        val version = versionLabel.trim()
+                        if (version.isEmpty()) return@launch
+                        publishSubmitting = true
+                        publishError = null
+                        publishHint = null
+                        vm.recordPublishEntry(
+                            taskId = taskId,
+                            artifactId = a.artifactId,
+                            artifactName = a.name,
+                            versionLabel = version,
+                            environment = environment,
+                        ).fold(
+                            onSuccess = { entry ->
+                                publishHint = "Publish task submitted: ${entry.taskId} (${entry.status})"
+                                versionLabel = defaultVersionLabel()
+                                vm.subscribeTaskEvents(entry.taskId)
+                            },
+                            onFailure = { ex ->
+                                publishError = ex.message ?: "Failed to submit publish request"
+                            },
+                        )
+                        publishSubmitting = false
+                    }
                 },
-                enabled = versionLabel.trim().isNotEmpty(),
+                enabled = versionLabel.trim().isNotEmpty() && !publishSubmitting,
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                Text("提交发布申请")
+                Text(if (publishSubmitting) "Submitting..." else "Submit Publish Request")
+            }
+            publishError?.let {
+                Spacer(Modifier.height(8.dp))
+                Text(it, color = MaterialTheme.colorScheme.error)
             }
             publishHint?.let {
                 Spacer(Modifier.height(8.dp))
@@ -1290,37 +1425,50 @@ private fun ArtifactDetailScreen(
 private fun PublishHistoryScreen(vm: AppViewModel, onBack: () -> Unit) {
     val state by vm.uiState.collectAsStateWithLifecycle()
     val sorted = state.publishHistory.sortedByDescending { it.createdAt }
+    LaunchedEffect(state.baseUrl, state.session?.accessToken) {
+        vm.refreshPublishHistory()
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("历史与版本") },
+                title = { Text("Publish History") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                actions = {
+                    IconButton(
+                        onClick = { vm.refreshPublishHistory() },
+                        enabled = !state.isRefreshingPublishHistory,
+                    ) {
+                        Icon(Icons.Filled.Refresh, contentDescription = "Refresh")
                     }
                 },
             )
         },
     ) { pad ->
-        LazyColumn(
+        PullToRefreshBox(
+            isRefreshing = state.isRefreshingPublishHistory,
+            onRefresh = { vm.refreshPublishHistory() },
             modifier =
                 Modifier
                     .padding(pad)
-                    .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+                    .fillMaxSize(),
         ) {
-            if (sorted.isEmpty()) {
-                item { Text("暂无记录。在产物详情页使用「提交发布申请」。") }
-            } else {
-                items(sorted, key = { it.id }) { e ->
-                    Card(Modifier.fillMaxWidth()) {
-                        Column(Modifier.padding(14.dp)) {
-                            Text("版本 ${e.versionLabel}", style = MaterialTheme.typography.titleSmall)
-                            Text("任务 ${e.taskId}", style = MaterialTheme.typography.bodySmall)
-                            Text("产物 ${e.artifactName ?: e.artifactId ?: "—"}")
-                            Text("状态 ${e.status}", style = MaterialTheme.typography.bodySmall)
-                            Text("时间 ${formatTimestamp(e.createdAt)}", style = MaterialTheme.typography.bodySmall)
-                        }
+            LazyColumn(
+                modifier =
+                    Modifier
+                        .fillMaxSize()
+                        .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                if (sorted.isEmpty()) {
+                    item { Text("No publish records yet. Submit one from Artifact Detail.") }
+                } else {
+                    items(sorted, key = { it.id }) { entry ->
+                        DeployStatusCard(entry)
                     }
                 }
             }
@@ -1328,6 +1476,34 @@ private fun PublishHistoryScreen(vm: AppViewModel, onBack: () -> Unit) {
     }
 }
 
+@Composable
+private fun DeployStatusCard(entry: PublishHistoryEntry) {
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(14.dp)) {
+            Text("Version ${entry.versionLabel}", style = MaterialTheme.typography.titleSmall)
+            Text("Deploy Task ${entry.taskId}", style = MaterialTheme.typography.bodySmall)
+            entry.sourceTaskId?.takeIf { it.isNotBlank() }?.let {
+                Text("Source Task $it", style = MaterialTheme.typography.bodySmall)
+            }
+            Text("Artifact ${entry.artifactName ?: entry.artifactId ?: "-"}")
+            entry.environment?.takeIf { it.isNotBlank() }?.let {
+                Text("Environment $it", style = MaterialTheme.typography.bodySmall)
+            }
+            Text("Status: ${entry.status}", style = MaterialTheme.typography.bodySmall)
+            entry.endpointUrl?.takeIf { it.isNotBlank() }?.let {
+                Text(
+                    text = "Endpoint $it",
+                    style = MaterialTheme.typography.bodySmall,
+                    fontFamily = FontFamily.Monospace,
+                )
+            }
+            entry.deployRequestId?.takeIf { it.isNotBlank() }?.let {
+                Text("Request ID $it", style = MaterialTheme.typography.bodySmall)
+            }
+            Text("Time ${formatTimestamp(entry.createdAt)}", style = MaterialTheme.typography.bodySmall)
+        }
+    }
+}
 private fun defaultVersionLabel(): String =
     "v" + SimpleDateFormat("yyyyMMdd-HHmmss", Locale.getDefault()).format(Date())
 
@@ -1336,11 +1512,28 @@ private fun formatTimestamp(millis: Long): String =
         SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date(millis))
     }.getOrElse { millis.toString() }
 
+private fun asDiffMarkdown(patch: String): String {
+    if (patch.isBlank()) return "```diff\n(no diff)\n```"
+    val escaped = patch.replace("```", "``\\`")
+    return buildString {
+        append("```diff\n")
+        append(escaped)
+        if (!escaped.endsWith('\n')) append('\n')
+        append("```")
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ProjectsTab(vm: AppViewModel) {
     val state by vm.uiState.collectAsStateWithLifecycle()
-    val projects = if (state.dynamicProjects.isEmpty()) vm.mockProjects else state.dynamicProjects
+    val shouldUseMockFallback = state.baseUrl.isBlank() || state.session == null
+    val projects =
+        if (state.dynamicProjects.isEmpty() && shouldUseMockFallback) {
+            vm.mockProjects
+        } else {
+            state.dynamicProjects
+        }
     PullToRefreshBox(
         isRefreshing = state.isRefreshingProjects,
         onRefresh = { vm.refreshProjects() },
@@ -1354,6 +1547,13 @@ private fun ProjectsTab(vm: AppViewModel) {
                 style = MaterialTheme.typography.bodySmall,
             )
             Spacer(Modifier.height(16.dp))
+            if (projects.isEmpty()) {
+                Text(
+                    "No projects available. Pull down to refresh from control-plane.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Spacer(Modifier.height(10.dp))
+            }
             projects.forEach { p ->
                 val active = p.id == state.selectedProjectId
                 Card(
@@ -1402,15 +1602,44 @@ private fun RowOfTargetChips(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
+private fun RowOfAgentProfileChips(
+    selected: String,
+    onSelect: (String) -> Unit,
+) {
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        FilterChip(
+            selected = selected == AgentProfile.CODER.name,
+            onClick = { onSelect(AgentProfile.CODER.name) },
+            label = { Text(AgentProfile.CODER.displayLabel()) },
+        )
+        FilterChip(
+            selected = selected == AgentProfile.AI_AGENT.name,
+            onClick = { onSelect(AgentProfile.AI_AGENT.name) },
+            label = { Text(AgentProfile.AI_AGENT.displayLabel()) },
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
 private fun AccountTab(vm: AppViewModel) {
     val state by vm.uiState.collectAsStateWithLifecycle()
     var baseUrlDraft by rememberSaveable { mutableStateOf(state.baseUrl) }
     var targetDraft by rememberSaveable { mutableStateOf(state.generationTarget.name) }
-    LaunchedEffect(state.baseUrl, state.generationTarget) {
+    var profileDraft by rememberSaveable { mutableStateOf(state.agentProfile.name) }
+    LaunchedEffect(state.baseUrl, state.generationTarget, state.agentProfile) {
         baseUrlDraft = state.baseUrl
         targetDraft = state.generationTarget.name
+        profileDraft = state.agentProfile.name
     }
-    Column(Modifier.padding(20.dp)) {
+    LaunchedEffect(state.baseUrl, state.session?.accessToken) {
+        vm.refreshAgentNodes()
+    }
+    Column(
+        Modifier
+            .padding(20.dp)
+            .verticalScroll(rememberScrollState()),
+    ) {
         Text("我的", style = MaterialTheme.typography.headlineSmall)
         Spacer(Modifier.height(16.dp))
         Text("连接与生成目标（PR-1）", style = MaterialTheme.typography.titleMedium)
@@ -1431,6 +1660,13 @@ private fun AccountTab(vm: AppViewModel) {
             onSelect = { targetDraft = it },
         )
         Spacer(Modifier.height(12.dp))
+        Text("Agent 身份（写入创建任务 agentProfile）", style = MaterialTheme.typography.labelLarge)
+        Spacer(Modifier.height(8.dp))
+        RowOfAgentProfileChips(
+            selected = profileDraft,
+            onSelect = { profileDraft = it },
+        )
+        Spacer(Modifier.height(12.dp))
         Button(
             onClick = {
                 val t =
@@ -1438,7 +1674,12 @@ private fun AccountTab(vm: AppViewModel) {
                         GenerationTarget.WECHAT_MINI_PROGRAM.name -> GenerationTarget.WECHAT_MINI_PROGRAM
                         else -> GenerationTarget.WEB
                     }
-                vm.saveConnectivitySettings(baseUrlDraft, t)
+                val p =
+                    when (profileDraft) {
+                        AgentProfile.AI_AGENT.name -> AgentProfile.AI_AGENT
+                        else -> AgentProfile.CODER
+                    }
+                vm.saveConnectivitySettings(baseUrlDraft, t, p)
             },
             modifier = Modifier.fillMaxWidth(),
         ) {
@@ -1456,6 +1697,81 @@ private fun AccountTab(vm: AppViewModel) {
                     fontFamily = FontFamily.Monospace,
                     maxLines = 1,
                 )
+            }
+        }
+        Spacer(Modifier.height(24.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("Agent Nodes", style = MaterialTheme.typography.titleMedium)
+            TextButton(
+                onClick = { vm.refreshAgentNodes() },
+                enabled = !state.isRefreshingAgentNodes,
+            ) {
+                Text(if (state.isRefreshingAgentNodes) "Refreshing..." else "Refresh")
+            }
+        }
+        if (state.baseUrl.isBlank() || state.session == null) {
+            Text(
+                "Configure base URL and login to view node capabilities.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+        } else if (state.agentNodes.isEmpty() && state.isRefreshingAgentNodes) {
+            Spacer(Modifier.height(8.dp))
+            CircularProgressIndicator()
+        } else if (state.agentNodes.isEmpty()) {
+            Text(
+                "No agent nodes reported yet.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+        } else {
+            Spacer(Modifier.height(8.dp))
+            state.agentNodes.forEach { node ->
+                Card(
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp),
+                ) {
+                    Column(Modifier.padding(12.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(node.nodeId, style = MaterialTheme.typography.titleSmall)
+                            Text(
+                                if (node.online) "online" else "offline",
+                                color =
+                                    if (node.online) Color(0xFF2E7D32)
+                                    else MaterialTheme.colorScheme.error,
+                                style = MaterialTheme.typography.labelMedium,
+                            )
+                        }
+                        node.version?.takeIf { it.isNotBlank() }?.let {
+                            Spacer(Modifier.height(4.dp))
+                            Text("Version: $it", style = MaterialTheme.typography.bodySmall)
+                        }
+                        node.lastHeartbeatAt?.takeIf { it.isNotBlank() }?.let {
+                            Spacer(Modifier.height(4.dp))
+                            Text("Heartbeat: $it", style = MaterialTheme.typography.bodySmall)
+                        }
+                        val capabilities = node.capabilities?.trim().orEmpty()
+                        if (capabilities.isNotEmpty()) {
+                            Spacer(Modifier.height(6.dp))
+                            Text("Capabilities", style = MaterialTheme.typography.labelMedium)
+                            Text(
+                                text = capabilities,
+                                fontFamily = FontFamily.Monospace,
+                                style = MaterialTheme.typography.bodySmall,
+                                maxLines = 6,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                }
             }
         }
         Spacer(Modifier.height(24.dp))

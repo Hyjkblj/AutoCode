@@ -256,6 +256,62 @@ class ProtocolValidationIntegrationTest extends OperatorProj1MembershipFixture {
         assertEquals("watch logs", artifact.path("run").path("hints").path(1).asText());
     }
 
+    @Test
+    void assistantOutputWithNonArrayIssuesShouldReturn400() throws Exception {
+        String taskId = createTask("review payload validation");
+
+        String badEvent = """
+                {
+                  "event": {
+                    "eventId": "evt-bad-review-issues-1",
+                    "type": "ASSISTANT_OUTPUT",
+                    "assistant": "codex",
+                    "payload": {
+                      "riskLevel": "medium",
+                      "summary": "review summary",
+                      "issues": "not-an-array"
+                    }
+                  }
+                }
+                """;
+
+        mockMvc.perform(post("/api/v1/agent/tasks/{taskId}/events", taskId)
+                        .header("X-Agent-Token", "agent-dev-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(badEvent))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.ok").value(false))
+                .andExpect(jsonPath("$.error").value(org.hamcrest.Matchers.containsString("event.payload.issues")));
+    }
+
+    @Test
+    void taskFailedWithNonIntegerAttemptShouldReturn400() throws Exception {
+        String taskId = createTask("fix loop payload validation");
+
+        String badEvent = """
+                {
+                  "event": {
+                    "eventId": "evt-bad-fix-loop-attempt-1",
+                    "type": "TASK_FAILED",
+                    "assistant": "codex",
+                    "payload": {
+                      "reason": "fix_loop_exhausted",
+                      "attempt": "three",
+                      "maxAttempts": 3
+                    }
+                  }
+                }
+                """;
+
+        mockMvc.perform(post("/api/v1/agent/tasks/{taskId}/events", taskId)
+                        .header("X-Agent-Token", "agent-dev-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(badEvent))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.ok").value(false))
+                .andExpect(jsonPath("$.error").value(org.hamcrest.Matchers.containsString("event.payload.attempt")));
+    }
+
     private String createTask(String prompt) throws Exception {
         String createPayload = """
                 {

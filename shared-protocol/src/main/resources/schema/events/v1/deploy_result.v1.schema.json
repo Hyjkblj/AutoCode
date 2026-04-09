@@ -14,6 +14,8 @@
           "required": ["requestId", "status"],
           "properties": {
             "requestId": { "type": "string", "minLength": 1 },
+            "traceId": { "type": "string", "minLength": 1 },
+            "runId": { "type": "string", "minLength": 1 },
             "deploymentId": { "type": "string" },
             "environment": { "type": "string" },
             "status": { "type": "string", "minLength": 1 },

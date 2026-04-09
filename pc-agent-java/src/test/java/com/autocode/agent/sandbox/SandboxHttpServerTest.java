@@ -2,6 +2,8 @@ package com.autocode.agent.sandbox;
 
 import com.autocode.agent.client.AgentApiClient;
 import com.autocode.agent.config.AgentConfig;
+import com.autocode.protocol.model.ApprovalDecision;
+import com.autocode.protocol.model.TaskEvent;
 import org.junit.jupiter.api.Test;
 
 import java.net.ServerSocket;
@@ -51,6 +53,16 @@ class SandboxHttpServerTest {
             assertEquals(200, healthResponse.statusCode());
             assertTrue(healthResponse.body().contains("\"status\":\"up\""));
 
+            HttpRequest toolsRequest = HttpRequest.newBuilder()
+                    .uri(URI.create("http://127.0.0.1:" + port + "/sandbox/tools"))
+                    .GET()
+                    .build();
+            HttpResponse<String> toolsResponse = client.send(toolsRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, toolsResponse.statusCode());
+            assertTrue(toolsResponse.body().contains("\"ok\":true"));
+            assertTrue(toolsResponse.body().contains("\"name\":\"command.exec\""));
+            assertTrue(toolsResponse.body().contains("\"name\":\"deploy.execute\""));
+
             HttpRequest badMethodRequest = HttpRequest.newBuilder()
                     .uri(URI.create("http://127.0.0.1:" + port + "/sandbox/execute"))
                     .GET()
@@ -58,6 +70,16 @@ class SandboxHttpServerTest {
             HttpResponse<String> badMethodResponse = client.send(badMethodRequest, HttpResponse.BodyHandlers.ofString());
             assertEquals(405, badMethodResponse.statusCode());
             assertTrue(badMethodResponse.body().contains("method_not_allowed"));
+            assertTrue(badMethodResponse.body().contains("\"status\":\"method_not_allowed\""));
+
+            HttpRequest toolsBadMethodRequest = HttpRequest.newBuilder()
+                    .uri(URI.create("http://127.0.0.1:" + port + "/sandbox/tools"))
+                    .POST(HttpRequest.BodyPublishers.noBody())
+                    .build();
+            HttpResponse<String> toolsBadMethodResponse = client.send(toolsBadMethodRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(405, toolsBadMethodResponse.statusCode());
+            assertTrue(toolsBadMethodResponse.body().contains("method_not_allowed"));
+            assertTrue(toolsBadMethodResponse.body().contains("\"status\":\"method_not_allowed\""));
 
             HttpRequest invalidPostRequest = HttpRequest.newBuilder()
                     .uri(URI.create("http://127.0.0.1:" + port + "/sandbox/execute"))
@@ -67,6 +89,54 @@ class SandboxHttpServerTest {
             HttpResponse<String> invalidPostResponse = client.send(invalidPostRequest, HttpResponse.BodyHandlers.ofString());
             assertEquals(400, invalidPostResponse.statusCode());
             assertTrue(invalidPostResponse.body().contains("invalid_request"));
+            assertTrue(invalidPostResponse.body().contains("\"error\":\"taskId is required\""));
+
+            HttpRequest malformedJsonRequest = HttpRequest.newBuilder()
+                    .uri(URI.create("http://127.0.0.1:" + port + "/sandbox/execute"))
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString("{"))
+                    .build();
+            HttpResponse<String> malformedJsonResponse = client.send(malformedJsonRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(400, malformedJsonResponse.statusCode());
+            assertTrue(malformedJsonResponse.body().contains("\"status\":\"invalid_request\""));
+            assertTrue(malformedJsonResponse.body().contains("\"error\":\"invalid_json\""));
+        } finally {
+            server.stop();
+        }
+    }
+
+    @Test
+    void httpServerExecuteReturns200ForValidRequest() throws Exception {
+        Path workspace = Files.createTempDirectory("sandbox-http-ok");
+        SandboxExecutionService service = new SandboxExecutionService(new NoopAgentApiClient(), configWithWorkspace(workspace));
+        int port = findAvailablePort();
+        SandboxHttpServer server = new SandboxHttpServer("127.0.0.1", port, service);
+
+        server.start();
+        try {
+            HttpClient client = HttpClient.newHttpClient();
+            String cwd = workspace.toString().replace("\\", "\\\\");
+            String requestJson = "{"
+                    + "\"taskId\":\"task_http_ok\","
+                    + "\"command\":\"echo sandbox_http_ok\","
+                    + "\"prompt\":\"please deploy this\","
+                    + "\"cwd\":\"" + cwd + "\","
+                    + "\"assistant\":\"python-agent\","
+                    + "\"sessionId\":\"sess_http_ok\""
+                    + "}";
+
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create("http://127.0.0.1:" + port + "/sandbox/execute"))
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(requestJson))
+                    .build();
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+
+            assertEquals(200, response.statusCode());
+            assertTrue(response.body().contains("\"ok\":true"));
+            assertTrue(response.body().contains("\"status\":\"ok\""));
+            assertTrue(response.body().contains("\"tool\":\"command.exec\""));
+            assertTrue(response.body().contains("\"approvalId\":\"apr_"));
         } finally {
             server.stop();
         }
@@ -96,6 +166,16 @@ class SandboxHttpServerTest {
     private static final class NoopAgentApiClient extends AgentApiClient {
         private NoopAgentApiClient() {
             super("http://localhost:8048", "sandbox-token");
+        }
+
+        @Override
+        public void publishEvent(String taskId, TaskEvent event) {
+            // no-op for local unit tests
+        }
+
+        @Override
+        public ApprovalDecision getApprovalDecision(String taskId) {
+            return ApprovalDecision.APPROVE;
         }
     }
 }

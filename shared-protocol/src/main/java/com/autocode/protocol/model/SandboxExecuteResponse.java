@@ -1,7 +1,7 @@
-package com.autocode.agent.sandbox;
+package com.autocode.protocol.model;
 
 /**
- * Response body for {@code POST /sandbox/execute}.
+ * Response body for the localhost sandbox execute endpoint.
  */
 public class SandboxExecuteResponse {
     private boolean ok;

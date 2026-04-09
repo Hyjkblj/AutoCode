@@ -1,0 +1,15 @@
+{
+  "taskId": "task_123",
+  "command": "echo sandbox_ok",
+  "cwd": "D:/Develop/Project/demo-workspace",
+  "prompt": "run sandbox smoke test",
+  "tool": "command.exec",
+  "action": "run_command",
+  "toolVersion": "1.0.0",
+  "traceId": "trc_task_123",
+  "runId": "run_task_123",
+  "assistant": "python-agent",
+  "sessionId": "sess_abc",
+  "sessionKey": "sess_abc",
+  "approvalTimeoutSeconds": 120
+}

@@ -85,13 +85,29 @@ class AgentConfigFileLoaderTest {
         enable.setProperty("MVP_AGENT_TLS_TRUSTSTORE_PATH", "D:/certs/trust.jks");
         AgentConfig.ClientTls configured = AgentConfig.ClientTls.mergeFromProperties(AgentConfig.ClientTls.disabled(), enable);
         assertTrue(configured.isKeyMaterialConfigured());
+        assertTrue(configured.isTrustMaterialConfigured());
 
         Properties disable = new Properties();
         disable.setProperty("MVP_AGENT_TLS_KEYSTORE_PATH", "   ");
-        AgentConfig.ClientTls disabled = AgentConfig.ClientTls.mergeFromProperties(configured, disable);
-        assertFalse(disabled.isKeyMaterialConfigured());
-        assertEquals(null, disabled.getKeyStorePath());
-        assertEquals(null, disabled.getTrustStorePath());
+        AgentConfig.ClientTls trustOnly = AgentConfig.ClientTls.mergeFromProperties(configured, disable);
+        assertFalse(trustOnly.isKeyMaterialConfigured());
+        assertTrue(trustOnly.isTrustMaterialConfigured());
+        assertEquals(null, trustOnly.getKeyStorePath());
+        assertEquals("D:/certs/trust.jks", trustOnly.getTrustStorePath());
+    }
+
+    @Test
+    void clientTlsMergeSupportsTrustStoreOnlyConfiguration() {
+        Properties trustOnly = new Properties();
+        trustOnly.setProperty("MVP_AGENT_TLS_TRUSTSTORE_PATH", "D:/certs/trust-only.jks");
+        trustOnly.setProperty("MVP_AGENT_TLS_TRUSTSTORE_PASSWORD", "trustit");
+        trustOnly.setProperty("MVP_AGENT_TLS_TRUSTSTORE_TYPE", "JKS");
+
+        AgentConfig.ClientTls tls = AgentConfig.ClientTls.mergeFromProperties(AgentConfig.ClientTls.disabled(), trustOnly);
+        assertFalse(tls.isKeyMaterialConfigured());
+        assertTrue(tls.isTrustMaterialConfigured());
+        assertTrue(tls.isTlsConfigured());
+        assertEquals("D:/certs/trust-only.jks", tls.getTrustStorePath());
     }
 }
 

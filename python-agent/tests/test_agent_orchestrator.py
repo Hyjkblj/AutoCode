@@ -4,8 +4,9 @@ from typing import Any
 
 from agents.reviewer_agent import ReviewResult
 from agents.tester_agent import TesterResult as RunResult
+from llm.llm_client import LLMClient
 from memory.redis_memory import RedisMemory
-from orchestrator.agent_orchestrator import AgentOrchestrator
+from orchestrator.agent_orchestrator import AgentOrchestrator, _error_code_from_reason, _resolve_fix_loop_max_attempts
 from tools.exec_tool import ExecResult
 
 
@@ -33,6 +34,23 @@ class _FakeExecTool:
             }
         )
         return self.result
+
+
+class _RaisingExecTool:
+    def __init__(self, message: str) -> None:
+        self.message = message
+        self.calls: list[dict[str, Any]] = []
+
+    def execute(self, task: dict[str, Any], command: str, *, prompt: str = "", intent: str = "deploy") -> ExecResult:
+        self.calls.append(
+            {
+                "task": task,
+                "command": command,
+                "prompt": prompt,
+                "intent": intent,
+            }
+        )
+        raise RuntimeError(self.message)
 
 
 class _FakeReviewerAgent:
@@ -71,6 +89,44 @@ class _FakeTesterAgent:
         return self.result
 
 
+class _SequenceTesterAgent:
+    def __init__(self, results: list[RunResult]) -> None:
+        self.results = list(results)
+        self.calls: list[dict[str, Any]] = []
+
+    def execute(self, task, client, plan, publish_event):  # noqa: ANN001
+        self.calls.append({"task": task, "plan": plan.plan_name})
+        if not self.results:
+            raise RuntimeError("no more tester results")
+        result = self.results.pop(0)
+        publish_event(
+            {
+                "stage": "TesterAgent",
+                "message": "Validation completed.",
+                "status": result.status,
+                "attempts": result.attempts,
+            }
+        )
+        return result
+
+
+class _FakeCoderAgent:
+    def execute(self, task, client, plan, publish_event):  # noqa: ANN001
+        publish_event({"stage": "CoderAgent", "message": "Mock coder run."})
+        return True
+
+
+class _InvalidReviewerAgent:
+    def review(self, task, client, plan, publish_event):  # noqa: ANN001
+        publish_event({"stage": "ReviewerAgent", "message": "Invalid reviewer payload."})
+        return {"approved": True}
+
+
+class _FailingDagScheduler:
+    def run(self, nodes):  # noqa: ANN001
+        raise RuntimeError("dag exploded")
+
+
 def test_orchestrator_emits_intent_and_planner_events(monkeypatch) -> None:
     monkeypatch.setenv("LLM_BACKEND", "openai")
     monkeypatch.setenv("OPENAI_API_KEY", "dummy")
@@ -88,6 +144,27 @@ def test_orchestrator_emits_intent_and_planner_events(monkeypatch) -> None:
     assert types == ["ASSISTANT_OUTPUT", "ASSISTANT_OUTPUT", "TASK_DONE"]
     assert client.events[0][1]["payload"]["stage"] == "IntentAgent"
     assert client.events[1][1]["payload"]["stage"] == "PlannerAgent"
+
+
+def test_orchestrator_marks_task_failed_when_llm_key_missing(monkeypatch) -> None:
+    monkeypatch.setenv("LLM_BACKEND", "claude")
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    task = {
+        "taskId": "task_100b",
+        "assistant": "ai-agent",
+        "sessionKey": "sess_100b",
+        "prompt": "analyze this change",
+    }
+    client = _FakeClient()
+
+    AgentOrchestrator().handle_task(task, client)
+
+    types = [event["type"] for _, event in client.events]
+    assert types == ["ASSISTANT_OUTPUT", "ASSISTANT_OUTPUT", "TASK_FAILED"]
+    assert client.events[2][1]["payload"]["reason"] == "llm_key_missing"
+    assert client.events[2][1]["payload"]["errorCode"] == "LLM_KEY_MISSING"
+    assert client.events[2][1]["payload"]["planName"] == "blocked_missing_key"
+    assert "ANTHROPIC_API_KEY" in client.events[2][1]["payload"]["detail"]
 
 
 def test_orchestrator_routes_code_change_to_coder_and_emits_patch_preview(monkeypatch, tmp_path) -> None:
@@ -136,7 +213,7 @@ def test_orchestrator_routes_code_change_to_coder_and_emits_patch_preview(monkey
     assert tester.calls[0]["plan"] == "code_change_pipeline"
 
 
-def test_orchestrator_marks_code_change_failed_when_tests_fail(monkeypatch, tmp_path) -> None:
+def test_orchestrator_marks_code_change_failed_when_fix_loop_exhausted(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("LLM_BACKEND", "openai")
     monkeypatch.setenv("OPENAI_API_KEY", "dummy")
     workspace = tmp_path / "workspace"
@@ -170,8 +247,419 @@ def test_orchestrator_marks_code_change_failed_when_tests_fail(monkeypatch, tmp_
 
     types = [event["type"] for _, event in client.events]
     assert types[-1] == "TASK_FAILED"
-    assert client.events[-1][1]["payload"]["reason"] == "test_failed"
-    assert client.events[-1][1]["payload"]["attempts"] == 4
+    assert client.events[-1][1]["payload"]["reason"] == "fix_loop_exhausted"
+    assert client.events[-1][1]["payload"]["errorCode"] == "FIX_LOOP_EXHAUSTED"
+    assert client.events[-1][1]["payload"]["attempt"] == 3
+    assert client.events[-1][1]["payload"]["maxAttempts"] == 3
+    assert len(tester.calls) == 4
+
+
+def test_orchestrator_marks_task_done_when_fix_loop_recovers(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("LLM_BACKEND", "openai")
+    monkeypatch.setenv("OPENAI_API_KEY", "dummy")
+    workspace = tmp_path / "workspace"
+    workspace.mkdir(parents=True, exist_ok=True)
+    (workspace / "README.md").write_text("TODO: patch me\n", encoding="utf-8")
+    monkeypatch.setenv("MVP_ALLOWED_WORKSPACE_PREFIXES", str(workspace))
+
+    task = {
+        "taskId": "task_105",
+        "assistant": "ai-agent",
+        "sessionKey": "sess_105",
+        "prompt": "fix readme and implement update",
+        "workspacePath": str(workspace),
+    }
+    client = _FakeClient()
+    reviewer = _FakeReviewerAgent(ReviewResult(approved=True, summary="review passed", issues=[]))
+    tester = _SequenceTesterAgent(
+        [
+            RunResult(
+                success=False,
+                attempts=1,
+                retries=0,
+                command="echo test",
+                status="failed",
+                reason="test_failed",
+                trace_id="trc_task_105_1",
+                run_id="run_task_105_1",
+            ),
+            RunResult(
+                success=True,
+                attempts=1,
+                retries=0,
+                command="echo test",
+                status="ok",
+                reason=None,
+                trace_id="trc_task_105_2",
+                run_id="run_task_105_2",
+            ),
+        ]
+    )
+
+    AgentOrchestrator(reviewer_agent=reviewer, tester_agent=tester).handle_task(task, client)
+
+    types = [event["type"] for _, event in client.events]
+    assert types[-1] == "TASK_DONE"
+    assert client.events[-1][1]["payload"]["attempt"] == 1
+    assert client.events[-1][1]["payload"]["maxAttempts"] == 3
+    assert len(tester.calls) == 2
+    fix_loop_events = [
+        event["payload"]
+        for _, event in client.events
+        if event["type"] == "ASSISTANT_OUTPUT" and event["payload"].get("message") == "Fix loop attempt started."
+    ]
+    assert fix_loop_events
+
+
+def test_orchestrator_marks_code_change_failed_when_fix_loop_max_attempt_is_one(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("LLM_BACKEND", "openai")
+    monkeypatch.setenv("OPENAI_API_KEY", "dummy")
+    monkeypatch.setenv("MVP_FIX_LOOP_MAX_ATTEMPTS", "1")
+    monkeypatch.setattr(LLMClient, "chat", lambda self, messages: "Updated docs\n")
+    workspace = tmp_path / "workspace"
+    workspace.mkdir(parents=True, exist_ok=True)
+    (workspace / "README.md").write_text("TODO: patch me\n", encoding="utf-8")
+    monkeypatch.setenv("MVP_ALLOWED_WORKSPACE_PREFIXES", str(workspace))
+
+    task = {
+        "taskId": "task_105b",
+        "assistant": "ai-agent",
+        "sessionKey": "sess_105b",
+        "prompt": "fix readme and implement update",
+        "workspacePath": str(workspace),
+    }
+    client = _FakeClient()
+    reviewer = _FakeReviewerAgent(ReviewResult(approved=True, summary="review passed", issues=[]))
+    tester = _FakeTesterAgent(
+        RunResult(
+            success=False,
+            attempts=1,
+            retries=0,
+            command="echo test",
+            status="failed",
+            reason="test_failed",
+            trace_id="trc_task_105b",
+            run_id="run_task_105b",
+        )
+    )
+
+    AgentOrchestrator(reviewer_agent=reviewer, tester_agent=tester).handle_task(task, client)
+
+    types = [event["type"] for _, event in client.events]
+    assert types[-1] == "TASK_FAILED"
+    assert client.events[-1][1]["payload"]["reason"] == "fix_loop_exhausted"
+    assert client.events[-1][1]["payload"]["attempt"] == 1
+    assert client.events[-1][1]["payload"]["maxAttempts"] == 1
+    assert len(tester.calls) == 2
+
+
+def test_orchestrator_marks_review_rejected_with_error_code(monkeypatch) -> None:
+    monkeypatch.setenv("LLM_BACKEND", "openai")
+    monkeypatch.setenv("OPENAI_API_KEY", "dummy")
+
+    def _raise(*_args, **_kwargs):
+        raise RuntimeError("llm unavailable")
+
+    monkeypatch.setattr(LLMClient, "chat", _raise)
+
+    task = {
+        "taskId": "task_108",
+        "assistant": "ai-agent",
+        "sessionKey": "sess_108",
+        "prompt": "fix code issue",
+    }
+    client = _FakeClient()
+    reviewer = _FakeReviewerAgent(
+        ReviewResult(approved=False, summary="unsafe operation", issues=["dangerous shell"], risk_level="high")
+    )
+    tester = _FakeTesterAgent(
+        RunResult(
+            success=True,
+            attempts=1,
+            retries=0,
+            command="echo test",
+            status="ok",
+            reason=None,
+            trace_id="trc_task_108",
+            run_id="run_task_108",
+        )
+    )
+
+    orchestrator = AgentOrchestrator(
+        coder_agent=_FakeCoderAgent(),
+        reviewer_agent=reviewer,
+        tester_agent=tester,
+    )
+    orchestrator.handle_task(task, client)
+
+    types = [event["type"] for _, event in client.events]
+    assert types[-1] == "TASK_FAILED"
+    assert client.events[-1][1]["payload"]["reason"] == "review_rejected"
+    assert client.events[-1][1]["payload"]["errorCode"] == "REVIEW_REJECTED"
+    assert client.events[-1][1]["payload"]["riskLevel"] == "high"
+
+
+def test_orchestrator_marks_parallel_result_invalid_with_error_code(monkeypatch) -> None:
+    monkeypatch.setenv("LLM_BACKEND", "openai")
+    monkeypatch.setenv("OPENAI_API_KEY", "dummy")
+
+    def _raise(*_args, **_kwargs):
+        raise RuntimeError("llm unavailable")
+
+    monkeypatch.setattr(LLMClient, "chat", _raise)
+
+    task = {
+        "taskId": "task_109",
+        "assistant": "ai-agent",
+        "sessionKey": "sess_109",
+        "prompt": "fix code issue",
+    }
+    client = _FakeClient()
+    tester = _FakeTesterAgent(
+        RunResult(
+            success=True,
+            attempts=1,
+            retries=0,
+            command="echo test",
+            status="ok",
+            reason=None,
+            trace_id="trc_task_109",
+            run_id="run_task_109",
+        )
+    )
+    orchestrator = AgentOrchestrator(
+        coder_agent=_FakeCoderAgent(),
+        reviewer_agent=_InvalidReviewerAgent(),
+        tester_agent=tester,
+    )
+    orchestrator.handle_task(task, client)
+
+    assert client.events[-1][1]["type"] == "TASK_FAILED"
+    assert client.events[-1][1]["payload"]["reason"] == "parallel_result_invalid"
+    assert client.events[-1][1]["payload"]["errorCode"] == "PARALLEL_RESULT_INVALID"
+
+
+def test_orchestrator_marks_parallel_pipeline_error_with_error_code(monkeypatch) -> None:
+    monkeypatch.setenv("LLM_BACKEND", "openai")
+    monkeypatch.setenv("OPENAI_API_KEY", "dummy")
+
+    def _raise(*_args, **_kwargs):
+        raise RuntimeError("llm unavailable")
+
+    monkeypatch.setattr(LLMClient, "chat", _raise)
+
+    task = {
+        "taskId": "task_110",
+        "assistant": "ai-agent",
+        "sessionKey": "sess_110",
+        "prompt": "fix code issue",
+    }
+    client = _FakeClient()
+    orchestrator = AgentOrchestrator(
+        coder_agent=_FakeCoderAgent(),
+        dag_scheduler=_FailingDagScheduler(),
+    )
+    orchestrator.handle_task(task, client)
+
+    assert client.events[-1][1]["type"] == "TASK_FAILED"
+    assert client.events[-1][1]["payload"]["reason"] == "parallel_pipeline_error"
+    assert client.events[-1][1]["payload"]["errorCode"] == "PARALLEL_PIPELINE_ERROR"
+
+
+def test_orchestrator_marks_sandbox_request_failed_with_error_code(monkeypatch) -> None:
+    monkeypatch.setenv("LLM_BACKEND", "openai")
+    monkeypatch.setenv("OPENAI_API_KEY", "dummy")
+
+    def _raise(*_args, **_kwargs):
+        raise RuntimeError("llm unavailable")
+
+    monkeypatch.setattr(LLMClient, "chat", _raise)
+
+    task = {
+        "taskId": "task_111",
+        "assistant": "ai-agent",
+        "sessionKey": "sess_111",
+        "prompt": "please deploy this service",
+    }
+    client = _FakeClient()
+    orchestrator = AgentOrchestrator(exec_tool=_RaisingExecTool("sandbox down"))
+    orchestrator.handle_task(task, client)
+
+    assert client.events[-1][1]["type"] == "TASK_FAILED"
+    assert client.events[-1][1]["payload"]["reason"] == "sandbox_request_failed"
+    assert client.events[-1][1]["payload"]["errorCode"] == "SANDBOX_REQUEST_FAILED"
+
+
+def test_orchestrator_handles_flask_health_task_end_to_end_success(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("LLM_BACKEND", "openai")
+    monkeypatch.setenv("OPENAI_API_KEY", "dummy")
+    workspace = tmp_path / "workspace"
+    workspace.mkdir(parents=True, exist_ok=True)
+    app_file = workspace / "app.py"
+    app_file.write_text(
+        'from flask import Flask\n\napp = Flask(__name__)\n\n@app.route("/")\ndef index():\n    return "ok"\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("MVP_ALLOWED_WORKSPACE_PREFIXES", str(workspace))
+
+    def _chat(self, messages):  # noqa: ANN001
+        system_prompt = str(messages[0].get("content", ""))
+        if "intent classifier" in system_prompt:
+            return '{"intent":"code_change","confidence":0.97,"reason":"flask health endpoint request"}'
+        if "planning agent" in system_prompt:
+            return '{"plan_name":"code_change_pipeline","steps":["update flask routes","run tests"]}'
+        if "coding assistant" in system_prompt:
+            return (
+                "from flask import Flask\n\n"
+                "app = Flask(__name__)\n\n"
+                '@app.route("/")\n'
+                "def index():\n"
+                '    return "ok"\n\n'
+                '@app.route("/health")\n'
+                "def health():\n"
+                '    return {"status": "ok"}, 200\n'
+            )
+        if "code reviewer" in system_prompt:
+            return '{"risk_level":"low","issues":[],"summary":"safe endpoint addition"}'
+        raise AssertionError(f"unexpected LLM call: {system_prompt}")
+
+    monkeypatch.setattr(LLMClient, "chat", _chat)
+
+    task = {
+        "taskId": "task_106",
+        "assistant": "ai-agent",
+        "sessionKey": "sess_106",
+        "prompt": "add /health endpoint to Flask app",
+        "workspacePath": str(workspace),
+        "testCommand": "pytest -q",
+    }
+    client = _FakeClient()
+    exec_tool = _FakeExecTool(
+        ExecResult(
+            ok=True,
+            status="ok",
+            exit_code=0,
+            output="tests passed",
+            retryable=False,
+            reason=None,
+            tool="test.execute",
+            tool_version="1.0.0",
+            trace_id="trc_task_106",
+            run_id="run_task_106",
+            approval_id=None,
+        )
+    )
+
+    AgentOrchestrator(exec_tool=exec_tool).handle_task(task, client)
+
+    types = [event["type"] for _, event in client.events]
+    assert "FILE_PATCH_PREVIEW" in types
+    assert types[-1] == "TASK_DONE"
+    assert client.events[0][1]["payload"]["intent"] == "code_change"
+    patch_event = [event for _, event in client.events if event["type"] == "FILE_PATCH_PREVIEW"][0]
+    assert "---" in patch_event["payload"]["patch"]
+    assert "+++" in patch_event["payload"]["patch"]
+    assert "/health" in patch_event["payload"]["patch"]
+    assert '@app.route("/health")' in app_file.read_text(encoding="utf-8")
+    assert exec_tool.calls[0]["intent"] == "test"
+    assert client.events[-1][1]["payload"]["result"] == "coded_reviewed_tested"
+
+
+def test_orchestrator_flask_health_task_enters_fix_loop_when_test_fails(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("LLM_BACKEND", "openai")
+    monkeypatch.setenv("OPENAI_API_KEY", "dummy")
+    workspace = tmp_path / "workspace"
+    workspace.mkdir(parents=True, exist_ok=True)
+    app_file = workspace / "app.py"
+    app_file.write_text(
+        'from flask import Flask\n\napp = Flask(__name__)\n\n@app.route("/")\ndef index():\n    return "ok"\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("MVP_ALLOWED_WORKSPACE_PREFIXES", str(workspace))
+
+    coder_call_count = {"value": 0}
+
+    def _chat(self, messages):  # noqa: ANN001
+        system_prompt = str(messages[0].get("content", ""))
+        if "intent classifier" in system_prompt:
+            return '{"intent":"code_change","confidence":0.95,"reason":"flask route change"}'
+        if "planning agent" in system_prompt:
+            return '{"plan_name":"code_change_pipeline","steps":["edit flask app","run tests"]}'
+        if "coding assistant" in system_prompt:
+            coder_call_count["value"] += 1
+            if coder_call_count["value"] == 1:
+                return (
+                    "from flask import Flask\n\n"
+                    "app = Flask(__name__)\n\n"
+                    '@app.route("/")\n'
+                    "def index():\n"
+                    '    return "ok"\n\n'
+                    '@app.route("/health")\n'
+                    "def health():\n"
+                    '    return {"status": "ok"}, 200\n'
+                )
+            return (
+                "from flask import Flask\n\n"
+                "app = Flask(__name__)\n\n"
+                '@app.route("/")\n'
+                "def index():\n"
+                '    return "ok"\n\n'
+                '@app.route("/health")\n'
+                "def health():\n"
+                '    return {"status": "ok", "fixLoop": True}, 200\n'
+            )
+        if "code reviewer" in system_prompt:
+            return '{"risk_level":"low","issues":[],"summary":"safe endpoint addition"}'
+        raise AssertionError(f"unexpected LLM call: {system_prompt}")
+
+    monkeypatch.setattr(LLMClient, "chat", _chat)
+
+    task = {
+        "taskId": "task_107",
+        "assistant": "ai-agent",
+        "sessionKey": "sess_107",
+        "prompt": "add /health endpoint to Flask app",
+        "workspacePath": str(workspace),
+    }
+    client = _FakeClient()
+    tester = _SequenceTesterAgent(
+        [
+            RunResult(
+                success=False,
+                attempts=1,
+                retries=0,
+                command="pytest -q",
+                status="failed",
+                reason="assert 404 == 200",
+                trace_id="trc_task_107_1",
+                run_id="run_task_107_1",
+            ),
+            RunResult(
+                success=True,
+                attempts=1,
+                retries=0,
+                command="pytest -q",
+                status="ok",
+                reason=None,
+                trace_id="trc_task_107_2",
+                run_id="run_task_107_2",
+            ),
+        ]
+    )
+
+    AgentOrchestrator(tester_agent=tester).handle_task(task, client)
+
+    types = [event["type"] for _, event in client.events]
+    assert types[-1] == "TASK_DONE"
+    assert len(tester.calls) == 2
+    fix_loop_events = [
+        event["payload"]
+        for _, event in client.events
+        if event["type"] == "ASSISTANT_OUTPUT" and event["payload"].get("message") == "Fix loop attempt started."
+    ]
+    assert fix_loop_events
+    assert client.events[-1][1]["payload"]["attempt"] == 1
+    assert client.events[-1][1]["payload"]["maxAttempts"] == 3
 
 
 def test_orchestrator_routes_deploy_to_exec_tool_and_marks_task_done(monkeypatch) -> None:
@@ -244,6 +732,7 @@ def test_orchestrator_marks_task_failed_when_exec_tool_returns_failure(monkeypat
     assert types == ["ASSISTANT_OUTPUT", "ASSISTANT_OUTPUT", "ASSISTANT_OUTPUT", "ASSISTANT_OUTPUT", "TASK_FAILED"]
     assert exec_tool.calls[0]["command"] == "echo deploy_now"
     assert client.events[4][1]["payload"]["reason"] == "approval_rejected"
+    assert client.events[4][1]["payload"]["errorCode"] == "APPROVAL_REJECTED"
 
 
 def test_orchestrator_reuses_memory_context_for_second_code_change(monkeypatch, tmp_path) -> None:
@@ -308,3 +797,26 @@ def test_orchestrator_reuses_memory_context_for_second_code_change(monkeypatch, 
     ]
     assert memory_events
     assert memory_events[0]["lastTestCommand"] == "echo first_test_command"
+
+
+def test_resolve_fix_loop_max_attempts_bounds(monkeypatch) -> None:
+    monkeypatch.delenv("MVP_FIX_LOOP_MAX_ATTEMPTS", raising=False)
+    assert _resolve_fix_loop_max_attempts() == 3
+
+    monkeypatch.setenv("MVP_FIX_LOOP_MAX_ATTEMPTS", "abc")
+    assert _resolve_fix_loop_max_attempts() == 3
+
+    monkeypatch.setenv("MVP_FIX_LOOP_MAX_ATTEMPTS", "10")
+    assert _resolve_fix_loop_max_attempts() == 3
+
+    monkeypatch.setenv("MVP_FIX_LOOP_MAX_ATTEMPTS", "0")
+    assert _resolve_fix_loop_max_attempts() == 1
+
+    monkeypatch.setenv("MVP_FIX_LOOP_MAX_ATTEMPTS", "-5")
+    assert _resolve_fix_loop_max_attempts() == 1
+
+
+def test_error_code_from_reason_normalization() -> None:
+    assert _error_code_from_reason("approval rejected") == "APPROVAL_REJECTED"
+    assert _error_code_from_reason("fix-loop_exhausted") == "FIX_LOOP_EXHAUSTED"
+    assert _error_code_from_reason("  ") == "UNKNOWN_ERROR"

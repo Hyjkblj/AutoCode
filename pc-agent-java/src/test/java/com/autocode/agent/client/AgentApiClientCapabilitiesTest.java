@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class AgentApiClientCapabilitiesTest {
@@ -26,6 +27,28 @@ class AgentApiClientCapabilitiesTest {
         assertTrue(capabilities.contains("runtime.service:control-plane-api"));
         assertTrue(capabilities.contains("runtime.port:8080"));
         assertTrue(capabilities.contains("runtime.health.path:/actuator/health"));
+    }
+
+    @Test
+    void buildCapabilitiesReadsPrimaryPortFromRuntimePortsList() {
+        String capabilities = AgentApiClient.buildCapabilities("coder", Map.of(
+                "MVP_RUNTIME_PORTS", "http:8081:http,grpc:9090:grpc"
+        ));
+        assertTrue(capabilities.contains("runtime.descriptor.v1"));
+        assertTrue(capabilities.contains("runtime.port:8081"));
+        assertTrue(capabilities.contains("runtime.ports.count:2"));
+    }
+
+    @Test
+    void buildCapabilitiesFallsBackToRuntimePortsWhenSinglePortInvalid() {
+        String capabilities = AgentApiClient.buildCapabilities("coder", Map.of(
+                "MVP_RUNTIME_PORT", "abc",
+                "MVP_RUNTIME_PORTS", "http:8081:http,grpc:9090:grpc"
+        ));
+        assertTrue(capabilities.contains("runtime.descriptor.v1"));
+        assertTrue(capabilities.contains("runtime.port:8081"));
+        assertTrue(capabilities.contains("runtime.ports.count:2"));
+        assertFalse(capabilities.contains("runtime.port:abc"));
     }
 }
 

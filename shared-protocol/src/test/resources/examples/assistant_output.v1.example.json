@@ -1,0 +1,30 @@
+{
+  "eventId": "evt_test_assistant_output_001",
+  "taskId": "task_test_123",
+  "sessionId": "sess_test_abc",
+  "assistant": "test",
+  "type": "ASSISTANT_OUTPUT",
+  "timestamp": "2026-04-08T09:00:10Z",
+  "seq": 3,
+  "eventVersion": 1,
+  "payload": {
+    "message": "Reviewer finished: medium risk with two issues, entering fix loop attempt 1/3.",
+    "stage": "ReviewerAgent",
+    "command": "pytest -q",
+    "intent": "code_change",
+    "confidence": 0.91,
+    "reason": "Prompt requires source change plus test verification.",
+    "llmFallback": false,
+    "riskLevel": "medium",
+    "issues": [
+      "Missing null guard in /health endpoint.",
+      "Regression test for 500-path is absent."
+    ],
+    "summary": "Need one code fix and one test update.",
+    "attempt": 1,
+    "maxAttempts": 3,
+    "lastTestError": "AssertionError: expected status 200, got 500",
+    "traceId": "trc_task_test_123",
+    "runId": "run_test_001"
+  }
+}

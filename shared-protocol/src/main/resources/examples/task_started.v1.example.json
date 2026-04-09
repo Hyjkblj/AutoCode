@@ -1,0 +1,13 @@
+{
+  "eventId": "evt_01HQATASKSTARTED001",
+  "taskId": "task_123",
+  "sessionId": "sess_abc",
+  "assistant": "gpt",
+  "type": "TASK_STARTED",
+  "timestamp": "2026-04-08T09:00:02Z",
+  "seq": 2,
+  "eventVersion": 1,
+  "payload": {
+    "nodeId": "node-local-1"
+  }
+}

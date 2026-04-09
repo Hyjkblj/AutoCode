@@ -28,19 +28,22 @@ final class AgentTlsSocketFactory {
 
     static void apply(OkHttpClient.Builder builder, AgentConfig.ClientTls tls)
             throws IOException, GeneralSecurityException {
-        if (tls == null || !tls.isKeyMaterialConfigured()) {
+        if (tls == null || !tls.isTlsConfigured()) {
             return;
         }
-        KeyStore keyStore = KeyStore.getInstance(tls.getKeyStoreType());
-        char[] keyPw = passwordChars(tls.getKeyStorePassword());
-        try (InputStream in = Files.newInputStream(Path.of(tls.getKeyStorePath()))) {
-            keyStore.load(in, keyPw);
+        KeyManagerFactory kmf = null;
+        if (tls.isKeyMaterialConfigured()) {
+            KeyStore keyStore = KeyStore.getInstance(tls.getKeyStoreType());
+            char[] keyPw = passwordChars(tls.getKeyStorePassword());
+            try (InputStream in = Files.newInputStream(Path.of(tls.getKeyStorePath().trim()))) {
+                keyStore.load(in, keyPw);
+            }
+            kmf = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm());
+            kmf.init(keyStore, keyPw);
         }
-        KeyManagerFactory kmf = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm());
-        kmf.init(keyStore, keyPw);
 
         TrustManagerFactory tmf = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
-        if (tls.getTrustStorePath() != null && !tls.getTrustStorePath().isBlank()) {
+        if (tls.isTrustMaterialConfigured()) {
             KeyStore trustStore = KeyStore.getInstance(tls.getTrustStoreType());
             char[] trustPw = passwordChars(tls.getTrustStorePassword());
             try (InputStream in = Files.newInputStream(Path.of(tls.getTrustStorePath().trim()))) {
@@ -64,7 +67,7 @@ final class AgentTlsSocketFactory {
         }
 
         SSLContext sslContext = SSLContext.getInstance("TLS");
-        sslContext.init(kmf.getKeyManagers(), trustManagers, new SecureRandom());
+        sslContext.init(kmf != null ? kmf.getKeyManagers() : null, trustManagers, new SecureRandom());
         SSLSocketFactory socketFactory = sslContext.getSocketFactory();
         builder.sslSocketFactory(socketFactory, x509TrustManager);
     }

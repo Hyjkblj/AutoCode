@@ -43,6 +43,7 @@ android {
 
 dependencies {
     val composeBom = platform("androidx.compose:compose-bom:2024.10.01")
+    val markdownRendererVersion = "0.28.0"
     implementation(composeBom)
     androidTestImplementation(composeBom)
 
@@ -60,6 +61,10 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.google.accompanist:accompanist-permissions:0.36.0")
+    implementation("com.mikepenz:multiplatform-markdown-renderer-m3:$markdownRendererVersion")
+    implementation("com.mikepenz:multiplatform-markdown-renderer-code:$markdownRendererVersion")
+    implementation("com.mikepenz:multiplatform-markdown-renderer-coil3:$markdownRendererVersion")
+    implementation("io.coil-kt.coil3:coil-compose:3.0.4")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
 }

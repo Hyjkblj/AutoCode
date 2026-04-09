@@ -9,6 +9,8 @@
   "eventVersion": 1,
   "payload": {
     "requestId": "deploy_req_test_001",
+    "traceId": "trc_task_test_123",
+    "runId": "run_test_deploy_001",
     "deploymentId": "dep_test_001",
     "environment": "staging",
     "status": "success",

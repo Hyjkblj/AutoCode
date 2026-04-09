@@ -9,10 +9,22 @@
   "eventVersion": 1,
   "payload": {
     "approvalId": "apr_01HQ9APR001",
+    "action": "app.publish",
+    "tool": "deploy.execute",
+    "toolVersion": "1.0.0",
+    "command": "deploy --env staging",
+    "cwd": "D:/Develop/Project/AutoCode",
+    "workspaceRef": "D:/Develop/Project/AutoCode",
+    "approvalTimeoutSeconds": 180,
+    "riskScore": 0.95,
+    "requiredPolicies": [
+      "approval.gate",
+      "deploy.context.match"
+    ],
     "reason": "publish requires human approval",
     "context": {
       "action": "app.publish",
-      "tool": "publish.run",
+      "tool": "deploy.execute",
       "workspaceRef": "D:/Develop/Project/AutoCode",
       "inputsHash": "sha256:13d1746e51afcf6962ec8f0fc70823ea89993f31708bcfb5f4f2467f7af450f9",
       "inputs": {

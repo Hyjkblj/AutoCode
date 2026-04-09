@@ -142,4 +142,36 @@ class TaskExecutorDeployReportingTest {
         List<String> requiredPolicies = (List<String>) payload.get("requiredPolicies");
         assertEquals(List.of("approval.gate", "deploy.context.match"), requiredPolicies);
     }
+
+    @Test
+    void buildDeployContextNormalizesWorkspaceRefAndKeepsHashStableAcrossSeparators() {
+        TaskSummary task = new TaskSummary();
+        task.setTaskId("task_456");
+        task.setProjectId("proj_456");
+        task.setPrompt("deploy now");
+
+        ArtifactMetadata artifact = new ArtifactMetadata();
+        artifact.setArtifactId("art_456");
+        artifact.setType("zip");
+
+        Map<String, Object> windowsContext = TaskExecutor.buildDeployContext(
+                task,
+                "D:\\workspace\\proj",
+                "dep_req_456",
+                artifact,
+                Map.of()
+        );
+
+        Map<String, Object> unixContext = TaskExecutor.buildDeployContext(
+                task,
+                "D:/workspace/proj",
+                "dep_req_456",
+                artifact,
+                Map.of()
+        );
+
+        assertEquals("D:/workspace/proj", windowsContext.get("workspaceRef"));
+        assertEquals("D:/workspace/proj", unixContext.get("workspaceRef"));
+        assertEquals(windowsContext.get("inputsHash"), unixContext.get("inputsHash"));
+    }
 }

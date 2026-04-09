@@ -7,6 +7,7 @@ import jakarta.persistence.IdClass;
 import jakarta.persistence.Table;
 
 import java.io.Serializable;
+import java.util.Objects;
 
 @Entity
 @Table(name = "project_memberships")
@@ -48,6 +49,8 @@ public class ProjectMembershipEntity {
     }
 
     public static class Pk implements Serializable {
+        private static final long serialVersionUID = 1L;
+
         private String projectId;
         private String userId;
 
@@ -73,6 +76,23 @@ public class ProjectMembershipEntity {
 
         public void setUserId(String userId) {
             this.userId = userId;
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) {
+                return true;
+            }
+            if (!(o instanceof Pk pk)) {
+                return false;
+            }
+            return Objects.equals(projectId, pk.projectId)
+                    && Objects.equals(userId, pk.userId);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(projectId, userId);
         }
     }
 }

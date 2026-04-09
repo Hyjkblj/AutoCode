@@ -14,6 +14,20 @@
           "required": ["approvalId", "context"],
           "properties": {
             "approvalId": { "type": "string", "minLength": 1 },
+            "traceId": { "type": "string", "minLength": 1 },
+            "runId": { "type": "string", "minLength": 1 },
+            "action": { "type": "string", "minLength": 1 },
+            "tool": { "type": "string", "minLength": 1 },
+            "command": { "type": "string", "minLength": 1 },
+            "cwd": { "type": "string", "minLength": 1 },
+            "workspaceRef": { "type": "string", "minLength": 1 },
+            "approvalTimeoutSeconds": { "type": "integer", "minimum": 0 },
+            "riskScore": { "type": "number", "minimum": 0, "maximum": 1 },
+            "requiredPolicies": {
+              "type": "array",
+              "items": { "type": "string", "minLength": 1 }
+            },
+            "toolVersion": { "type": "string", "minLength": 1 },
             "reason": { "type": "string" },
             "context": {
               "type": "object",

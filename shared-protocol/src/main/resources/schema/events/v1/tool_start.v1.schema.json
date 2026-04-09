@@ -17,10 +17,13 @@
             "action": { "type": "string" },
             "command": { "type": "string" },
             "cwd": { "type": "string" },
+            "workspaceRef": { "type": "string" },
             "toolVersion": { "type": "string" },
             "approvalId": { "type": "string" },
             "traceId": { "type": "string" },
-            "runId": { "type": "string" }
+            "runId": { "type": "string" },
+            "intentSkill": { "type": "string" },
+            "intentRoute": { "type": "string" }
           }
         }
       }

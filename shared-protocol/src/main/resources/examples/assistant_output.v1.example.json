@@ -1,0 +1,30 @@
+{
+  "eventId": "evt_01HQAASSISTOUT001",
+  "taskId": "task_123",
+  "sessionId": "sess_abc",
+  "assistant": "gpt",
+  "type": "ASSISTANT_OUTPUT",
+  "timestamp": "2026-04-08T09:00:10Z",
+  "seq": 3,
+  "eventVersion": 1,
+  "payload": {
+    "message": "Reviewer finished: medium risk with two issues, entering fix loop attempt 1/3.",
+    "stage": "ReviewerAgent",
+    "command": "pytest -q",
+    "intent": "code_change",
+    "confidence": 0.94,
+    "reason": "Prompt asks to modify backend code and rerun tests.",
+    "llmFallback": false,
+    "riskLevel": "medium",
+    "issues": [
+      "Health endpoint misses null guard for dependency.",
+      "No regression test covers 500-path fallback."
+    ],
+    "summary": "Needs a small null-safety fix and one test update before approval.",
+    "attempt": 1,
+    "maxAttempts": 3,
+    "lastTestError": "AssertionError: expected status 200, got 500",
+    "traceId": "trc_task_123",
+    "runId": "run_01HQA001"
+  }
+}

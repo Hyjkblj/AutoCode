@@ -10,6 +10,18 @@ public class ApprovalResultPayload {
     private String approvalId;
     private ApprovalDecision decision;
     /**
+     * Optional. End-to-end trace correlation id.
+     */
+    private String traceId;
+    /**
+     * Optional. Runtime execution correlation id.
+     */
+    private String runId;
+    /**
+     * Optional. Time spent waiting for the approval decision.
+     */
+    private Long waitMs;
+    /**
      * Optional. Echo of the context that was approved/rejected.
      */
     private ApprovalContext context;
@@ -32,6 +44,30 @@ public class ApprovalResultPayload {
 
     public void setDecision(ApprovalDecision decision) {
         this.decision = decision;
+    }
+
+    public String getTraceId() {
+        return traceId;
+    }
+
+    public void setTraceId(String traceId) {
+        this.traceId = traceId;
+    }
+
+    public String getRunId() {
+        return runId;
+    }
+
+    public void setRunId(String runId) {
+        this.runId = runId;
+    }
+
+    public Long getWaitMs() {
+        return waitMs;
+    }
+
+    public void setWaitMs(Long waitMs) {
+        this.waitMs = waitMs;
     }
 
     public ApprovalContext getContext() {

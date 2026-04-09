@@ -10,6 +10,9 @@
   "payload": {
     "approvalId": "apr_test_001",
     "decision": "reject",
+    "traceId": "trc_task_test_123",
+    "runId": "run_test_approval_001",
+    "waitMs": 950,
     "message": "blocked by reviewer",
     "context": {
       "action": "app.publish",

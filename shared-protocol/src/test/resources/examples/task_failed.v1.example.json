@@ -4,12 +4,26 @@
   "sessionId": "sess_test_abc",
   "assistant": "test",
   "type": "TASK_FAILED",
-  "timestamp": "2026-04-07T10:20:00Z",
-  "seq": 90,
+  "timestamp": "2026-04-08T10:13:00Z",
+  "seq": 71,
   "eventVersion": 1,
   "payload": {
-    "reason": "exec_failed",
-    "detail": "Command exited with non-zero status",
-    "errorCode": "COMMAND_EXIT_NON_ZERO"
+    "reason": "fix_loop_exhausted",
+    "detail": "tester failed after max fix loop attempts",
+    "planName": "code_change_pipeline",
+    "errorCode": "FIX_LOOP_EXHAUSTED",
+    "status": "failed",
+    "retryable": false,
+    "attempt": 3,
+    "maxAttempts": 3,
+    "lastTestError": "pytest: test_health_endpoint failed with status 500",
+    "riskLevel": "high",
+    "issues": [
+      "Health route still throws when dependency is null.",
+      "Regression test expects outdated response shape."
+    ],
+    "summary": "Fix loop exhausted; manual intervention required.",
+    "traceId": "trc_task_test_123",
+    "runId": "run_test_001"
   }
 }

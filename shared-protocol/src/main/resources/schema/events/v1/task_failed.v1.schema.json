@@ -10,13 +10,31 @@
         "type": { "const": "TASK_FAILED" },
         "payload": {
           "type": "object",
-          "additionalProperties": false,
           "required": ["reason"],
           "properties": {
             "reason": { "type": "string", "minLength": 1 },
             "detail": { "type": "string" },
-            "errorCode": { "type": "string" }
-          }
+            "planName": { "type": "string" },
+            "errorCode": { "type": "string" },
+            "status": { "type": "string" },
+            "exitCode": { "type": "integer" },
+            "retryable": { "type": "boolean" },
+            "policyReason": { "type": "string" },
+            "tool": { "type": "string" },
+            "cwd": { "type": "string" },
+            "attempt": { "type": "integer", "minimum": 1 },
+            "maxAttempts": { "type": "integer", "minimum": 1 },
+            "lastTestError": { "type": "string" },
+            "riskLevel": { "type": "string", "enum": ["high", "medium", "low"] },
+            "issues": {
+              "type": "array",
+              "items": { "type": "string", "minLength": 1 }
+            },
+            "summary": { "type": "string" },
+            "traceId": { "type": "string" },
+            "runId": { "type": "string" }
+          },
+          "additionalProperties": true
         }
       }
     }

@@ -69,6 +69,11 @@ public class TaskEventValidator {
             }
         } else if (event.getType() == EventType.TASK_FAILED) {
             requireString(event.getPayload(), "reason");
+            validateFixLoopFieldsIfPresent(event.getPayload());
+        }
+
+        if (event.getType() == EventType.ASSISTANT_OUTPUT || event.getType() == EventType.TASK_FAILED) {
+            validateReviewFieldsIfPresent(event.getPayload());
         }
     }
 
@@ -170,6 +175,52 @@ public class TaskEventValidator {
                 throw new ProtocolValidationException(fieldPath + "[" + i + "] must be a non-blank string");
             }
         }
+    }
+
+    private static void validateReviewFieldsIfPresent(Map<String, Object> payload) {
+        validateOptionalString(payload, "riskLevel", "event.payload.riskLevel");
+        validateOptionalString(payload, "risk_level", "event.payload.risk_level");
+        validateOptionalString(payload, "summary", "event.payload.summary");
+        validateOptionalArray(payload, "issues", "event.payload.issues");
+    }
+
+    private static void validateFixLoopFieldsIfPresent(Map<String, Object> payload) {
+        validateOptionalIntegerLike(payload, "attempt", "event.payload.attempt");
+        validateOptionalIntegerLike(payload, "maxAttempts", "event.payload.maxAttempts");
+        validateOptionalString(payload, "lastTestError", "event.payload.lastTestError");
+    }
+
+    private static void validateOptionalArray(Map<String, Object> payload, String key, String fieldPath) {
+        Object value = payload.get(key);
+        if (value == null) {
+            return;
+        }
+        if (!(value instanceof List<?>)) {
+            throw new ProtocolValidationException(fieldPath + " must be an array");
+        }
+    }
+
+    private static void validateOptionalIntegerLike(Map<String, Object> payload, String key, String fieldPath) {
+        Object value = payload.get(key);
+        if (value == null) {
+            return;
+        }
+        if (value instanceof Number) {
+            return;
+        }
+        if (value instanceof String s) {
+            String trimmed = s.trim();
+            if (trimmed.isEmpty()) {
+                throw new ProtocolValidationException(fieldPath + " must be an integer");
+            }
+            try {
+                Integer.parseInt(trimmed);
+                return;
+            } catch (NumberFormatException ex) {
+                throw new ProtocolValidationException(fieldPath + " must be an integer");
+            }
+        }
+        throw new ProtocolValidationException(fieldPath + " must be an integer");
     }
 }
 

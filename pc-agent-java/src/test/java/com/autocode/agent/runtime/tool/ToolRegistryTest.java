@@ -42,6 +42,37 @@ class ToolRegistryTest {
     }
 
     @Test
+    void lookupWithoutVersionPrefersStableReleaseOverPrerelease() {
+        ToolRegistry registry = new ToolRegistry();
+        Tool pre = fakeTool("command.exec", "1.0.0-alpha.2");
+        Tool stable = fakeTool("command.exec", "1.0.0");
+        registry.register(pre).register(stable);
+
+        assertSame(stable, registry.getRequired("command.exec"));
+    }
+
+    @Test
+    void lookupWithoutVersionOrdersPrereleaseIdentifiersBySemverRules() {
+        ToolRegistry registry = new ToolRegistry();
+        Tool alpha = fakeTool("command.exec", "1.0.0-alpha.1");
+        Tool beta = fakeTool("command.exec", "1.0.0-beta");
+        Tool rc = fakeTool("command.exec", "1.0.0-rc.1");
+        registry.register(alpha).register(beta).register(rc);
+
+        assertSame(rc, registry.getRequired("command.exec"));
+    }
+
+    @Test
+    void lookupWithoutVersionSupportsLargeNumericVersionParts() {
+        ToolRegistry registry = new ToolRegistry();
+        Tool normal = fakeTool("command.exec", "1.0.9");
+        Tool large = fakeTool("command.exec", "1.0.214748364800000000000");
+        registry.register(normal).register(large);
+
+        assertSame(large, registry.getRequired("command.exec"));
+    }
+
+    @Test
     void listManifestsReturnsAllRegisteredVariants() {
         ToolRegistry registry = new ToolRegistry();
         registry.register(fakeTool("command.exec", "1.0.0"));
@@ -53,14 +84,44 @@ class ToolRegistryTest {
         assertEquals("deploy.execute", manifests.get(1).getName());
     }
 
+    @Test
+    void registerRejectsMissingActionFromManifestContract() {
+        ToolRegistry registry = new ToolRegistry();
+        ToolManifest manifest = new ToolManifest();
+        manifest.setName("command.exec");
+        manifest.setVersion("1.0.0");
+
+        Tool invalid = fakeTool(manifest);
+        assertThrows(IllegalArgumentException.class, () -> registry.register(invalid));
+    }
+
+    @Test
+    void registerRejectsOutOfRangeRiskScoreFromManifestContract() {
+        ToolRegistry registry = new ToolRegistry();
+        ToolManifest manifest = new ToolManifest();
+        manifest.setName("command.exec");
+        manifest.setVersion("1.0.0");
+        manifest.setAction("run_command");
+        ToolPermissions permissions = new ToolPermissions();
+        permissions.setRiskScore(1.5d);
+        manifest.setPermissions(permissions);
+
+        Tool invalid = fakeTool(manifest);
+        assertThrows(IllegalArgumentException.class, () -> registry.register(invalid));
+    }
+
     private static Tool fakeTool(String name, String version) {
         ToolManifest manifest = new ToolManifest();
         manifest.setName(name);
         manifest.setVersion(version);
+        manifest.setAction("run_command");
         ToolPermissions permissions = new ToolPermissions();
         permissions.setRiskScore(0.1d);
         manifest.setPermissions(permissions);
+        return fakeTool(manifest);
+    }
 
+    private static Tool fakeTool(ToolManifest manifest) {
         return new Tool() {
             @Override
             public ToolManifest manifest() {

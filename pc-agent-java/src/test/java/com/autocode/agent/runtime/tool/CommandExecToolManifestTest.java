@@ -30,17 +30,23 @@ class CommandExecToolManifestTest {
                 "command", "echo hello",
                 "prompt", "print hello"
         ));
-        ToolContext context = new ToolContext(task, "D:/workspace/task_1", "apr_1", 120);
+        ToolContext context = new ToolContext(task, "D:\\workspace\\task_1", "apr_1", 120);
 
         Map<String, Object> payload = tool.buildApprovalPayload(call, context);
         assertEquals("apr_1", payload.get("approvalId"));
         assertEquals("command.exec", payload.get("tool"));
         assertEquals("1.0.0", payload.get("toolVersion"));
+        assertEquals("D:/workspace/task_1", payload.get("workspaceRef"));
         assertEquals(0.91d, payload.get("riskScore"));
         assertNotNull(payload.get("requiredPolicies"));
         @SuppressWarnings("unchecked")
         List<String> requiredPolicies = (List<String>) payload.get("requiredPolicies");
         assertTrue(requiredPolicies.contains("workspace.allowlist"));
         assertTrue(requiredPolicies.contains("approval.gate"));
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> approvalContext = (Map<String, Object>) payload.get("context");
+        assertNotNull(approvalContext);
+        assertEquals("D:/workspace/task_1", approvalContext.get("workspaceRef"));
     }
 }

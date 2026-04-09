@@ -4,7 +4,11 @@ import com.autocode.agent.client.AgentApiClient;
 import com.autocode.agent.config.AgentConfig;
 import com.autocode.protocol.model.ApprovalDecision;
 import com.autocode.protocol.model.EventType;
+import com.autocode.protocol.model.SandboxExecuteRequest;
+import com.autocode.protocol.model.SandboxExecuteResponse;
 import com.autocode.protocol.model.TaskEvent;
+import com.autocode.protocol.model.ToolManifest;
+import com.autocode.protocol.validation.SandboxExecuteContractValidator;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Files;
@@ -15,6 +19,9 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class SandboxExecutionServiceTest {
@@ -30,6 +37,7 @@ class SandboxExecutionServiceTest {
         request.setRunId("run_task_ok");
 
         SandboxExecuteResponse response = service.execute(request);
+        assertDoesNotThrow(() -> SandboxExecuteContractValidator.validateResponse(response));
 
         assertTrue(response.isOk());
         assertEquals("ok", response.getStatus());
@@ -64,6 +72,14 @@ class SandboxExecutionServiceTest {
                 EventType.TOOL_END
         ), types);
         assertEquals("approve", apiClient.events().get(1).getPayload().get("decision"));
+        assertNotNull(response.getApprovalId());
+        assertEquals(apiClient.events().get(0).getPayload().get("approvalId"), response.getApprovalId());
+        TaskEvent toolStartEvent = apiClient.events().get(2);
+        assertEquals(EventType.TOOL_START, toolStartEvent.getType());
+        assertNotNull(toolStartEvent.getPayload().get("workspaceRef"));
+        assertEquals(
+                request.getCwd().replace('\\', '/'),
+                toolStartEvent.getPayload().get("workspaceRef"));
     }
 
     @Test
@@ -75,10 +91,12 @@ class SandboxExecutionServiceTest {
         SandboxExecuteRequest request = newRequest("task_reject", "echo deploy_reject", workspace);
 
         SandboxExecuteResponse response = service.execute(request);
+        assertDoesNotThrow(() -> SandboxExecuteContractValidator.validateResponse(response));
 
         assertFalse(response.isOk());
         assertEquals("approval_rejected", response.getStatus());
         assertEquals("approval_rejected", response.getReason());
+        assertNotNull(response.getApprovalId());
 
         List<EventType> types = apiClient.eventTypes();
         assertEquals(List.of(EventType.APPROVAL_REQUIRED, EventType.APPROVAL_RESULT), types);
@@ -101,6 +119,82 @@ class SandboxExecutionServiceTest {
         assertTrue(apiClient.events().isEmpty());
     }
 
+    @Test
+    void executeDeniesPrivilegeEscalationCommandViaInvocationPolicy() throws Exception {
+        Path workspace = Files.createTempDirectory("sandbox-escalation");
+        RecordingAgentApiClient apiClient = new RecordingAgentApiClient();
+        SandboxExecutionService service = new SandboxExecutionService(
+                apiClient,
+                configWithWorkspaceAndCommands(workspace, List.of("sudo"), true));
+
+        SandboxExecuteRequest request = newRequest("task_escalation", "sudo echo blocked", workspace);
+        SandboxExecuteResponse response = service.execute(request);
+
+        assertFalse(response.isOk());
+        assertEquals("denied", response.getStatus());
+        assertEquals("policy_denied:elevation_not_allowed", response.getReason());
+        assertTrue(apiClient.events().isEmpty());
+    }
+
+    @Test
+    void executeSupportsDeployExecuteAliasAndKeepsToolNameConsistent() throws Exception {
+        Path workspace = Files.createTempDirectory("sandbox-deploy-alias");
+        RecordingAgentApiClient apiClient = new RecordingAgentApiClient();
+        SandboxExecutionService service = new SandboxExecutionService(apiClient, configWithWorkspace(workspace));
+
+        SandboxExecuteRequest request = newRequest("task_deploy_alias", "echo alias_ok", workspace);
+        request.setTool("deploy.execute");
+
+        SandboxExecuteResponse response = service.execute(request);
+        assertDoesNotThrow(() -> SandboxExecuteContractValidator.validateResponse(response));
+        assertTrue(response.isOk());
+        assertEquals("deploy.execute", response.getTool());
+        assertEquals("1.0.0", response.getToolVersion());
+        assertTrue(response.getOutput().contains("alias_ok"));
+
+        List<TaskEvent> events = apiClient.events();
+        assertEquals(2, events.size());
+        assertEquals(EventType.TOOL_START, events.get(0).getType());
+        assertEquals("deploy.execute", events.get(0).getPayload().get("tool"));
+        assertEquals(EventType.TOOL_END, events.get(1).getType());
+        assertEquals("deploy.execute", events.get(1).getPayload().get("tool"));
+    }
+
+    @Test
+    void listToolManifestsIncludesDeployExecuteAlias() throws Exception {
+        Path workspace = Files.createTempDirectory("sandbox-tools-alias");
+        SandboxExecutionService service = new SandboxExecutionService(new RecordingAgentApiClient(), configWithWorkspace(workspace));
+
+        List<ToolManifest> manifests = service.listToolManifests();
+        assertEquals(2, manifests.size());
+        assertEquals("command.exec", manifests.get(0).getName());
+        assertEquals("deploy.execute", manifests.get(1).getName());
+        assertEquals(manifests.get(0).getVersion(), manifests.get(1).getVersion());
+        assertEquals(manifests.get(0).getAction(), manifests.get(1).getAction());
+    }
+
+    @Test
+    void executeMapsNonZeroExitToFailedSandboxResponse() throws Exception {
+        Path workspace = Files.createTempDirectory("sandbox-exec-nonzero");
+        RecordingAgentApiClient apiClient = new RecordingAgentApiClient();
+        SandboxExecutionService service = new SandboxExecutionService(apiClient, configWithWorkspace(workspace));
+
+        SandboxExecuteRequest request = newRequest(
+                "task_nonzero",
+                "echo sandbox_nonzero && definitely_not_a_real_command_for_test",
+                workspace);
+
+        SandboxExecuteResponse response = service.execute(request);
+
+        assertDoesNotThrow(() -> SandboxExecuteContractValidator.validateResponse(response));
+        assertFalse(response.isOk());
+        assertEquals("failed", response.getStatus());
+        assertTrue(response.getReason().startsWith("exit_code_"));
+        assertNotNull(response.getExitCode());
+        assertNotEquals(0, response.getExitCode());
+        assertEquals(List.of(EventType.TOOL_START, EventType.TOOL_END), apiClient.eventTypes());
+    }
+
     private static SandboxExecuteRequest newRequest(String taskId, String command, Path cwd) {
         SandboxExecuteRequest request = new SandboxExecuteRequest();
         request.setTaskId(taskId);
@@ -113,6 +207,13 @@ class SandboxExecutionServiceTest {
     }
 
     private static AgentConfig configWithWorkspace(Path workspacePrefix) {
+        return configWithWorkspaceAndCommands(workspacePrefix, List.of("echo"), true);
+    }
+
+    private static AgentConfig configWithWorkspaceAndCommands(
+            Path workspacePrefix,
+            List<String> allowedCommands,
+            boolean networkAllowed) {
         return new AgentConfig(
                 "http://localhost:8048",
                 "node-sandbox-test",
@@ -120,10 +221,10 @@ class SandboxExecutionServiceTest {
                 200,
                 500,
                 1,
-                List.of("echo"),
+                allowedCommands,
                 List.of(workspacePrefix.toString()),
                 "coder",
-                true);
+                networkAllowed);
     }
 
     private static final class RecordingAgentApiClient extends AgentApiClient {

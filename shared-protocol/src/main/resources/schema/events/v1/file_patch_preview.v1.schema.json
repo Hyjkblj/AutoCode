@@ -12,6 +12,9 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
+            "target": { "type": "string" },
+            "templateId": { "type": "string" },
+            "exportMode": { "type": "string" },
             "format": { "type": "string" },
             "patch": { "type": "string" },
             "files": {

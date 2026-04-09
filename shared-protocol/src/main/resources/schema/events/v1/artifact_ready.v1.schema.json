@@ -14,6 +14,9 @@
           "required": ["artifact"],
           "properties": {
             "artifact": { "$ref": "artifact.schema.json" },
+            "target": { "type": "string" },
+            "templateId": { "type": "string" },
+            "exportMode": { "type": "string" },
             "kind": { "type": "string" }
           }
         }

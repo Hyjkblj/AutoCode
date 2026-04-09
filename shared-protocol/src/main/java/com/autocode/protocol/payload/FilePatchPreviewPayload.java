@@ -10,6 +10,21 @@ import java.util.List;
  */
 public class FilePatchPreviewPayload {
     /**
+     * Optional. Requested generation target (MVP: web).
+     */
+    private String target;
+
+    /**
+     * Optional. Selected template identifier.
+     */
+    private String templateId;
+
+    /**
+     * Optional. Requested export mode (e.g. zip).
+     */
+    private String exportMode;
+
+    /**
      * Suggested values: unified | files.
      */
     private String format;
@@ -28,6 +43,30 @@ public class FilePatchPreviewPayload {
      * Optional. Hash of the preview content (e.g. sha256 over patch or normalized file list).
      */
     private String previewHash;
+
+    public String getTarget() {
+        return target;
+    }
+
+    public void setTarget(String target) {
+        this.target = target;
+    }
+
+    public String getTemplateId() {
+        return templateId;
+    }
+
+    public void setTemplateId(String templateId) {
+        this.templateId = templateId;
+    }
+
+    public String getExportMode() {
+        return exportMode;
+    }
+
+    public void setExportMode(String exportMode) {
+        this.exportMode = exportMode;
+    }
 
     public String getFormat() {
         return format;

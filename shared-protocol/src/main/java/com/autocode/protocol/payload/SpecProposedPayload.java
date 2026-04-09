@@ -9,6 +9,21 @@ import com.autocode.protocol.model.ArtifactMetadata;
  */
 public class SpecProposedPayload {
     /**
+     * Optional. Requested generation target (MVP: web).
+     */
+    private String target;
+
+    /**
+     * Optional. Selected template identifier.
+     */
+    private String templateId;
+
+    /**
+     * Optional. Requested export mode (e.g. zip).
+     */
+    private String exportMode;
+
+    /**
      * Required. Artifact reference for the spec content.
      */
     private ArtifactMetadata artifact;
@@ -27,6 +42,30 @@ public class SpecProposedPayload {
      * Optional. Spec schema version (e.g. "v1").
      */
     private String schemaVersion;
+
+    public String getTarget() {
+        return target;
+    }
+
+    public void setTarget(String target) {
+        this.target = target;
+    }
+
+    public String getTemplateId() {
+        return templateId;
+    }
+
+    public void setTemplateId(String templateId) {
+        this.templateId = templateId;
+    }
+
+    public String getExportMode() {
+        return exportMode;
+    }
+
+    public void setExportMode(String exportMode) {
+        this.exportMode = exportMode;
+    }
 
     public ArtifactMetadata getArtifact() {
         return artifact;

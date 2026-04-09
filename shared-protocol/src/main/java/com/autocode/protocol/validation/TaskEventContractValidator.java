@@ -100,6 +100,11 @@ public final class TaskEventContractValidator {
                 requireMap(payload, "payload");
                 requireArtifact(payload, "artifact");
             }
+            case TASK_FAILED -> {
+                requireMap(payload, "payload");
+                requireString(payload, "reason");
+                validateOptionalNonBlankString(payload, "errorCode");
+            }
             default -> {
                 // legacy/other events: no additional constraints here
             }
@@ -163,6 +168,19 @@ public final class TaskEventContractValidator {
         Object value = payload.get(key);
         if (!(value instanceof String) || isBlank((String) value)) {
             throw new ContractViolationException("payload." + key + " is required");
+        }
+    }
+
+    private static void validateOptionalNonBlankString(Map<String, Object> payload, String key) {
+        if (payload == null) {
+            return;
+        }
+        Object value = payload.get(key);
+        if (value == null) {
+            return;
+        }
+        if (!(value instanceof String) || isBlank((String) value)) {
+            throw new ContractViolationException("payload." + key + " must be a non-blank string");
         }
     }
 

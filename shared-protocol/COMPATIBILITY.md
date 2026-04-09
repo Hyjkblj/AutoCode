@@ -20,6 +20,10 @@ This module is the single source of truth for cross-component DTOs and event sch
 - `TOOL_END` requires `tool` + `status`; output/error/exitCode remain optional for compatibility.
 - `BUILD_LOG` requires `message`; `buildId`/`level` are optional in v1.
 - `FILE_PATCH_PREVIEW` requires at least one of `patch` or `files` (either representation is valid in v1).
+- `SPEC_PROPOSED` supports optional nl2web intent hints: `target`, `templateId`, `exportMode`.
+- `FILE_PATCH_PREVIEW` supports optional nl2web intent hints: `target`, `templateId`, `exportMode`.
+- `ARTIFACT_READY` supports optional nl2web intent hints: `target`, `templateId`, `exportMode`.
+- `TASK_FAILED` requires `reason`; `errorCode`/`detail`/`traceId`/`runId` are optional in v1.
 - `DEPLOY_PLAN` captures a normalized deployment request (required keys: `requestId`, `environment`, `artifact`).
 - `DEPLOY_RESULT` reports execution outcome (required keys: `requestId`, `status`).
 
@@ -38,6 +42,9 @@ This module is the single source of truth for cross-component DTOs and event sch
   matches the same compatibility rules as event payloads (optional additive fields only).
 - For `ArtifactMetadata.build`: the `build` object is optional; when present, `command` is required (JSON Schema and
   `ArtifactMetadataContractValidator` agree). `ArtifactManifest` lists must not contain duplicate `artifactId` values.
+  - For nl2web contracts, `fileName`/`sha256`/`mimeType` are alias fields to legacy `name`/`hash`/`mime`.
+    Producers may send either set, and consumers should tolerate both.
+- `CreateTaskRequest.intent` includes optional nl2web input fields: `target`, `templateId`, `exportMode`.
 - Service runtime descriptions (ports, health checks, env hints, startup) use `src/main/resources/schema/runtime/v1/`;
   `schemaVersion = 1` follows the same optional-additive rules.
 

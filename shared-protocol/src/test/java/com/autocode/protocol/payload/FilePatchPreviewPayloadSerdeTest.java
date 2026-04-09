@@ -21,6 +21,9 @@ class FilePatchPreviewPayloadSerdeTest {
             JsonNode payloadNode = root.get("payload");
             assertNotNull(payloadNode);
             FilePatchPreviewPayload payload = MAPPER.treeToValue(payloadNode, FilePatchPreviewPayload.class);
+            assertEquals("web", payload.getTarget());
+            assertEquals("web-basic", payload.getTemplateId());
+            assertEquals("zip", payload.getExportMode());
             assertEquals("unified", payload.getFormat());
             assertTrue(payload.getPatch().contains("diff --git"));
             assertNotNull(payload.getFiles());

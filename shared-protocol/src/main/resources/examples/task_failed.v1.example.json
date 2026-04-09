@@ -1,0 +1,18 @@
+{
+  "eventId": "evt_01HQNL2WEBFAIL001",
+  "taskId": "task_123",
+  "sessionId": "sess_abc",
+  "assistant": "gpt",
+  "type": "TASK_FAILED",
+  "timestamp": "2026-04-09T09:10:00Z",
+  "seq": 77,
+  "eventVersion": 1,
+  "payload": {
+    "reason": "unsupported_target",
+    "errorCode": "NL2WEB_UNSUPPORTED_TARGET",
+    "detail": "Only target=web is supported in MVP.",
+    "traceId": "trc_task_123",
+    "runId": "run_01HQNL2WEB001"
+  }
+}
+

@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
-from typing import Any
+from typing import Any, Callable
 from urllib import error, request
 
 
@@ -12,6 +12,9 @@ _FENCED_BLOCK_RE = re.compile(r"^```[a-zA-Z0-9_-]*\s*(.*?)\s*```$", re.DOTALL)
 
 class LLMClientError(RuntimeError):
     """Raised when an LLM request cannot be completed or parsed."""
+
+
+ResponseProvider = Callable[[str, list[dict[str, str]], str, float], str]
 
 
 def strip_markdown_fence(text: str) -> str:
@@ -34,6 +37,7 @@ class LLMClient:
         openai_api_key: str | None = None,
         anthropic_api_key: str | None = None,
         timeout_seconds: float = 30.0,
+        response_provider: ResponseProvider | None = None,
     ) -> None:
         backend_env = backend if backend is not None else os.getenv("LLM_BACKEND", "openai")
         normalized_backend = (backend_env or "openai").strip().lower()
@@ -49,6 +53,7 @@ class LLMClient:
             temperature_raw = os.getenv("LLM_TEMPERATURE", "0.2")
         self.temperature = _parse_temperature(temperature_raw, fallback=0.2)
         self.timeout_seconds = timeout_seconds
+        self._response_provider = response_provider
 
         self.openai_api_key = (openai_api_key if openai_api_key is not None else os.getenv("OPENAI_API_KEY", "")).strip()
         self.anthropic_api_key = (
@@ -63,11 +68,30 @@ class LLMClient:
             return bool(self.openai_api_key)
         return bool(self.anthropic_api_key)
 
+    def is_configured(self) -> bool:
+        return self.has_required_key()
+
+    def generate(self, prompt: str, system_prompt: str = "") -> str:
+        messages: list[dict[str, str]] = []
+        if system_prompt.strip():
+            messages.append({"role": "system", "content": system_prompt.strip()})
+        messages.append({"role": "user", "content": (prompt or "").strip()})
+        return self.chat(messages)
+
     def chat(self, messages: list[dict[str, str]]) -> str:
         if not self.has_required_key():
             raise LLMClientError(f"{self.required_key_name()} missing")
 
         normalized_messages = _normalize_messages(messages)
+
+        # Test seam: deterministic provider injection without network dependency.
+        if self._response_provider is not None:
+            try:
+                content = self._response_provider(self.backend, normalized_messages, self.model, self.temperature)
+            except Exception as exc:  # noqa: BLE001
+                raise LLMClientError(str(exc)) from exc
+            return strip_markdown_fence(content)
+
         try:
             if self.backend == "claude":
                 content = self._request_claude(normalized_messages)

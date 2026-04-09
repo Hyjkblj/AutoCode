@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import mimetypes
 import json
+from pathlib import Path
+from uuid import uuid4
 from typing import Any
 from urllib import parse, request
 from urllib.error import HTTPError
@@ -34,6 +37,59 @@ class ControlPlaneClient:
     def publish_event(self, task_id: str, event: dict[str, Any]) -> dict[str, Any] | None:
         safe_task_id = parse.quote(task_id, safe="")
         return self._post_json(f"/api/v1/agent/tasks/{safe_task_id}/events", {"event": event})
+
+    def upload_artifact(
+        self,
+        task_id: str,
+        file_path: str,
+        *,
+        name: str | None = None,
+        content_type: str | None = None,
+    ) -> dict[str, Any] | None:
+        source = Path(file_path).resolve(strict=False)
+        if not source.exists() or not source.is_file():
+            raise RuntimeError(f"artifact file not found: {source}")
+
+        file_name = source.name
+        artifact_name = (name or file_name).strip() or file_name
+        mime = (content_type or mimetypes.guess_type(file_name)[0] or "application/octet-stream").strip()
+
+        safe_task_id = parse.quote(task_id, safe="")
+        url = _build_url(self.base_url, f"/api/v1/tasks/{safe_task_id}/artifacts", None)
+
+        with source.open("rb") as fh:
+            file_bytes = fh.read()
+
+        boundary = "----AutoCodeBoundary" + uuid4().hex
+        data = _build_multipart_payload(
+            boundary=boundary,
+            fields={"name": artifact_name},
+            files={"file": (file_name, file_bytes, mime)},
+        )
+        headers = {
+            "X-Agent-Token": self.agent_token,
+            "User-Agent": self.user_agent,
+            "Accept": "application/json",
+            "Content-Type": f"multipart/form-data; boundary={boundary}",
+        }
+        req = request.Request(url=url, data=data, method="POST", headers=headers)
+        try:
+            with request.urlopen(req, timeout=self.timeout_seconds) as resp:  # noqa: S310
+                status = getattr(resp, "status", None) or resp.getcode()
+                if status == 204:
+                    return None
+                raw = resp.read().decode("utf-8").strip()
+                if not raw:
+                    return {}
+                decoded = json.loads(raw)
+                if not isinstance(decoded, dict):
+                    raise RuntimeError(f"invalid json response from {url}: expected object")
+                if decoded.get("ok") is False:
+                    raise RuntimeError(str(decoded.get("error") or "artifact upload failed"))
+                return _extract_payload(decoded)
+        except HTTPError as exc:
+            message = exc.read().decode("utf-8", errors="replace").strip()
+            raise RuntimeError(f"POST /api/v1/tasks/{safe_task_id}/artifacts failed: {exc.code} {message}") from exc
 
     def _post_json(self, path: str, body: dict[str, Any]) -> dict[str, Any] | None:
         data = self._request_json("POST", path, body=body)
@@ -90,4 +146,31 @@ def _extract_payload(decoded: dict[str, Any]) -> dict[str, Any]:
     if isinstance(payload, dict):
         return payload
     return decoded
+
+
+def _build_multipart_payload(
+    *,
+    boundary: str,
+    fields: dict[str, str],
+    files: dict[str, tuple[str, bytes, str]],
+) -> bytes:
+    chunks: list[bytes] = []
+    separator = f"--{boundary}\r\n".encode("utf-8")
+    for key, value in fields.items():
+        chunks.append(separator)
+        chunks.append(f'Content-Disposition: form-data; name="{key}"\r\n\r\n'.encode("utf-8"))
+        chunks.append(value.encode("utf-8"))
+        chunks.append(b"\r\n")
+
+    for field_name, (filename, content, content_type) in files.items():
+        chunks.append(separator)
+        chunks.append(
+            f'Content-Disposition: form-data; name="{field_name}"; filename="{filename}"\r\n'.encode("utf-8")
+        )
+        chunks.append(f"Content-Type: {content_type}\r\n\r\n".encode("utf-8"))
+        chunks.append(content)
+        chunks.append(b"\r\n")
+
+    chunks.append(f"--{boundary}--\r\n".encode("utf-8"))
+    return b"".join(chunks)
 

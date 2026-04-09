@@ -52,3 +52,24 @@ def test_chat_includes_raw_error_details(monkeypatch) -> None:
         client.chat([{"role": "user", "content": "hello"}])
 
     assert "upstream timeout" in str(exc.value)
+
+
+def test_llm_client_reports_missing_openai_key(monkeypatch) -> None:
+    monkeypatch.setenv("LLM_BACKEND", "openai")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+    client = LLMClient(response_provider=lambda backend, messages, model, temperature: "ok")  # noqa: ARG005
+    with pytest.raises(LLMClientError):
+        client.generate("hello")
+
+
+def test_llm_client_generate_uses_response_provider_and_cleans_fence() -> None:
+    client = LLMClient(
+        backend="openai",
+        openai_api_key="dummy",
+        response_provider=lambda backend, messages, model, temperature: "```json\n{\"k\":1}\n```",  # noqa: ARG005
+    )
+
+    text = client.generate("return json")
+
+    assert text == '{"k":1}'

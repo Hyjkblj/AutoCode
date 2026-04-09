@@ -90,12 +90,10 @@ def _heuristic_intent(normalized_prompt: str) -> tuple[str, float, str]:
             "flask",
             "endpoint",
             "route",
-            "接口",
-            "新增",
-            "增加",
-            "修改",
-            "修复",
-            "代码",
+            "web",
+            "website",
+            "html",
+            "page",
         )
     ):
         return "code_change", 0.86, "coding keywords"
@@ -135,4 +133,3 @@ def _normalize_confidence(value: object, fallback: float) -> float:
     if confidence > 1:
         return 1.0
     return confidence
-

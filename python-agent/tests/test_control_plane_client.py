@@ -65,3 +65,29 @@ def test_register_posts_capabilities(monkeypatch) -> None:
     assert captured["body"]["capabilities"] == "ai-agent,profile:ai-agent"
     assert captured["headers"]["User-agent"] == "AutoCode-Python-Agent/0.2.0"
 
+
+def test_upload_artifact_posts_multipart(monkeypatch, tmp_path) -> None:
+    captured: dict[str, Any] = {}
+    artifact = tmp_path / "export.zip"
+    artifact.write_bytes(b"zip-bytes")
+
+    def fake_urlopen(req, timeout):  # noqa: ANN001
+        captured["url"] = req.full_url
+        captured["timeout"] = timeout
+        captured["headers"] = dict(req.header_items())
+        captured["body"] = req.data
+        return _StubResponse(200, {"ok": True, "payload": {"artifactId": "art_1", "name": "export.zip"}})
+
+    monkeypatch.setattr("client.control_plane_client.request.urlopen", fake_urlopen)
+
+    client = ControlPlaneClient("http://localhost:8048", "token")
+    payload = client.upload_artifact("task_42", str(artifact), name="export.zip", content_type="application/zip")
+
+    assert payload is not None
+    assert payload["artifactId"] == "art_1"
+    assert captured["url"].endswith("/api/v1/tasks/task_42/artifacts")
+    assert "multipart/form-data" in captured["headers"]["Content-type"]
+    body = captured["body"].decode("utf-8", errors="ignore")
+    assert 'name="file"; filename="export.zip"' in body
+    assert 'name="name"' in body
+

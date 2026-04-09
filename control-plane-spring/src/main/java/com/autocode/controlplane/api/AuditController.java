@@ -44,8 +44,14 @@ public class AuditController {
 
         boolean chainValid = true;
         String prev = null;
-        for (AuditLogEntity log : logs) {
-            if (prev != null && log.getPrevHash() != null && !prev.equals(log.getPrevHash())) {
+        for (int i = 0; i < logs.size(); i++) {
+            AuditLogEntity log = logs.get(i);
+            if (i == 0) {
+                prev = log.getEntryHash();
+                continue;
+            }
+            // Hash chain must be contiguous after the first entry.
+            if (prev == null || log.getPrevHash() == null || !prev.equals(log.getPrevHash())) {
                 chainValid = false;
                 break;
             }

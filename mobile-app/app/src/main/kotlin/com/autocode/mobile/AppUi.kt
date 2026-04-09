@@ -3,6 +3,7 @@ package com.autocode.mobile
 import android.Manifest
 import android.app.Application
 import android.content.Intent
+import android.os.Build
 import android.speech.RecognizerIntent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -46,6 +47,7 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -119,6 +121,7 @@ internal object MobileUiTestTags {
     const val APPROVAL_COMMENT_INPUT = "approval_comment_input"
     const val APPROVAL_APPROVE_BUTTON = "approval_approve_button"
     const val APPROVAL_REJECT_BUTTON = "approval_reject_button"
+    const val NOTIFICATION_SWITCH = "notification_switch"
     const val ARTIFACT_PREVIEW_LOAD_BUTTON = "artifact_preview_load_button"
     const val ARTIFACT_PREVIEW_CARD = "artifact_preview_card"
 }
@@ -1816,10 +1819,13 @@ private fun RowOfAgentProfileChips(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalPermissionsApi::class)
 @Composable
 private fun AccountTab(vm: AppViewModel) {
     val state by vm.uiState.collectAsStateWithLifecycle()
+    val notificationPermissionState = rememberPermissionState(Manifest.permission.POST_NOTIFICATIONS)
+    val canPostNotifications =
+        Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU || notificationPermissionState.status.isGranted
     var baseUrlDraft by rememberSaveable { mutableStateOf(state.baseUrl) }
     var targetDraft by rememberSaveable { mutableStateOf(state.generationTarget.name) }
     var profileDraft by rememberSaveable { mutableStateOf(state.agentProfile.name) }
@@ -1880,6 +1886,51 @@ private fun AccountTab(vm: AppViewModel) {
             modifier = Modifier.fillMaxWidth(),
         ) {
             Text("保存连接设置")
+        }
+        Spacer(Modifier.height(24.dp))
+        Card(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(16.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.fillMaxWidth(0.8f)) {
+                        Text("任务通知", style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            text =
+                                if (state.notificationsEnabled) {
+                                    "审批待处理、任务完成、任务失败时推送通知。"
+                                } else {
+                                    "通知已关闭。"
+                                },
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                    Switch(
+                        modifier = Modifier.testTag(MobileUiTestTags.NOTIFICATION_SWITCH),
+                        checked = state.notificationsEnabled,
+                        onCheckedChange = { enabled ->
+                            vm.setNotificationsEnabled(enabled)
+                            if (
+                                enabled &&
+                                Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                                !notificationPermissionState.status.isGranted
+                            ) {
+                                notificationPermissionState.launchPermissionRequest()
+                            }
+                        },
+                    )
+                }
+                if (state.notificationsEnabled && !canPostNotifications) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        text = "Android 13+ 需要授予通知权限。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            }
         }
         Spacer(Modifier.height(24.dp))
         Card(Modifier.fillMaxWidth()) {

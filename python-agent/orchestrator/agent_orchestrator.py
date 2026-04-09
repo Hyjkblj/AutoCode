@@ -105,6 +105,30 @@ class AgentOrchestrator(BaseAgent):
                 self.memory_store.append(project_key, memory_record)
                 return
 
+            if decision.intent == "llm_key_missing":
+                self.publish_event(
+                    working_task,
+                    client,
+                    "TASK_FAILED",
+                    _task_failed_payload(
+                        "llm_key_missing",
+                        planName=plan.plan_name,
+                        detail=decision.reason,
+                    ),
+                )
+                self.memory_store.append(
+                    project_key,
+                    {
+                        "intent": decision.intent,
+                        "planName": plan.plan_name,
+                        "status": "failed",
+                        "reason": "llm_key_missing",
+                        "errorCode": _error_code_from_reason("llm_key_missing"),
+                        "detail": decision.reason,
+                    },
+                )
+                return
+
             self.publish_event(
                 working_task,
                 client,

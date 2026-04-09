@@ -146,6 +146,27 @@ def test_orchestrator_emits_intent_and_planner_events(monkeypatch) -> None:
     assert client.events[1][1]["payload"]["stage"] == "PlannerAgent"
 
 
+def test_orchestrator_marks_task_failed_when_llm_key_missing(monkeypatch) -> None:
+    monkeypatch.setenv("LLM_BACKEND", "claude")
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    task = {
+        "taskId": "task_100b",
+        "assistant": "ai-agent",
+        "sessionKey": "sess_100b",
+        "prompt": "analyze this change",
+    }
+    client = _FakeClient()
+
+    AgentOrchestrator().handle_task(task, client)
+
+    types = [event["type"] for _, event in client.events]
+    assert types == ["ASSISTANT_OUTPUT", "ASSISTANT_OUTPUT", "TASK_FAILED"]
+    assert client.events[2][1]["payload"]["reason"] == "llm_key_missing"
+    assert client.events[2][1]["payload"]["errorCode"] == "LLM_KEY_MISSING"
+    assert client.events[2][1]["payload"]["planName"] == "blocked_missing_key"
+    assert "ANTHROPIC_API_KEY" in client.events[2][1]["payload"]["detail"]
+
+
 def test_orchestrator_routes_code_change_to_coder_and_emits_patch_preview(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("LLM_BACKEND", "openai")
     monkeypatch.setenv("OPENAI_API_KEY", "dummy")

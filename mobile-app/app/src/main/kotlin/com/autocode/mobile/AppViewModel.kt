@@ -8,6 +8,15 @@ import android.app.PendingIntent
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
+import androidx.room.Dao
+import androidx.room.Database
+import androidx.room.Entity
+import androidx.room.Insert
+import androidx.room.OnConflictStrategy
+import androidx.room.PrimaryKey
+import androidx.room.Query
+import androidx.room.Room
+import androidx.room.RoomDatabase
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
@@ -26,6 +35,7 @@ import com.autocode.mobile.network.ProjectSummaryDto
 import com.autocode.mobile.network.TaskEventDto
 import com.autocode.mobile.network.TaskSummaryDto
 import com.autocode.mobile.network.WebSocketClient
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -34,6 +44,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -95,11 +106,23 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val _pendingApproval = MutableStateFlow<ApprovalRequest?>(null)
     val pendingApproval: StateFlow<ApprovalRequest?> = _pendingApproval.asStateFlow()
     private val wsClient = WebSocketClient()
+    private val taskEventCacheDatabase by lazy {
+        Room.databaseBuilder(
+            application,
+            TaskEventCacheDatabase::class.java,
+            "task_event_cache.db",
+        ).fallbackToDestructiveMigration().build()
+    }
+    private val taskEventCacheDao by lazy {
+        taskEventCacheDatabase.taskEventCacheDao()
+    }
     private val taskNotificationCenter = TaskNotificationCenter(application)
     private var subscribedTaskId: String? = null
     private var subscribedBaseUrl: String? = null
     private var subscribedToken: String? = null
     private val maxTaskEventsPerTask = 300
+    private val maxCachedTaskEventsPerTask = 300
+    private val maxCachedTaskEventsTotal = 4000
     private val lastRemoteStatusByTaskId = mutableMapOf<String, String>()
     private val recentNotificationKeys = ArrayDeque<String>()
     private val maxRecentNotificationKeys = 200
@@ -179,6 +202,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 t
             }
         }
+        val cachedTaskEvents = loadCachedTaskEvents(normalizedTasks, publishHistory)
 
         _uiState.update {
             it.copy(
@@ -186,6 +210,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 selectedProjectId = effectiveProject,
                 dynamicProjects = initialProjects,
                 tasks = normalizedTasks,
+                taskEvents = cachedTaskEvents,
                 baseUrl = baseUrl,
                 generationTarget = generationTarget,
                 agentProfile = agentProfile,
@@ -236,6 +261,112 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private suspend fun persistTasks(tasks: List<TaskItem>) {
         getApplication<Application>().mobileDataStore.edit { p ->
             p[PrefsKeys.TASKS_JSON] = json.encodeToString(taskListSerializer, tasks)
+        }
+    }
+
+    private suspend fun loadCachedTaskEvents(
+        tasks: List<TaskItem>,
+        publishHistory: List<PublishHistoryEntry>,
+    ): Map<String, List<TaskEventDto>> {
+        val taskIds = LinkedHashSet<String>()
+        tasks
+            .asSequence()
+            .map { it.id.trim() }
+            .filter { it.isNotEmpty() }
+            .forEach { taskIds += it }
+        publishHistory
+            .asSequence()
+            .map { it.taskId.trim() }
+            .filter { it.isNotEmpty() }
+            .forEach { taskIds += it }
+        if (taskIds.isEmpty()) return emptyMap()
+        return loadCachedTaskEventsByTaskIds(taskIds.toList())
+    }
+
+    private suspend fun loadCachedTaskEventsByTaskIds(taskIds: List<String>): Map<String, List<TaskEventDto>> {
+        if (taskIds.isEmpty()) return emptyMap()
+        val rows =
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    taskEventCacheDao.listByTaskIds(taskIds)
+                }
+            }.getOrElse {
+                return emptyMap()
+            }
+        if (rows.isEmpty()) return emptyMap()
+        return rows
+            .groupBy { it.taskId }
+            .mapValues { (_, entities) ->
+                entities
+                    .sortedWith(compareBy<TaskEventCacheEntity> { it.seq }.thenBy { it.storedAt })
+                    .mapNotNull { it.toTaskEventDto(json) }
+                    .takeLast(maxTaskEventsPerTask)
+            }
+            .filterValues { it.isNotEmpty() }
+    }
+
+    private suspend fun loadCachedTaskEventsForTask(taskId: String): List<TaskEventDto> {
+        val normalizedTaskId = taskId.trim()
+        if (normalizedTaskId.isEmpty()) return emptyList()
+        val rows =
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    taskEventCacheDao.listByTaskId(
+                        taskId = normalizedTaskId,
+                        limit = maxCachedTaskEventsPerTask,
+                    )
+                }
+            }.getOrElse {
+                return emptyList()
+            }
+        return rows
+            .sortedWith(compareBy<TaskEventCacheEntity> { it.seq }.thenBy { it.storedAt })
+            .mapNotNull { it.toTaskEventDto(json) }
+            .takeLast(maxTaskEventsPerTask)
+    }
+
+    private suspend fun persistTaskEventsCache(taskId: String, events: List<TaskEventDto>) {
+        val normalizedTaskId = taskId.trim()
+        if (normalizedTaskId.isEmpty() || events.isEmpty()) return
+        val entities =
+            events.map { event ->
+                TaskEventCacheEntity(
+                    stableKey = eventStableKey(normalizedTaskId, event),
+                    taskId = normalizedTaskId,
+                    eventId = event.eventId,
+                    type = event.type,
+                    payloadJson = json.encodeToString(JsonObject.serializer(), event.payload),
+                    seq = event.seq,
+                    timestamp = event.timestamp,
+                    eventVersion = event.eventVersion,
+                    storedAt = System.currentTimeMillis(),
+                )
+            }
+        runCatching {
+            withContext(Dispatchers.IO) {
+                taskEventCacheDao.upsertAll(entities)
+                taskEventCacheDao.pruneTask(normalizedTaskId, maxCachedTaskEventsPerTask)
+                taskEventCacheDao.pruneGlobal(maxCachedTaskEventsTotal)
+            }
+        }
+    }
+
+    private suspend fun hydrateTaskEventsFromCache(taskId: String) {
+        val normalizedTaskId = taskId.trim()
+        if (normalizedTaskId.isEmpty()) return
+        val existing = _uiState.value.taskEvents[normalizedTaskId].orEmpty()
+        if (existing.isNotEmpty()) return
+        val cached = loadCachedTaskEventsForTask(normalizedTaskId)
+        if (cached.isEmpty()) return
+        _uiState.update { state ->
+            val mergedEvents = mergeEventList(state.taskEvents[normalizedTaskId].orEmpty(), cached)
+            val mergedTasks = cached.fold(state.tasks) { acc, event ->
+                applyEventToTasks(acc, normalizedTaskId, event)
+            }
+            state.copy(
+                taskEvents = state.taskEvents + (normalizedTaskId to mergedEvents),
+                tasks = mergedTasks,
+            )
         }
     }
 
@@ -872,6 +1003,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         subscribedToken = token
 
         viewModelScope.launch {
+            hydrateTaskEventsFromCache(normalizedTaskId)
             backfillTaskEvents(normalizedTaskId, lastSeq(normalizedTaskId))
             wsClient.connect(
                 baseUrl = base,
@@ -1058,6 +1190,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         syncPendingApprovalFromEvents(taskId, sortedIncoming)
         if (allowNotifications && _uiState.value.notificationsEnabled && newlyMergedEvents.isNotEmpty()) {
             notifyFromTaskEvents(taskId = taskId, events = newlyMergedEvents)
+        }
+        if (newlyMergedEvents.isNotEmpty()) {
+            persistTaskEventsCache(taskId, newlyMergedEvents)
         }
         if (publishHistoryChanged) {
             persistAll()
@@ -1576,8 +1711,105 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         _pendingApproval.value = null
         lastRemoteStatusByTaskId.clear()
         recentNotificationKeys.clear()
+        runCatching { taskEventCacheDatabase.close() }
         super.onCleared()
     }
+}
+
+@Entity(tableName = "task_event_cache")
+private data class TaskEventCacheEntity(
+    @PrimaryKey
+    val stableKey: String,
+    val taskId: String,
+    val eventId: String?,
+    val type: String?,
+    val payloadJson: String,
+    val seq: Long,
+    val timestamp: String?,
+    val eventVersion: Int,
+    val storedAt: Long,
+)
+
+private fun TaskEventCacheEntity.toTaskEventDto(json: Json): TaskEventDto? {
+    val normalizedTaskId = taskId.trim()
+    if (normalizedTaskId.isEmpty()) return null
+    val payload =
+        runCatching {
+            json.decodeFromString(JsonObject.serializer(), payloadJson)
+        }.getOrElse {
+            JsonObject(emptyMap())
+        }
+    return TaskEventDto(
+        eventId = eventId,
+        taskId = normalizedTaskId,
+        type = type,
+        payload = payload,
+        seq = seq,
+        timestamp = timestamp,
+        eventVersion = eventVersion,
+    )
+}
+
+@Dao
+private interface TaskEventCacheDao {
+    @Query(
+        """
+        SELECT * FROM task_event_cache
+        WHERE taskId = :taskId
+        ORDER BY seq ASC, storedAt ASC
+        LIMIT :limit
+        """,
+    )
+    suspend fun listByTaskId(taskId: String, limit: Int): List<TaskEventCacheEntity>
+
+    @Query(
+        """
+        SELECT * FROM task_event_cache
+        WHERE taskId IN (:taskIds)
+        ORDER BY taskId ASC, seq ASC, storedAt ASC
+        """,
+    )
+    suspend fun listByTaskIds(taskIds: List<String>): List<TaskEventCacheEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertAll(rows: List<TaskEventCacheEntity>)
+
+    @Query(
+        """
+        DELETE FROM task_event_cache
+        WHERE taskId = :taskId
+          AND stableKey NOT IN (
+            SELECT stableKey
+            FROM task_event_cache
+            WHERE taskId = :taskId
+            ORDER BY seq DESC, storedAt DESC
+            LIMIT :limit
+          )
+        """,
+    )
+    suspend fun pruneTask(taskId: String, limit: Int)
+
+    @Query(
+        """
+        DELETE FROM task_event_cache
+        WHERE stableKey NOT IN (
+            SELECT stableKey
+            FROM task_event_cache
+            ORDER BY storedAt DESC
+            LIMIT :limit
+        )
+        """,
+    )
+    suspend fun pruneGlobal(limit: Int)
+}
+
+@Database(
+    entities = [TaskEventCacheEntity::class],
+    version = 1,
+    exportSchema = false,
+)
+private abstract class TaskEventCacheDatabase : RoomDatabase() {
+    abstract fun taskEventCacheDao(): TaskEventCacheDao
 }
 
 private class TaskNotificationCenter(

@@ -867,6 +867,12 @@ def test_orchestrator_publishes_artifact_ready_for_web_target(monkeypatch, tmp_p
     assert artifact["artifactId"] == "art_uploaded_001"
     assert artifact["type"] == "zip"
     assert artifact["name"] == "export.zip"
+    assert artifact["entryPath"] == "index.html"
+    assert artifact["run"]["command"] == "python -m http.server 8000"
+    assert artifact["run"]["hints"] == [
+        "Run the command in the extracted artifact directory.",
+        "Open http://localhost:8000/index.html in a browser.",
+    ]
     assert ready_event["payload"]["target"] == "web"
     assert ready_event["payload"]["templateId"] == "product"
     assert ready_event["payload"]["exportMode"] == "zip"

@@ -11,7 +11,11 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.security.oauth2.jwt.JwtDecoder;
+import org.springframework.security.oauth2.jwt.JwtException;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.function.Consumer;
 
@@ -19,37 +23,50 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-class TokenWebSocketAuthInterceptorTest {
+class JwtWebSocketAuthInterceptorTest {
 
     private final MessageChannel channel = new ExecutorSubscribableChannel();
 
     @Test
-    void connectShouldRejectMissingDeviceId() {
-        TokenWebSocketAuthInterceptor interceptor = interceptor();
+    void connectShouldRejectMissingAuthorizationHeader() {
+        JwtWebSocketAuthInterceptor interceptor = interceptor(token -> validJwt("operator"));
+        Message<byte[]> message = stomp(StompCommand.CONNECT, accessor -> {
+        });
+
+        assertThrows(AccessDeniedException.class, () -> interceptor.preSend(message, channel));
+    }
+
+    @Test
+    void connectShouldRejectInvalidJwtToken() {
+        JwtWebSocketAuthInterceptor interceptor = interceptor(token -> {
+            throw new JwtException("bad token");
+        });
         Message<byte[]> message = stomp(StompCommand.CONNECT, accessor ->
-                accessor.addNativeHeader("Authorization", "Bearer op-a"));
+                accessor.addNativeHeader("Authorization", "Bearer bad"));
 
         assertThrows(AccessDeniedException.class, () -> interceptor.preSend(message, channel));
     }
 
     @Test
-    void connectShouldRejectRevokedOperatorToken() {
-        TokenWebSocketAuthInterceptor interceptor = interceptor();
-        Message<byte[]> message = stomp(StompCommand.CONNECT, accessor -> {
-            accessor.addNativeHeader("deviceId", "dev-1");
-            accessor.addNativeHeader("Authorization", "Bearer op-b");
-        });
+    void connectShouldRejectTokenWithoutRoles() {
+        JwtWebSocketAuthInterceptor interceptor = interceptor(token ->
+                Jwt.withTokenValue(token)
+                        .header("alg", "HS256")
+                        .subject("operator")
+                        .issuedAt(Instant.now())
+                        .expiresAt(Instant.now().plusSeconds(300))
+                        .build());
+        Message<byte[]> message = stomp(StompCommand.CONNECT, accessor ->
+                accessor.addNativeHeader("Authorization", "Bearer no-roles"));
 
         assertThrows(AccessDeniedException.class, () -> interceptor.preSend(message, channel));
     }
 
     @Test
-    void connectWithValidOperatorTokenShouldAttachPrincipal() {
-        TokenWebSocketAuthInterceptor interceptor = interceptor();
-        Message<byte[]> message = stomp(StompCommand.CONNECT, accessor -> {
-            accessor.addNativeHeader("deviceId", "dev-1");
-            accessor.addNativeHeader("Authorization", "Bearer op-a");
-        });
+    void connectWithValidJwtShouldAttachPrincipal() {
+        JwtWebSocketAuthInterceptor interceptor = interceptor(token -> validJwt("operator"));
+        Message<byte[]> message = stomp(StompCommand.CONNECT, accessor ->
+                accessor.addNativeHeader("Authorization", "Bearer good"));
 
         Message<?> out = interceptor.preSend(message, channel);
         Authentication auth = (Authentication) StompHeaderAccessor.wrap(out).getUser();
@@ -59,23 +76,8 @@ class TokenWebSocketAuthInterceptorTest {
     }
 
     @Test
-    void connectWithValidAgentTokenShouldAttachPrincipal() {
-        TokenWebSocketAuthInterceptor interceptor = interceptor();
-        Message<byte[]> message = stomp(StompCommand.CONNECT, accessor -> {
-            accessor.addNativeHeader("deviceId", "dev-2");
-            accessor.addNativeHeader("X-Agent-Token", "ag-a");
-        });
-
-        Message<?> out = interceptor.preSend(message, channel);
-        Authentication auth = (Authentication) StompHeaderAccessor.wrap(out).getUser();
-
-        assertEquals("agent", auth.getName());
-        assertTrue(auth.getAuthorities().stream().anyMatch(a -> "ROLE_AGENT".equals(a.getAuthority())));
-    }
-
-    @Test
     void subscribeShouldRejectWhenUnauthenticated() {
-        TokenWebSocketAuthInterceptor interceptor = interceptor();
+        JwtWebSocketAuthInterceptor interceptor = interceptor(token -> validJwt("operator"));
         Message<byte[]> message = stomp(StompCommand.SUBSCRIBE, accessor ->
                 accessor.addNativeHeader("destination", "/topic/tasks/tsk-1"));
 
@@ -84,7 +86,7 @@ class TokenWebSocketAuthInterceptorTest {
 
     @Test
     void sendShouldRejectWhenUnauthenticated() {
-        TokenWebSocketAuthInterceptor interceptor = interceptor();
+        JwtWebSocketAuthInterceptor interceptor = interceptor(token -> validJwt("operator"));
         Message<byte[]> message = stomp(StompCommand.SEND, accessor ->
                 accessor.addNativeHeader("destination", "/app/tasks/approve"));
 
@@ -93,12 +95,12 @@ class TokenWebSocketAuthInterceptorTest {
 
     @Test
     void sendShouldPassWhenAuthenticated() {
-        TokenWebSocketAuthInterceptor interceptor = interceptor();
+        JwtWebSocketAuthInterceptor interceptor = interceptor(token -> validJwt("operator"));
         Message<byte[]> message = stomp(StompCommand.SEND, accessor -> {
             accessor.addNativeHeader("destination", "/app/tasks/approve");
             accessor.setUser(new UsernamePasswordAuthenticationToken(
                     "operator",
-                    "op-a",
+                    "good",
                     List.of(new SimpleGrantedAuthority("ROLE_OPERATOR"))
             ));
         });
@@ -107,12 +109,18 @@ class TokenWebSocketAuthInterceptorTest {
         assertEquals(StompCommand.SEND, StompHeaderAccessor.wrap(out).getCommand());
     }
 
-    private static TokenWebSocketAuthInterceptor interceptor() {
-        AuthProperties props = new AuthProperties();
-        props.setOperatorTokens("op-a,op-b");
-        props.setAgentTokens("ag-a,ag-b");
-        props.setRevokedTokens("op-b,ag-b");
-        return new TokenWebSocketAuthInterceptor(props);
+    private static JwtWebSocketAuthInterceptor interceptor(JwtDecoder decoder) {
+        return new JwtWebSocketAuthInterceptor(decoder);
+    }
+
+    private static Jwt validJwt(String subject) {
+        return Jwt.withTokenValue("good")
+                .header("alg", "HS256")
+                .subject(subject)
+                .claim("roles", List.of("OPERATOR"))
+                .issuedAt(Instant.now())
+                .expiresAt(Instant.now().plusSeconds(300))
+                .build();
     }
 
     private static Message<byte[]> stomp(StompCommand command, Consumer<StompHeaderAccessor> configurer) {

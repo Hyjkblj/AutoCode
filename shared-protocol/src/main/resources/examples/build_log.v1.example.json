@@ -8,6 +8,8 @@
   "seq": 51,
   "eventVersion": 1,
   "payload": {
+    "traceId": "trc_task_123",
+    "runId": "run_01HQ9BUILD001",
     "buildId": "build_01HQ9B001",
     "level": "info",
     "message": "npm run build"

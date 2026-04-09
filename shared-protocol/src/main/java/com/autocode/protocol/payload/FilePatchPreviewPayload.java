@@ -10,6 +10,16 @@ import java.util.List;
  */
 public class FilePatchPreviewPayload {
     /**
+     * Optional. End-to-end trace correlation id.
+     */
+    private String traceId;
+
+    /**
+     * Optional. Runtime execution correlation id.
+     */
+    private String runId;
+
+    /**
      * Optional. Requested generation target (MVP: web).
      */
     private String target;
@@ -43,6 +53,22 @@ public class FilePatchPreviewPayload {
      * Optional. Hash of the preview content (e.g. sha256 over patch or normalized file list).
      */
     private String previewHash;
+
+    public String getTraceId() {
+        return traceId;
+    }
+
+    public void setTraceId(String traceId) {
+        this.traceId = traceId;
+    }
+
+    public String getRunId() {
+        return runId;
+    }
+
+    public void setRunId(String runId) {
+        this.runId = runId;
+    }
 
     public String getTarget() {
         return target;
@@ -102,10 +128,12 @@ public class FilePatchPreviewPayload {
 
     public static class FileChange {
         private String path;
+
         /**
-         * Suggested values: add | modify | delete | rename
+         * Suggested values: add | modify | delete | rename.
          */
         private String changeType;
+
         private String beforeHash;
         private String afterHash;
 
@@ -142,4 +170,3 @@ public class FilePatchPreviewPayload {
         }
     }
 }
-

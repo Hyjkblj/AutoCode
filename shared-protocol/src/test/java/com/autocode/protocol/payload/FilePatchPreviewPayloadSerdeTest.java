@@ -21,6 +21,8 @@ class FilePatchPreviewPayloadSerdeTest {
             JsonNode payloadNode = root.get("payload");
             assertNotNull(payloadNode);
             FilePatchPreviewPayload payload = MAPPER.treeToValue(payloadNode, FilePatchPreviewPayload.class);
+            assertEquals("trc_task_test_123", payload.getTraceId());
+            assertEquals("run_test_patch_001", payload.getRunId());
             assertEquals("web", payload.getTarget());
             assertEquals("web-basic", payload.getTemplateId());
             assertEquals("zip", payload.getExportMode());

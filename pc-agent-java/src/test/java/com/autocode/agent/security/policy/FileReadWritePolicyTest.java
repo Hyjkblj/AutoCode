@@ -43,5 +43,26 @@ class FileReadWritePolicyTest {
         );
         assertTrue(decision.isAllowed());
     }
+
+    @Test
+    void deniesRelativeTraversalOutsideAllowlist() {
+        FileReadWritePolicy policy = new FileReadWritePolicy(List.of("D:/repoA"));
+        PolicyDecision decision = policy.evaluate(
+                new ToolCall("command.exec", "run_command", Map.of("command", "del ../../../repoB/out.txt")),
+                new ToolContext(new TaskSummary(), "D:/repoA/work/tmp", null, 120)
+        );
+        assertFalse(decision.isAllowed());
+        assertTrue("write_path_not_allowed".equals(decision.getReason()));
+    }
+
+    @Test
+    void allowsRelativeWriteInsideAllowlist() {
+        FileReadWritePolicy policy = new FileReadWritePolicy(List.of("D:/repoA"));
+        PolicyDecision decision = policy.evaluate(
+                new ToolCall("command.exec", "run_command", Map.of("command", "del ../out.txt")),
+                new ToolContext(new TaskSummary(), "D:/repoA/work/tmp", null, 120)
+        );
+        assertTrue(decision.isAllowed());
+    }
 }
 

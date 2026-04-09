@@ -7,6 +7,7 @@ import jakarta.persistence.IdClass;
 import jakarta.persistence.Table;
 
 import java.io.Serializable;
+import java.util.Objects;
 
 @Entity
 @Table(name = "user_roles")
@@ -37,6 +38,8 @@ public class UserRoleEntity {
     }
 
     public static class Pk implements Serializable {
+        private static final long serialVersionUID = 1L;
+
         private String userId;
         private String roleName;
 
@@ -62,6 +65,23 @@ public class UserRoleEntity {
 
         public void setRoleName(String roleName) {
             this.roleName = roleName;
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) {
+                return true;
+            }
+            if (!(o instanceof Pk pk)) {
+                return false;
+            }
+            return Objects.equals(userId, pk.userId)
+                    && Objects.equals(roleName, pk.roleName);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(userId, roleName);
         }
     }
 }

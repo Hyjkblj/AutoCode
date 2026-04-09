@@ -6,7 +6,7 @@ from agents.reviewer_agent import ReviewResult
 from agents.tester_agent import TesterResult as RunResult
 from llm.llm_client import LLMClient
 from memory.redis_memory import RedisMemory
-from orchestrator.agent_orchestrator import AgentOrchestrator
+from orchestrator.agent_orchestrator import AgentOrchestrator, _error_code_from_reason, _resolve_fix_loop_max_attempts
 from tools.exec_tool import ExecResult
 
 
@@ -34,6 +34,23 @@ class _FakeExecTool:
             }
         )
         return self.result
+
+
+class _RaisingExecTool:
+    def __init__(self, message: str) -> None:
+        self.message = message
+        self.calls: list[dict[str, Any]] = []
+
+    def execute(self, task: dict[str, Any], command: str, *, prompt: str = "", intent: str = "deploy") -> ExecResult:
+        self.calls.append(
+            {
+                "task": task,
+                "command": command,
+                "prompt": prompt,
+                "intent": intent,
+            }
+        )
+        raise RuntimeError(self.message)
 
 
 class _FakeReviewerAgent:
@@ -91,6 +108,23 @@ class _SequenceTesterAgent:
             }
         )
         return result
+
+
+class _FakeCoderAgent:
+    def execute(self, task, client, plan, publish_event):  # noqa: ANN001
+        publish_event({"stage": "CoderAgent", "message": "Mock coder run."})
+        return True
+
+
+class _InvalidReviewerAgent:
+    def review(self, task, client, plan, publish_event):  # noqa: ANN001
+        publish_event({"stage": "ReviewerAgent", "message": "Invalid reviewer payload."})
+        return {"approved": True}
+
+
+class _FailingDagScheduler:
+    def run(self, nodes):  # noqa: ANN001
+        raise RuntimeError("dag exploded")
 
 
 def test_orchestrator_emits_intent_and_planner_events(monkeypatch) -> None:
@@ -256,6 +290,185 @@ def test_orchestrator_marks_task_done_when_fix_loop_recovers(monkeypatch, tmp_pa
     assert fix_loop_events
 
 
+def test_orchestrator_marks_code_change_failed_when_fix_loop_max_attempt_is_one(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("LLM_BACKEND", "openai")
+    monkeypatch.setenv("OPENAI_API_KEY", "dummy")
+    monkeypatch.setenv("MVP_FIX_LOOP_MAX_ATTEMPTS", "1")
+    monkeypatch.setattr(LLMClient, "chat", lambda self, messages: "Updated docs\n")
+    workspace = tmp_path / "workspace"
+    workspace.mkdir(parents=True, exist_ok=True)
+    (workspace / "README.md").write_text("TODO: patch me\n", encoding="utf-8")
+    monkeypatch.setenv("MVP_ALLOWED_WORKSPACE_PREFIXES", str(workspace))
+
+    task = {
+        "taskId": "task_105b",
+        "assistant": "ai-agent",
+        "sessionKey": "sess_105b",
+        "prompt": "fix readme and implement update",
+        "workspacePath": str(workspace),
+    }
+    client = _FakeClient()
+    reviewer = _FakeReviewerAgent(ReviewResult(approved=True, summary="review passed", issues=[]))
+    tester = _FakeTesterAgent(
+        RunResult(
+            success=False,
+            attempts=1,
+            retries=0,
+            command="echo test",
+            status="failed",
+            reason="test_failed",
+            trace_id="trc_task_105b",
+            run_id="run_task_105b",
+        )
+    )
+
+    AgentOrchestrator(reviewer_agent=reviewer, tester_agent=tester).handle_task(task, client)
+
+    types = [event["type"] for _, event in client.events]
+    assert types[-1] == "TASK_FAILED"
+    assert client.events[-1][1]["payload"]["reason"] == "fix_loop_exhausted"
+    assert client.events[-1][1]["payload"]["attempt"] == 1
+    assert client.events[-1][1]["payload"]["maxAttempts"] == 1
+    assert len(tester.calls) == 2
+
+
+def test_orchestrator_marks_review_rejected_with_error_code(monkeypatch) -> None:
+    monkeypatch.setenv("LLM_BACKEND", "openai")
+    monkeypatch.setenv("OPENAI_API_KEY", "dummy")
+
+    def _raise(*_args, **_kwargs):
+        raise RuntimeError("llm unavailable")
+
+    monkeypatch.setattr(LLMClient, "chat", _raise)
+
+    task = {
+        "taskId": "task_108",
+        "assistant": "ai-agent",
+        "sessionKey": "sess_108",
+        "prompt": "fix code issue",
+    }
+    client = _FakeClient()
+    reviewer = _FakeReviewerAgent(
+        ReviewResult(approved=False, summary="unsafe operation", issues=["dangerous shell"], risk_level="high")
+    )
+    tester = _FakeTesterAgent(
+        RunResult(
+            success=True,
+            attempts=1,
+            retries=0,
+            command="echo test",
+            status="ok",
+            reason=None,
+            trace_id="trc_task_108",
+            run_id="run_task_108",
+        )
+    )
+
+    orchestrator = AgentOrchestrator(
+        coder_agent=_FakeCoderAgent(),
+        reviewer_agent=reviewer,
+        tester_agent=tester,
+    )
+    orchestrator.handle_task(task, client)
+
+    types = [event["type"] for _, event in client.events]
+    assert types[-1] == "TASK_FAILED"
+    assert client.events[-1][1]["payload"]["reason"] == "review_rejected"
+    assert client.events[-1][1]["payload"]["errorCode"] == "REVIEW_REJECTED"
+    assert client.events[-1][1]["payload"]["riskLevel"] == "high"
+
+
+def test_orchestrator_marks_parallel_result_invalid_with_error_code(monkeypatch) -> None:
+    monkeypatch.setenv("LLM_BACKEND", "openai")
+    monkeypatch.setenv("OPENAI_API_KEY", "dummy")
+
+    def _raise(*_args, **_kwargs):
+        raise RuntimeError("llm unavailable")
+
+    monkeypatch.setattr(LLMClient, "chat", _raise)
+
+    task = {
+        "taskId": "task_109",
+        "assistant": "ai-agent",
+        "sessionKey": "sess_109",
+        "prompt": "fix code issue",
+    }
+    client = _FakeClient()
+    tester = _FakeTesterAgent(
+        RunResult(
+            success=True,
+            attempts=1,
+            retries=0,
+            command="echo test",
+            status="ok",
+            reason=None,
+            trace_id="trc_task_109",
+            run_id="run_task_109",
+        )
+    )
+    orchestrator = AgentOrchestrator(
+        coder_agent=_FakeCoderAgent(),
+        reviewer_agent=_InvalidReviewerAgent(),
+        tester_agent=tester,
+    )
+    orchestrator.handle_task(task, client)
+
+    assert client.events[-1][1]["type"] == "TASK_FAILED"
+    assert client.events[-1][1]["payload"]["reason"] == "parallel_result_invalid"
+    assert client.events[-1][1]["payload"]["errorCode"] == "PARALLEL_RESULT_INVALID"
+
+
+def test_orchestrator_marks_parallel_pipeline_error_with_error_code(monkeypatch) -> None:
+    monkeypatch.setenv("LLM_BACKEND", "openai")
+    monkeypatch.setenv("OPENAI_API_KEY", "dummy")
+
+    def _raise(*_args, **_kwargs):
+        raise RuntimeError("llm unavailable")
+
+    monkeypatch.setattr(LLMClient, "chat", _raise)
+
+    task = {
+        "taskId": "task_110",
+        "assistant": "ai-agent",
+        "sessionKey": "sess_110",
+        "prompt": "fix code issue",
+    }
+    client = _FakeClient()
+    orchestrator = AgentOrchestrator(
+        coder_agent=_FakeCoderAgent(),
+        dag_scheduler=_FailingDagScheduler(),
+    )
+    orchestrator.handle_task(task, client)
+
+    assert client.events[-1][1]["type"] == "TASK_FAILED"
+    assert client.events[-1][1]["payload"]["reason"] == "parallel_pipeline_error"
+    assert client.events[-1][1]["payload"]["errorCode"] == "PARALLEL_PIPELINE_ERROR"
+
+
+def test_orchestrator_marks_sandbox_request_failed_with_error_code(monkeypatch) -> None:
+    monkeypatch.setenv("LLM_BACKEND", "openai")
+    monkeypatch.setenv("OPENAI_API_KEY", "dummy")
+
+    def _raise(*_args, **_kwargs):
+        raise RuntimeError("llm unavailable")
+
+    monkeypatch.setattr(LLMClient, "chat", _raise)
+
+    task = {
+        "taskId": "task_111",
+        "assistant": "ai-agent",
+        "sessionKey": "sess_111",
+        "prompt": "please deploy this service",
+    }
+    client = _FakeClient()
+    orchestrator = AgentOrchestrator(exec_tool=_RaisingExecTool("sandbox down"))
+    orchestrator.handle_task(task, client)
+
+    assert client.events[-1][1]["type"] == "TASK_FAILED"
+    assert client.events[-1][1]["payload"]["reason"] == "sandbox_request_failed"
+    assert client.events[-1][1]["payload"]["errorCode"] == "SANDBOX_REQUEST_FAILED"
+
+
 def test_orchestrator_handles_flask_health_task_end_to_end_success(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("LLM_BACKEND", "openai")
     monkeypatch.setenv("OPENAI_API_KEY", "dummy")
@@ -295,7 +508,7 @@ def test_orchestrator_handles_flask_health_task_end_to_end_success(monkeypatch, 
         "taskId": "task_106",
         "assistant": "ai-agent",
         "sessionKey": "sess_106",
-        "prompt": "给 Flask app 增加 /health 接口",
+        "prompt": "add /health endpoint to Flask app",
         "workspacePath": str(workspace),
         "testCommand": "pytest -q",
     }
@@ -384,7 +597,7 @@ def test_orchestrator_flask_health_task_enters_fix_loop_when_test_fails(monkeypa
         "taskId": "task_107",
         "assistant": "ai-agent",
         "sessionKey": "sess_107",
-        "prompt": "给 Flask app 增加 /health 接口",
+        "prompt": "add /health endpoint to Flask app",
         "workspacePath": str(workspace),
     }
     client = _FakeClient()
@@ -563,3 +776,26 @@ def test_orchestrator_reuses_memory_context_for_second_code_change(monkeypatch, 
     ]
     assert memory_events
     assert memory_events[0]["lastTestCommand"] == "echo first_test_command"
+
+
+def test_resolve_fix_loop_max_attempts_bounds(monkeypatch) -> None:
+    monkeypatch.delenv("MVP_FIX_LOOP_MAX_ATTEMPTS", raising=False)
+    assert _resolve_fix_loop_max_attempts() == 3
+
+    monkeypatch.setenv("MVP_FIX_LOOP_MAX_ATTEMPTS", "abc")
+    assert _resolve_fix_loop_max_attempts() == 3
+
+    monkeypatch.setenv("MVP_FIX_LOOP_MAX_ATTEMPTS", "10")
+    assert _resolve_fix_loop_max_attempts() == 3
+
+    monkeypatch.setenv("MVP_FIX_LOOP_MAX_ATTEMPTS", "0")
+    assert _resolve_fix_loop_max_attempts() == 1
+
+    monkeypatch.setenv("MVP_FIX_LOOP_MAX_ATTEMPTS", "-5")
+    assert _resolve_fix_loop_max_attempts() == 1
+
+
+def test_error_code_from_reason_normalization() -> None:
+    assert _error_code_from_reason("approval rejected") == "APPROVAL_REJECTED"
+    assert _error_code_from_reason("fix-loop_exhausted") == "FIX_LOOP_EXHAUSTED"
+    assert _error_code_from_reason("  ") == "UNKNOWN_ERROR"

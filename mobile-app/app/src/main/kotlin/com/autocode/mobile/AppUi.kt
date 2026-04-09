@@ -63,6 +63,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -109,6 +110,17 @@ private sealed class Tab(
     data object Projects : Tab("projects", "项目", Icons.Filled.Folder)
     data object Account : Tab("account", "我的", Icons.Filled.Person)
     data object Artifacts : Tab("artifacts", "产物", Icons.Filled.AttachFile)
+}
+
+internal object MobileUiTestTags {
+    const val VOICE_INPUT_BUTTON = "voice_input_button"
+    const val EVENT_STREAM_LIST = "event_stream_list"
+    const val APPROVAL_SHEET = "approval_sheet"
+    const val APPROVAL_COMMENT_INPUT = "approval_comment_input"
+    const val APPROVAL_APPROVE_BUTTON = "approval_approve_button"
+    const val APPROVAL_REJECT_BUTTON = "approval_reject_button"
+    const val ARTIFACT_PREVIEW_LOAD_BUTTON = "artifact_preview_load_button"
+    const val ARTIFACT_PREVIEW_CARD = "artifact_preview_card"
 }
 
 @Composable
@@ -484,7 +496,7 @@ private fun TaskListTab(vm: AppViewModel, nav: NavHostController) {
 }
 
 @Composable
-private fun VoiceInputButton(
+internal fun VoiceInputButton(
     permissionGranted: Boolean,
     onStartVoiceInput: () -> Unit,
     onRequestPermission: () -> Unit,
@@ -493,7 +505,10 @@ private fun VoiceInputButton(
         onClick = {
             if (permissionGranted) onStartVoiceInput() else onRequestPermission()
         },
-        modifier = Modifier.padding(top = 4.dp),
+        modifier =
+            Modifier
+                .padding(top = 4.dp)
+                .testTag(MobileUiTestTags.VOICE_INPUT_BUTTON),
     ) {
         Icon(Icons.Filled.Mic, contentDescription = "语音输入")
     }
@@ -587,7 +602,10 @@ private fun TaskDetailTab(
             )
             Spacer(Modifier.height(8.dp))
             LazyColumn(
-                modifier = Modifier.weight(1f),
+                modifier =
+                    Modifier
+                        .weight(1f)
+                        .testTag(MobileUiTestTags.EVENT_STREAM_LIST),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
                 state = eventsListState,
             ) {
@@ -654,7 +672,7 @@ private fun TaskDetailTab(
 }
 
 @Composable
-private fun AgentEventItem(event: TaskEventDto, fallbackLine: String) {
+internal fun AgentEventItem(event: TaskEventDto, fallbackLine: String) {
     val type = event.type?.uppercase().orEmpty()
     val payload = event.payload
     val header = "Seq ${event.seq} · ${event.type ?: "EVENT"}"
@@ -1120,7 +1138,7 @@ private fun FixLoopTimelineCard(points: List<FixLoopPoint>) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ApprovalBottomSheet(
+internal fun ApprovalBottomSheet(
     approval: ApprovalRequest,
     onApprove: (comment: String?) -> Unit,
     onReject: (comment: String?) -> Unit,
@@ -1144,6 +1162,7 @@ private fun ApprovalBottomSheet(
     }
 
     ModalBottomSheet(
+        modifier = Modifier.testTag(MobileUiTestTags.APPROVAL_SHEET),
         onDismissRequest = {
             if (handling) return@ModalBottomSheet
             handling = true
@@ -1198,7 +1217,10 @@ private fun ApprovalBottomSheet(
                 value = comment,
                 onValueChange = { comment = it },
                 label = { Text("审批备注（可选）") },
-                modifier = Modifier.fillMaxWidth(),
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .testTag(MobileUiTestTags.APPROVAL_COMMENT_INPUT),
                 minLines = 2,
             )
 
@@ -1215,7 +1237,10 @@ private fun ApprovalBottomSheet(
                         }
                     },
                     enabled = !handling,
-                    modifier = Modifier.weight(1f),
+                    modifier =
+                        Modifier
+                            .weight(1f)
+                            .testTag(MobileUiTestTags.APPROVAL_APPROVE_BUTTON),
                 ) {
                     Text("批准")
                 }
@@ -1227,7 +1252,10 @@ private fun ApprovalBottomSheet(
                         }
                     },
                     enabled = !handling,
-                    modifier = Modifier.weight(1f),
+                    modifier =
+                        Modifier
+                            .weight(1f)
+                            .testTag(MobileUiTestTags.APPROVAL_REJECT_BUTTON),
                 ) {
                     Text("拒绝")
                 }
@@ -1483,7 +1511,10 @@ private fun ArtifactDetailScreen(
                     }
                 },
                 enabled = !previewLoading,
-                modifier = Modifier.fillMaxWidth(),
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .testTag(MobileUiTestTags.ARTIFACT_PREVIEW_LOAD_BUTTON),
             ) {
                 Text(if (previewLoading) "加载预览中..." else "加载预览")
             }
@@ -1493,21 +1524,7 @@ private fun ArtifactDetailScreen(
             }
             preview?.let { p ->
                 Spacer(Modifier.height(12.dp))
-                Card(Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(12.dp)) {
-                        Text(p.title, style = MaterialTheme.typography.titleSmall)
-                        Text(
-                            "${p.contentType ?: "text/plain"} · ${p.byteSize} bytes",
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                        Spacer(Modifier.height(8.dp))
-                        Text(p.content, fontFamily = FontFamily.Monospace)
-                        if (p.truncated) {
-                            Spacer(Modifier.height(8.dp))
-                            Text("预览内容已截断，请下载完整文件查看。", style = MaterialTheme.typography.bodySmall)
-                        }
-                    }
-                }
+                ArtifactPreviewCard(preview = p)
             }
             Spacer(Modifier.height(12.dp))
             Text(
@@ -1570,6 +1587,30 @@ private fun ArtifactDetailScreen(
             publishHint?.let {
                 Spacer(Modifier.height(8.dp))
                 Text(it, color = MaterialTheme.colorScheme.primary)
+            }
+        }
+    }
+}
+
+@Composable
+internal fun ArtifactPreviewCard(preview: ArtifactPreview) {
+    Card(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .testTag(MobileUiTestTags.ARTIFACT_PREVIEW_CARD),
+    ) {
+        Column(Modifier.padding(12.dp)) {
+            Text(preview.title, style = MaterialTheme.typography.titleSmall)
+            Text(
+                "${preview.contentType ?: "text/plain"} · ${preview.byteSize} bytes",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(preview.content, fontFamily = FontFamily.Monospace)
+            if (preview.truncated) {
+                Spacer(Modifier.height(8.dp))
+                Text("预览内容已截断，请下载完整文件查看。", style = MaterialTheme.typography.bodySmall)
             }
         }
     }

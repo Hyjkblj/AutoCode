@@ -8,8 +8,10 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.autocode.mobile.network.AgentNodeDto
 import com.autocode.mobile.network.ArtifactListItem
 import com.autocode.mobile.network.ControlPlaneClient
+import com.autocode.mobile.network.ProjectSummaryDto
 import com.autocode.mobile.network.TaskEventDto
 import com.autocode.mobile.network.TaskSummaryDto
 import com.autocode.mobile.network.WebSocketClient
@@ -39,6 +41,7 @@ private object PrefsKeys {
     val TASKS_JSON = stringPreferencesKey("tasks_json")
     val BASE_URL = stringPreferencesKey("base_url")
     val GENERATION_TARGET = stringPreferencesKey("generation_target")
+    val AGENT_PROFILE = stringPreferencesKey("agent_profile")
     val PUBLISH_HISTORY_JSON = stringPreferencesKey("publish_history_json")
 }
 
@@ -46,14 +49,20 @@ data class UiState(
     val isLoading: Boolean = true,
     val session: Session? = null,
     val selectedProjectId: String? = null,
+    val dynamicProjects: List<Project> = emptyList(),
+    val isRefreshingProjects: Boolean = false,
+    val agentNodes: List<AgentNodeDto> = emptyList(),
+    val isRefreshingAgentNodes: Boolean = false,
     val tasks: List<TaskItem> = emptyList(),
     val taskEvents: Map<String, List<TaskEventDto>> = emptyMap(),
     val errorMessage: String? = null,
     /** 控制面根 URL，空表示离线模拟（PR-1/PR-2） */
     val baseUrl: String = "",
     val generationTarget: GenerationTarget = GenerationTarget.WEB,
+    val agentProfile: AgentProfile = AgentProfile.CODER,
     /** PR-3：发布/版本历史（本地持久化） */
     val publishHistory: List<PublishHistoryEntry> = emptyList(),
+    val isRefreshingPublishHistory: Boolean = false,
 )
 
 class AppViewModel(application: Application) : AndroidViewModel(application) {
@@ -77,6 +86,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private var subscribedBaseUrl: String? = null
     private var subscribedToken: String? = null
     private val maxTaskEventsPerTask = 300
+    private val fallbackProjectMap: Map<String, Project> by lazy {
+        mockProjects.associateBy { it.id }
+    }
 
     /** 与集成测试常用 projectId 对齐，便于真机连本地控制面。 */
     val mockProjects: List<Project> = listOf(
@@ -88,6 +100,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     init {
         viewModelScope.launch {
             loadFromStore()
+            refreshProjectsInternal()
+            refreshAgentNodesInternal()
+            refreshPublishHistoryInternal()
             _uiState.update { it.copy(isLoading = false) }
             startLocalProgressTicker()
             startRemotePolling()
@@ -102,10 +117,16 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val rawTasks = prefs[PrefsKeys.TASKS_JSON]
         val baseUrl = prefs[PrefsKeys.BASE_URL].orEmpty()
         val targetRaw = prefs[PrefsKeys.GENERATION_TARGET]
+        val profileRaw = prefs[PrefsKeys.AGENT_PROFILE]
         val generationTarget =
             when (targetRaw?.trim()) {
                 "wechat_mini" -> GenerationTarget.WECHAT_MINI_PROGRAM
                 else -> GenerationTarget.WEB
+            }
+        val agentProfile =
+            when (profileRaw?.trim()) {
+                "ai-agent" -> AgentProfile.AI_AGENT
+                else -> AgentProfile.CODER
             }
 
         val tasks: List<TaskItem> =
@@ -121,7 +142,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             if (token.isNotBlank() && display.isNotBlank()) Session(accessToken = token, displayName = display)
             else null
 
-        val effectiveProject = projectId ?: mockProjects.first().id
+        val initialProjects = deriveProjectsFromTasks(tasks = tasks, selectedProjectId = projectId)
+        val effectiveProject =
+            when {
+                session == null -> null
+                !projectId.isNullOrBlank() -> projectId
+                else -> initialProjects.firstOrNull()?.id ?: mockProjects.first().id
+            }
         val normalizedTasks = tasks.map { t ->
             if (t.source == TaskSource.LOCAL && t.status == TaskStatus.QUEUED) {
                 t.copy(
@@ -138,10 +165,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.update {
             it.copy(
                 session = session,
-                selectedProjectId = if (session != null) effectiveProject else null,
+                selectedProjectId = effectiveProject,
+                dynamicProjects = initialProjects,
                 tasks = normalizedTasks,
                 baseUrl = baseUrl,
                 generationTarget = generationTarget,
+                agentProfile = agentProfile,
                 publishHistory = publishHistory,
             )
         }
@@ -166,6 +195,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             p[PrefsKeys.TASKS_JSON] = json.encodeToString(taskListSerializer, s.tasks)
             p[PrefsKeys.BASE_URL] = s.baseUrl.trim()
             p[PrefsKeys.GENERATION_TARGET] = generationTargetStorageValue(s.generationTarget)
+            p[PrefsKeys.AGENT_PROFILE] = agentProfileStorageValue(s.agentProfile)
             p[PrefsKeys.PUBLISH_HISTORY_JSON] = json.encodeToString(publishHistorySerializer, s.publishHistory)
         }
     }
@@ -174,6 +204,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         when (t) {
             GenerationTarget.WEB -> "web"
             GenerationTarget.WECHAT_MINI_PROGRAM -> "wechat_mini"
+        }
+
+    private fun agentProfileStorageValue(p: AgentProfile): String =
+        when (p) {
+            AgentProfile.CODER -> "coder"
+            AgentProfile.AI_AGENT -> "ai-agent"
         }
 
     private suspend fun persistTasks(tasks: List<TaskItem>) {
@@ -186,16 +222,19 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.update { it.copy(errorMessage = null) }
     }
 
-    fun saveConnectivitySettings(baseUrl: String, target: GenerationTarget) {
+    fun saveConnectivitySettings(baseUrl: String, target: GenerationTarget, profile: AgentProfile) {
         viewModelScope.launch {
             _uiState.update {
                 it.copy(
                     baseUrl = baseUrl.trim(),
                     generationTarget = target,
+                    agentProfile = profile,
                     errorMessage = null,
                 )
             }
             persistAll()
+            refreshProjectsInternal()
+            refreshAgentNodesInternal()
         }
     }
 
@@ -221,6 +260,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                         )
                     }
                     persistAll()
+                    refreshProjectsInternal()
+                    refreshAgentNodesInternal()
                 } else {
                     val msg = r.exceptionOrNull()?.message ?: "登录失败"
                     _uiState.update { it.copy(errorMessage = msg) }
@@ -232,6 +273,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     it.copy(session = session, selectedProjectId = projectId, errorMessage = null)
                 }
                 persistAll()
+                refreshProjectsInternal()
+                refreshAgentNodesInternal()
             }
         }
     }
@@ -247,6 +290,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     isLoading = false,
                     session = null,
                     selectedProjectId = null,
+                    dynamicProjects = mockProjects,
+                    isRefreshingProjects = false,
                     tasks = emptyList(),
                     baseUrl = baseUrl,
                     generationTarget = target,
@@ -270,6 +315,204 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun refreshProjects() {
+        viewModelScope.launch {
+            refreshProjectsInternal()
+        }
+    }
+
+    fun refreshAgentNodes() {
+        viewModelScope.launch {
+            refreshAgentNodesInternal()
+        }
+    }
+
+    fun refreshPublishHistory() {
+        viewModelScope.launch {
+            refreshPublishHistoryInternal()
+        }
+    }
+
+    private suspend fun refreshPublishHistoryInternal() {
+        val before = _uiState.value
+        val base = before.baseUrl.trim()
+        val token = before.session?.accessToken?.trim().orEmpty()
+        if (base.isEmpty() || token.isEmpty()) return
+
+        _uiState.update { it.copy(isRefreshingPublishHistory = true) }
+        val selectedProjectId = before.selectedProjectId?.trim()?.takeIf { it.isNotEmpty() }
+        val deployTaskResult =
+            ControlPlaneClient.listTasks(
+                baseUrl = base,
+                bearerToken = token,
+                projectId = selectedProjectId,
+                assistant = "deployer",
+            )
+        var merged =
+            if (deployTaskResult.isSuccess) {
+                mergePublishHistoryFromRemoteTasks(
+                    existing = before.publishHistory,
+                    remoteTasks = deployTaskResult.getOrNull().orEmpty(),
+                )
+            } else {
+                before.publishHistory
+            }
+        val hydrationTargets = merged.toList()
+        hydrationTargets.forEach { entry ->
+            val taskId = entry.taskId.trim()
+            if (taskId.isEmpty()) return@forEach
+            val summary = ControlPlaneClient.getTask(base, token, taskId).getOrNull()
+            if (summary != null) {
+                merged = updatePublishHistoryFromSummary(merged, summary)
+            }
+            val current = merged.firstOrNull { it.taskId == taskId }
+            val shouldHydrateEvents =
+                current?.let {
+                    it.endpointUrl.isNullOrBlank() ||
+                        it.deployRequestId.isNullOrBlank() ||
+                        it.status in setOf("queued", "running", "waiting_approval", "deploy_planned", "unknown")
+                } ?: false
+            if (shouldHydrateEvents) {
+                val events = ControlPlaneClient.listTaskEvents(base, token, taskId, 0L).getOrNull().orEmpty()
+                merged = updatePublishHistoryFromEvents(merged, taskId, events)
+            }
+        }
+
+        _uiState.update {
+            it.copy(
+                publishHistory = merged.sortedByDescending { entry -> entry.createdAt },
+                isRefreshingPublishHistory = false,
+                errorMessage =
+                    if (deployTaskResult.isSuccess) null
+                    else deployTaskResult.exceptionOrNull()?.message ?: it.errorMessage,
+            )
+        }
+        persistAll()
+    }
+
+    private suspend fun refreshAgentNodesInternal() {
+        val before = _uiState.value
+        val base = before.baseUrl.trim()
+        val token = before.session?.accessToken?.trim().orEmpty()
+        if (base.isEmpty() || token.isEmpty()) {
+            _uiState.update {
+                it.copy(
+                    agentNodes = emptyList(),
+                    isRefreshingAgentNodes = false,
+                )
+            }
+            return
+        }
+
+        _uiState.update { it.copy(isRefreshingAgentNodes = true) }
+        val result = ControlPlaneClient.listAgentNodes(base, token)
+        if (result.isSuccess) {
+            val nodes = result.getOrNull().orEmpty().sortedBy { it.nodeId.lowercase() }
+            _uiState.update {
+                it.copy(
+                    agentNodes = nodes,
+                    isRefreshingAgentNodes = false,
+                    errorMessage = null,
+                )
+            }
+        } else {
+            _uiState.update {
+                it.copy(
+                    isRefreshingAgentNodes = false,
+                    errorMessage = result.exceptionOrNull()?.message ?: "Failed to load agent nodes",
+                )
+            }
+        }
+    }
+
+    private suspend fun refreshProjectsInternal() {
+        val before = _uiState.value
+        _uiState.update { it.copy(isRefreshingProjects = true) }
+        val localProjects = deriveProjectsFromTasks(before.tasks, before.selectedProjectId)
+        val base = before.baseUrl.trim()
+        val token = before.session?.accessToken?.trim().orEmpty()
+        val shouldFetchRemote = base.isNotEmpty() && token.isNotEmpty()
+        var fallbackError: String? = null
+
+        if (shouldFetchRemote) {
+            val remote = ControlPlaneClient.listProjects(base, token)
+            if (remote.isSuccess) {
+                val remoteProjects = mapRemoteProjects(remote.getOrNull().orEmpty())
+                val selected =
+                    when {
+                        before.session == null -> null
+                        !before.selectedProjectId.isNullOrBlank() &&
+                            remoteProjects.any { it.id == before.selectedProjectId } -> before.selectedProjectId
+                        else -> remoteProjects.firstOrNull()?.id
+                    }
+                _uiState.update {
+                    it.copy(
+                        dynamicProjects = remoteProjects,
+                        selectedProjectId = selected,
+                        isRefreshingProjects = false,
+                        errorMessage = null,
+                    )
+                }
+                persistAll()
+                return
+            }
+            fallbackError =
+                remote.exceptionOrNull()?.message
+                    ?: "Failed to load projects from control-plane; using local fallback"
+        }
+
+        val selected =
+            when {
+                before.session == null -> null
+                !before.selectedProjectId.isNullOrBlank() && localProjects.any { it.id == before.selectedProjectId } ->
+                    before.selectedProjectId
+                else -> localProjects.firstOrNull()?.id
+            }
+        _uiState.update {
+            it.copy(
+                dynamicProjects = localProjects,
+                selectedProjectId = selected,
+                isRefreshingProjects = false,
+                errorMessage = fallbackError ?: it.errorMessage,
+            )
+        }
+        persistAll()
+    }
+
+    private fun mapRemoteProjects(items: List<ProjectSummaryDto>): List<Project> {
+        if (items.isEmpty()) return emptyList()
+        val dedup = LinkedHashMap<String, Project>()
+        items.forEach { item ->
+            val projectId = item.projectId.trim()
+            if (projectId.isEmpty()) return@forEach
+            val projectName =
+                item.name
+                    ?.trim()
+                    ?.takeIf { it.isNotEmpty() }
+                    ?: fallbackProjectMap[projectId]?.name
+                    ?: "Project $projectId"
+            dedup[projectId] = Project(projectId, projectName)
+        }
+        return dedup.values.toList()
+    }
+
+    private fun deriveProjectsFromTasks(tasks: List<TaskItem>, selectedProjectId: String?): List<Project> {
+        val ids = LinkedHashSet<String>()
+        selectedProjectId?.trim()?.takeIf { it.isNotEmpty() }?.let { ids += it }
+        tasks
+            .asSequence()
+            .map { it.projectId.trim() }
+            .filter { it.isNotEmpty() }
+            .forEach { ids += it }
+        if (ids.isEmpty()) {
+            mockProjects.forEach { ids += it.id }
+        }
+        return ids.map { projectFromId(it) }
+    }
+
+    private fun projectFromId(projectId: String): Project =
+        fallbackProjectMap[projectId] ?: Project(projectId, "项目 $projectId")
+
     /**
      * PR-2：有控制面 URL 时走 HTTP 创建并轮询；否则本地模拟。
      */
@@ -291,12 +534,22 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
         if (base.isNotEmpty() && session != null) {
             val assistant = _uiState.value.generationTarget.assistantForApi()
-            val r = ControlPlaneClient.createTask(base, session.accessToken, projectId, text, assistant)
+            val agentProfile = _uiState.value.agentProfile.apiValue()
+            val r =
+                ControlPlaneClient.createTask(
+                    base = base,
+                    bearerToken = session.accessToken,
+                    projectId = projectId,
+                    prompt = text,
+                    assistant = assistant,
+                    agentProfile = agentProfile,
+                )
             if (r.isSuccess) {
                 val dto = r.getOrThrow()
                 val mapped = mapServerToTaskItem(dto, projectId, text)
                 _uiState.update { st -> st.copy(tasks = listOf(mapped) + st.tasks, errorMessage = null) }
                 persistAll()
+                refreshProjectsInternal()
                 return dto.taskId
             } else {
                 val msg = r.exceptionOrNull()?.message ?: "创建任务失败"
@@ -479,28 +732,86 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         return suffixes.any { s -> name.endsWith(s) }
     }
 
-    fun recordPublishEntry(
+    suspend fun recordPublishEntry(
         taskId: String,
         artifactId: String?,
         artifactName: String?,
         versionLabel: String,
-        status: String = "submitted_mock",
-    ) {
-        viewModelScope.launch {
-            val normalizedVersion = versionLabel.trim().ifEmpty { "v-${System.currentTimeMillis()}" }
-            val e =
+        environment: String = "staging",
+    ): Result<PublishHistoryEntry> {
+        val state = _uiState.value
+        val normalizedVersion = versionLabel.trim().ifEmpty { "v-${System.currentTimeMillis()}" }
+        val normalizedEnvironment = environment.trim().ifEmpty { "staging" }
+        val sourceTaskId = taskId.trim().ifEmpty { null }
+        val base = state.baseUrl.trim()
+        val token = state.session?.accessToken?.trim().orEmpty()
+
+        if (base.isNotEmpty() && token.isNotEmpty()) {
+            val projectId =
+                taskById(taskId)?.projectId ?: state.selectedProjectId
+                    ?: return Result.failure(IllegalStateException("无法确定发布项目"))
+            val deployResult =
+                ControlPlaneClient.createDeployTask(
+                    baseUrl = base,
+                    bearerToken = token,
+                    projectId = projectId,
+                    artifactId = artifactId,
+                    environment = normalizedEnvironment,
+                    versionLabel = normalizedVersion,
+                    sourceTaskId = sourceTaskId,
+                )
+            if (deployResult.isFailure) {
+                return Result.failure(deployResult.exceptionOrNull() ?: IllegalStateException("发布任务创建失败"))
+            }
+            val dto = deployResult.getOrThrow()
+            val deployPrompt =
+                dto.prompt ?: "Deploy artifact ${artifactId ?: "unknown-artifact"} to $normalizedEnvironment"
+            val mappedTask = mapServerToTaskItem(dto, projectId, deployPrompt)
+            val entry =
                 PublishHistoryEntry(
-                    id = "pub_${System.currentTimeMillis()}",
-                    taskId = taskId,
+                    id = "pub_${dto.taskId}",
+                    taskId = dto.taskId,
                     artifactId = artifactId,
                     artifactName = artifactName,
+                    sourceTaskId = sourceTaskId,
                     versionLabel = normalizedVersion,
-                    status = status,
+                    status = normalizePublishStatus(dto.status),
+                    environment = normalizedEnvironment,
                     createdAt = System.currentTimeMillis(),
                 )
-            _uiState.update { it.copy(publishHistory = listOf(e) + it.publishHistory) }
+            _uiState.update { st ->
+                val tasks =
+                    if (st.tasks.any { it.id == mappedTask.id }) st.tasks else listOf(mappedTask) + st.tasks
+                st.copy(
+                    tasks = tasks,
+                    publishHistory = upsertPublishHistory(st.publishHistory, entry),
+                    errorMessage = null,
+                )
+            }
             persistAll()
+            return Result.success(entry)
         }
+
+        val fallbackEntry =
+            PublishHistoryEntry(
+                id = "pub_${System.currentTimeMillis()}",
+                taskId = taskId,
+                artifactId = artifactId,
+                artifactName = artifactName,
+                sourceTaskId = sourceTaskId,
+                versionLabel = normalizedVersion,
+                status = "submitted_mock",
+                environment = normalizedEnvironment,
+                createdAt = System.currentTimeMillis(),
+            )
+        _uiState.update { st ->
+            st.copy(
+                publishHistory = upsertPublishHistory(st.publishHistory, fallbackEntry),
+                errorMessage = null,
+            )
+        }
+        persistAll()
+        return Result.success(fallbackEntry)
     }
 
     fun subscribeTaskEvents(taskId: String) {
@@ -644,6 +955,19 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 val decision = stringValue(payload, "decision", "result") ?: "unknown"
                 "审批结果：$decision"
             }
+            "DEPLOY_PLAN" -> {
+                val env = stringValue(payload, "environment", "env") ?: "unknown"
+                "部署计划：environment=$env"
+            }
+            "DEPLOY_RESULT" -> {
+                val status = normalizePublishStatus(stringValue(payload, "status")).ifBlank { "unknown" }
+                val endpoint = stringValue(payload, "endpointUrl", "endpoint", "url")
+                if (endpoint.isNullOrBlank()) {
+                    "部署结果：$status"
+                } else {
+                    "部署结果：$status -> $endpoint"
+                }
+            }
             "TASK_DONE" -> "任务完成"
             "TASK_FAILED" -> {
                 val reason = stringValue(payload, "reason", "message", "error")
@@ -671,18 +995,26 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private suspend fun mergeTaskEvents(taskId: String, incoming: List<TaskEventDto>) {
         if (incoming.isEmpty()) return
         val sortedIncoming = incoming.sortedBy { it.seq }
+        var publishHistoryChanged = false
         _uiState.update { state ->
             val mergedEvents = mergeEventList(state.taskEvents[taskId].orEmpty(), sortedIncoming)
             val mergedTasks = sortedIncoming.fold(state.tasks) { acc, event ->
                 applyEventToTasks(acc, taskId, event)
             }
+            val mergedHistory = updatePublishHistoryFromEvents(state.publishHistory, taskId, sortedIncoming)
+            publishHistoryChanged = mergedHistory != state.publishHistory
             state.copy(
                 taskEvents = state.taskEvents + (taskId to mergedEvents),
                 tasks = mergedTasks,
+                publishHistory = mergedHistory,
             )
         }
         syncPendingApprovalFromEvents(taskId, sortedIncoming)
-        persistTasks(_uiState.value.tasks)
+        if (publishHistoryChanged) {
+            persistAll()
+        } else {
+            persistTasks(_uiState.value.tasks)
+        }
     }
 
     private fun mergeEventList(existing: List<TaskEventDto>, incoming: List<TaskEventDto>): List<TaskEventDto> {
@@ -721,6 +1053,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         when (event.type?.uppercase()) {
             "TASK_STARTED" -> TaskStatus.RUNNING to 15
             "APPROVAL_REQUIRED" -> TaskStatus.RUNNING to 78
+            "DEPLOY_PLAN" -> TaskStatus.RUNNING to 88
+            "DEPLOY_RESULT" -> {
+                when (normalizePublishStatus(stringValue(event.payload, "status"))) {
+                    "success" -> TaskStatus.SUCCEEDED to 100
+                    "failed", "canceled", "rejected" -> TaskStatus.FAILED to 100
+                    else -> TaskStatus.RUNNING to 95
+                }
+            }
             "TASK_DONE" -> TaskStatus.SUCCEEDED to 100
             "TASK_FAILED" -> TaskStatus.FAILED to 100
             else -> null
@@ -759,6 +1099,168 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             riskScore = doubleValue(payload, "riskScore"),
             reason = stringValue(payload, "reason"),
             timeoutSeconds = timeout,
+        )
+    }
+
+    private fun upsertPublishHistory(
+        history: List<PublishHistoryEntry>,
+        incoming: PublishHistoryEntry,
+    ): List<PublishHistoryEntry> {
+        val replaced = history.map { if (it.id == incoming.id) incoming else it }
+        return if (replaced.any { it.id == incoming.id }) replaced else listOf(incoming) + history
+    }
+
+    private fun normalizePublishStatus(raw: String?): String {
+        val status = raw?.trim().orEmpty()
+        if (status.isEmpty()) return "unknown"
+        return when (status.uppercase()) {
+            "QUEUED" -> "queued"
+            "RUNNING" -> "running"
+            "WAITING_APPROVAL", "PAUSED" -> "waiting_approval"
+            "DONE", "SUCCEEDED", "SUCCESS" -> "success"
+            "FAILED", "ERROR" -> "failed"
+            "CANCELED", "CANCELLED" -> "canceled"
+            "REJECTED", "REJECT" -> "rejected"
+            else -> status.lowercase()
+        }
+    }
+
+    private fun updatePublishHistoryFromSummary(
+        history: List<PublishHistoryEntry>,
+        dto: TaskSummaryDto,
+    ): List<PublishHistoryEntry> {
+        if (history.isEmpty()) return history
+        val normalized = normalizePublishStatus(dto.status)
+        return history.map { entry ->
+            if (entry.taskId != dto.taskId) return@map entry
+            entry.copy(status = normalized)
+        }
+    }
+
+    private fun updatePublishHistoryFromEvents(
+        history: List<PublishHistoryEntry>,
+        taskId: String,
+        events: List<TaskEventDto>,
+    ): List<PublishHistoryEntry> {
+        if (history.isEmpty() || events.isEmpty()) return history
+        return events.fold(history) { acc, event ->
+            updatePublishHistoryFromEvent(acc, taskId, event)
+        }
+    }
+
+    private fun updatePublishHistoryFromEvent(
+        history: List<PublishHistoryEntry>,
+        taskId: String,
+        event: TaskEventDto,
+    ): List<PublishHistoryEntry> {
+        val type = event.type?.uppercase().orEmpty()
+        if (type.isEmpty()) return history
+        return history.map { entry ->
+            if (entry.taskId != taskId) return@map entry
+            when (type) {
+                "DEPLOY_PLAN" -> {
+                    val payload = event.payload
+                    entry.copy(
+                        status = "deploy_planned",
+                        environment = stringValue(payload, "environment", "env") ?: entry.environment,
+                        deployRequestId =
+                            stringValue(payload, "requestId", "deployRequestId", "request_id") ?: entry.deployRequestId,
+                    )
+                }
+                "DEPLOY_RESULT" -> {
+                    val payload = event.payload
+                    val deployStatus = normalizePublishStatus(stringValue(payload, "status"))
+                    entry.copy(
+                        status = if (deployStatus == "unknown") entry.status else deployStatus,
+                        environment = stringValue(payload, "environment", "env") ?: entry.environment,
+                        endpointUrl = stringValue(payload, "endpointUrl", "endpoint", "url") ?: entry.endpointUrl,
+                        deployRequestId =
+                            stringValue(payload, "requestId", "deployRequestId", "request_id") ?: entry.deployRequestId,
+                    )
+                }
+                "TASK_FAILED" -> {
+                    entry.copy(status = "failed")
+                }
+                "TASK_DONE" -> {
+                    if (entry.status != "success") entry.copy(status = "success") else entry
+                }
+                else -> entry
+            }
+        }
+    }
+
+    private fun mergePublishHistoryFromRemoteTasks(
+        existing: List<PublishHistoryEntry>,
+        remoteTasks: List<TaskSummaryDto>,
+    ): List<PublishHistoryEntry> {
+        if (remoteTasks.isEmpty()) return existing
+        val mergedByTaskId = LinkedHashMap<String, PublishHistoryEntry>()
+        existing.forEach { entry ->
+            val taskId = entry.taskId.trim()
+            if (taskId.isNotEmpty()) {
+                mergedByTaskId[taskId] = entry
+            }
+        }
+        remoteTasks.forEach { dto ->
+            val taskId = dto.taskId.trim()
+            if (taskId.isEmpty()) return@forEach
+            if (!isDeployTask(dto)) return@forEach
+            val prior = mergedByTaskId[taskId]
+            val inferred = parseDeployPrompt(dto.prompt)
+            val createdAt = prior?.createdAt ?: dto.createdAtMillis ?: System.currentTimeMillis()
+            val merged =
+                PublishHistoryEntry(
+                    id = prior?.id ?: "pub_${dto.taskId}",
+                    taskId = dto.taskId,
+                    artifactId = prior?.artifactId ?: inferred?.artifactId,
+                    artifactName = prior?.artifactName,
+                    sourceTaskId = prior?.sourceTaskId ?: inferred?.sourceTaskId,
+                    versionLabel = prior?.versionLabel ?: inferred?.versionLabel ?: "unknown",
+                    status = normalizePublishStatus(dto.status),
+                    environment = prior?.environment ?: inferred?.environment ?: "staging",
+                    endpointUrl = prior?.endpointUrl,
+                    deployRequestId = prior?.deployRequestId,
+                    createdAt = createdAt,
+                )
+            mergedByTaskId[taskId] = merged
+        }
+        return mergedByTaskId.values.sortedByDescending { entry -> entry.createdAt }
+    }
+
+    private fun isDeployTask(dto: TaskSummaryDto): Boolean {
+        val assistant = dto.assistant?.trim()?.lowercase()
+        val profile = dto.agentProfile?.trim()?.lowercase()
+        if (assistant == "deployer" || profile == "deployer") return true
+        val prompt = dto.prompt?.trim()?.lowercase().orEmpty()
+        return prompt.startsWith("deploy ")
+    }
+
+    private data class ParsedDeployPrompt(
+        val artifactId: String? = null,
+        val environment: String? = null,
+        val versionLabel: String? = null,
+        val sourceTaskId: String? = null,
+    )
+
+    private fun parseDeployPrompt(prompt: String?): ParsedDeployPrompt? {
+        val text = prompt?.trim().orEmpty()
+        if (text.isEmpty()) return null
+        val regex =
+            Regex(
+                pattern =
+                    "^Deploy artifact\\s+(.+?)\\s+to\\s+(.+?)\\s+with version\\s+(.+?)(?:\\s*\\(sourceTaskId=(.+?)\\))?$",
+                options = setOf(RegexOption.IGNORE_CASE),
+            )
+        val match = regex.matchEntire(text) ?: return null
+        val artifactId = match.groupValues.getOrNull(1)?.trim().orEmpty().ifBlank { null }
+        val environment = match.groupValues.getOrNull(2)?.trim().orEmpty().ifBlank { null }
+        val versionLabel = match.groupValues.getOrNull(3)?.trim().orEmpty().ifBlank { null }
+        val sourceTaskId = match.groupValues.getOrNull(4)?.trim().orEmpty().ifBlank { null }
+        return ParsedDeployPrompt(
+            artifactId = artifactId,
+            environment = environment,
+            versionLabel = versionLabel,
+            sourceTaskId = sourceTaskId,
         )
     }
 
@@ -828,14 +1330,21 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 val sess = st.session ?: continue
                 if (base.isEmpty()) continue
                 val activeSubscribedTask = subscribedTaskId
-                val remote =
-                    st.tasks.filter {
-                        it.source == TaskSource.REMOTE &&
-                            it.id != activeSubscribedTask
-                    }
-                if (remote.isEmpty()) continue
-                for (t in remote) {
-                    val r = ControlPlaneClient.getTask(base, sess.accessToken, t.id)
+                val remoteTaskIds = LinkedHashSet<String>()
+                st.tasks
+                    .asSequence()
+                    .filter { it.source == TaskSource.REMOTE }
+                    .map { it.id.trim() }
+                    .filter { it.isNotEmpty() && it != activeSubscribedTask }
+                    .forEach { remoteTaskIds += it }
+                st.publishHistory
+                    .asSequence()
+                    .map { it.taskId.trim() }
+                    .filter { it.isNotEmpty() && it != activeSubscribedTask }
+                    .forEach { remoteTaskIds += it }
+                if (remoteTaskIds.isEmpty()) continue
+                for (taskId in remoteTaskIds) {
+                    val r = ControlPlaneClient.getTask(base, sess.accessToken, taskId)
                     if (r.isSuccess) {
                         mergeRemoteTask(r.getOrThrow())
                     }
@@ -846,28 +1355,60 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     private suspend fun mergeRemoteTask(dto: TaskSummaryDto) {
         val (st, prog) = mapServerStatus(dto.status)
+        var publishHistoryChanged = false
         _uiState.update { state ->
+            val taskExists = state.tasks.any { it.id == dto.taskId }
             val next =
-                state.tasks.map { t ->
-                    if (t.id != dto.taskId) return@map t
-                    val statusLine = "控制面: ${dto.status}"
-                    val newLogs =
-                        if (t.logs.lastOrNull() == statusLine) {
-                            t.logs
-                        } else {
-                            (t.logs + statusLine).takeLast(40)
-                        }
-                    t.copy(
-                        status = st,
-                        progress = prog,
-                        prompt = dto.prompt ?: t.prompt,
-                        logs = newLogs,
-                        updatedAt = System.currentTimeMillis(),
-                    )
+                if (taskExists) {
+                    state.tasks.map { t ->
+                        if (t.id != dto.taskId) return@map t
+                        val statusLine = "Control-plane status: ${dto.status}"
+                        val newLogs =
+                            if (t.logs.lastOrNull() == statusLine) {
+                                t.logs
+                            } else {
+                                (t.logs + statusLine).takeLast(40)
+                            }
+                        t.copy(
+                            status = st,
+                            progress = prog,
+                            prompt = dto.prompt ?: t.prompt,
+                            logs = newLogs,
+                            updatedAt = System.currentTimeMillis(),
+                        )
+                    }
+                } else {
+                    val fallbackProjectId =
+                        dto.projectId?.trim()?.takeIf { it.isNotEmpty() }
+                            ?: state.selectedProjectId
+                            ?: state.dynamicProjects.firstOrNull()?.id
+                            ?: mockProjects.first().id
+                    val fallbackPrompt = dto.prompt?.trim()?.takeIf { it.isNotEmpty() } ?: "Remote task ${dto.taskId}"
+                    listOf(mapServerToTaskItem(dto, fallbackProjectId, fallbackPrompt)) + state.tasks
                 }
-            state.copy(tasks = next)
+            val incomingProjectId = dto.projectId?.trim().orEmpty()
+            val hasIncomingProject =
+                incomingProjectId.isNotEmpty() &&
+                    state.dynamicProjects.none { it.id == incomingProjectId }
+            val mergedProjects =
+                if (hasIncomingProject) {
+                    state.dynamicProjects + projectFromId(incomingProjectId)
+                } else {
+                    state.dynamicProjects
+                }
+            val mergedHistory = updatePublishHistoryFromSummary(state.publishHistory, dto)
+            publishHistoryChanged = mergedHistory != state.publishHistory
+            state.copy(
+                tasks = next,
+                dynamicProjects = mergedProjects,
+                publishHistory = mergedHistory,
+            )
         }
-        persistTasks(_uiState.value.tasks)
+        if (publishHistoryChanged) {
+            persistAll()
+        } else {
+            persistTasks(_uiState.value.tasks)
+        }
     }
 
     override fun onCleared() {

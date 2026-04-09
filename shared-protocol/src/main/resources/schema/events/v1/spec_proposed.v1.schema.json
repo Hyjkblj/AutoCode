@@ -13,6 +13,11 @@
           "additionalProperties": false,
           "required": ["artifact"],
           "properties": {
+            "traceId": { "type": "string", "minLength": 1 },
+            "runId": { "type": "string", "minLength": 1 },
+            "target": { "type": "string" },
+            "templateId": { "type": "string" },
+            "exportMode": { "type": "string" },
             "artifact": { "$ref": "artifact.schema.json" },
             "path": { "type": "string" },
             "summary": { "type": "string" },
@@ -23,4 +28,3 @@
     }
   ]
 }
-

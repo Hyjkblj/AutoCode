@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autocode.example/schema/sandbox/v1/sandbox_execute_request.v1.schema.json",
+  "title": "SandboxExecuteRequest v1",
+  "type": "object",
+  "required": ["taskId", "command"],
+  "properties": {
+    "taskId": { "type": "string", "minLength": 1 },
+    "command": { "type": "string", "minLength": 1 },
+    "cwd": { "type": "string" },
+    "prompt": { "type": "string" },
+    "tool": { "type": "string" },
+    "action": { "type": "string" },
+    "toolVersion": { "type": "string" },
+    "traceId": { "type": "string" },
+    "runId": { "type": "string" },
+    "assistant": { "type": "string" },
+    "sessionId": { "type": "string" },
+    "sessionKey": { "type": "string" },
+    "approvalTimeoutSeconds": { "type": "integer", "minimum": 1 }
+  },
+  "additionalProperties": true
+}

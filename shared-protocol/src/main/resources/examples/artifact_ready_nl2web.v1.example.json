@@ -1,0 +1,27 @@
+{
+  "eventId": "evt_01HQNL2WEBART001",
+  "taskId": "task_123",
+  "sessionId": "sess_abc",
+  "assistant": "gpt",
+  "type": "ARTIFACT_READY",
+  "timestamp": "2026-04-09T09:08:00Z",
+  "seq": 76,
+  "eventVersion": 1,
+  "payload": {
+    "target": "web",
+    "templateId": "web-basic",
+    "exportMode": "zip",
+    "artifact": {
+      "artifactId": "art_export_zip_001",
+      "fileName": "export.zip",
+      "sha256": "sha256:1b2c3d4e5f60718293a4b5c6d7e8f901234567890abcdef1234567890abcdef",
+      "size": 1048576,
+      "mimeType": "application/zip",
+      "type": "zip",
+      "downloadUrl": "https://autocode.example.invalid/artifacts/art_export_zip_001",
+      "entryPath": "index.html"
+    },
+    "kind": "zip"
+  }
+}
+

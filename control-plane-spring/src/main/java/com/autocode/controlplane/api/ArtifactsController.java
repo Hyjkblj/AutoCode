@@ -47,33 +47,14 @@ public class ArtifactsController {
         }
         String artifactName = (name == null || name.isBlank()) ? file.getOriginalFilename() : name;
         ArtifactRecord record = artifactsService.upload(taskId, artifactName, file.getContentType(), file.getInputStream());
-        return ResponseEntity.ok(GatewayResponses.ok(Map.of(
-                "artifactId", record.artifactId(),
-                "taskId", record.taskId(),
-                "name", record.name(),
-                "contentType", record.contentType(),
-                "sizeBytes", record.sizeBytes(),
-                "sha256", record.sha256(),
-                "createdAt", record.createdAt().toString()
-        )));
+        return ResponseEntity.ok(GatewayResponses.ok(toArtifactMap(record)));
     }
 
     @GetMapping
     @PreAuthorize("@projectAuthz.canAccessTask(#p0)")
     public ResponseEntity<GatewayResponse> list(@PathVariable("taskId") String taskId) {
         List<ArtifactRecord> list = artifactsService.list(taskId);
-        // Map.of(...) disallows null values, but contentType/name can be null.
-        List<Map<String, Object>> items = list.stream().map(r -> {
-            Map<String, Object> m = new HashMap<>();
-            m.put("artifactId", r.artifactId());
-            m.put("taskId", r.taskId());
-            m.put("name", r.name());
-            m.put("contentType", r.contentType());
-            m.put("sizeBytes", r.sizeBytes());
-            m.put("sha256", r.sha256());
-            m.put("createdAt", r.createdAt() == null ? null : r.createdAt().toString());
-            return m;
-        }).toList();
+        List<Map<String, Object>> items = list.stream().map(ArtifactsController::toArtifactMap).toList();
         return ResponseEntity.ok(GatewayResponses.ok(Map.of("taskId", taskId, "items", items)));
     }
 
@@ -127,6 +108,22 @@ public class ArtifactsController {
     private static String safeFilename(String name) {
         if (name == null || name.isBlank()) return "artifact.bin";
         return name.replaceAll("[\\r\\n\\\\\"]", "_");
+    }
+
+    private static Map<String, Object> toArtifactMap(ArtifactRecord record) {
+        // Keep both legacy and nl2web aliases so clients can migrate field names gradually.
+        Map<String, Object> item = new HashMap<>();
+        item.put("artifactId", record.artifactId());
+        item.put("taskId", record.taskId());
+        item.put("name", record.name());
+        item.put("fileName", record.name());
+        item.put("contentType", record.contentType());
+        item.put("mimeType", record.contentType());
+        item.put("sizeBytes", record.sizeBytes());
+        item.put("size", record.sizeBytes());
+        item.put("sha256", record.sha256());
+        item.put("createdAt", record.createdAt() == null ? null : record.createdAt().toString());
+        return item;
     }
 
     // GatewayResponses centralizes response construction for gateway-style endpoints.

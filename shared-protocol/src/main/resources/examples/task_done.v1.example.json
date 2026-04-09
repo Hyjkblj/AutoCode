@@ -1,0 +1,30 @@
+{
+  "eventId": "evt_01HQ9TASKDONE001",
+  "taskId": "task_123",
+  "sessionId": "sess_abc",
+  "assistant": "gpt",
+  "type": "TASK_DONE",
+  "timestamp": "2026-04-08T10:12:00Z",
+  "seq": 70,
+  "eventVersion": 1,
+  "payload": {
+    "result": "coded_reviewed_tested",
+    "status": "ok",
+    "intent": "code_change",
+    "planName": "code_change_pipeline",
+    "steps": [
+      "analyze intent",
+      "apply patch",
+      "run tests"
+    ],
+    "reviewApproved": true,
+    "reviewSummary": "Review passed with low risk.",
+    "testStatus": "ok",
+    "testAttempts": 2,
+    "testRetries": 1,
+    "attempt": 1,
+    "maxAttempts": 3,
+    "traceId": "trc_task_123",
+    "runId": "run_01HQ9TASK001"
+  }
+}

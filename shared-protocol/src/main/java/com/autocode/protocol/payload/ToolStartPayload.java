@@ -25,6 +25,11 @@ public class ToolStartPayload {
     private String cwd;
 
     /**
+     * Optional. Normalized workspace reference (slash-normalized path or workspace URI).
+     */
+    private String workspaceRef;
+
+    /**
      * Optional. Tool implementation version.
      */
     private String toolVersion;
@@ -43,6 +48,16 @@ public class ToolStartPayload {
      * Optional. Execution run id.
      */
     private String runId;
+
+    /**
+     * Optional. Routed intent skill id for orchestration diagnostics.
+     */
+    private String intentSkill;
+
+    /**
+     * Optional. Intent routing source for diagnostics.
+     */
+    private String intentRoute;
 
     public String getTool() {
         return tool;
@@ -76,6 +91,14 @@ public class ToolStartPayload {
         this.cwd = cwd;
     }
 
+    public String getWorkspaceRef() {
+        return workspaceRef;
+    }
+
+    public void setWorkspaceRef(String workspaceRef) {
+        this.workspaceRef = workspaceRef;
+    }
+
     public String getToolVersion() {
         return toolVersion;
     }
@@ -106,5 +129,21 @@ public class ToolStartPayload {
 
     public void setRunId(String runId) {
         this.runId = runId;
+    }
+
+    public String getIntentSkill() {
+        return intentSkill;
+    }
+
+    public void setIntentSkill(String intentSkill) {
+        this.intentSkill = intentSkill;
+    }
+
+    public String getIntentRoute() {
+        return intentRoute;
+    }
+
+    public void setIntentRoute(String intentRoute) {
+        this.intentRoute = intentRoute;
     }
 }

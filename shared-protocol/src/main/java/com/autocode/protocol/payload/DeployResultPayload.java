@@ -12,6 +12,16 @@ public class DeployResultPayload {
     private String requestId;
 
     /**
+     * Optional. End-to-end trace correlation id.
+     */
+    private String traceId;
+
+    /**
+     * Optional. Runtime execution correlation id.
+     */
+    private String runId;
+
+    /**
      * Optional. Provider deployment id.
      */
     private String deploymentId;
@@ -57,6 +67,22 @@ public class DeployResultPayload {
 
     public void setRequestId(String requestId) {
         this.requestId = requestId;
+    }
+
+    public String getTraceId() {
+        return traceId;
+    }
+
+    public void setTraceId(String traceId) {
+        this.traceId = traceId;
+    }
+
+    public String getRunId() {
+        return runId;
+    }
+
+    public void setRunId(String runId) {
+        this.runId = runId;
     }
 
     public String getDeploymentId() {

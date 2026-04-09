@@ -22,6 +22,8 @@ class DeployPayloadSerdeTest {
             DeployPlanPayload p = MAPPER.treeToValue(payloadNode, DeployPlanPayload.class);
             assertEquals("deploy_req_test_001", p.getRequestId());
             assertEquals("staging", p.getEnvironment());
+            assertEquals("trc_task_test_123", p.getTraceId());
+            assertEquals("run_test_deploy_001", p.getRunId());
             assertNotNull(p.getArtifact());
             assertEquals("art_zip_test_001", p.getArtifact().getArtifactId());
             assertNotNull(p.getContext());
@@ -38,6 +40,8 @@ class DeployPayloadSerdeTest {
             assertNotNull(payloadNode);
             DeployResultPayload p = MAPPER.treeToValue(payloadNode, DeployResultPayload.class);
             assertEquals("deploy_req_test_001", p.getRequestId());
+            assertEquals("trc_task_test_123", p.getTraceId());
+            assertEquals("run_test_deploy_001", p.getRunId());
             assertEquals("success", p.getStatus());
             assertEquals("dep_test_001", p.getDeploymentId());
             assertNotNull(p.getResultArtifact());

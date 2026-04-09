@@ -89,6 +89,7 @@ public class CommandExecTool implements Tool {
         body.put("tool", NAME);
         body.put("toolVersion", VERSION);
         body.put("cwd", cwd);
+        body.put("workspaceRef", normalizeWorkspacePath(cwd));
         body.put("approvalTimeoutSeconds", (int) Math.min(Integer.MAX_VALUE, context.getApprovalTimeoutSeconds()));
         body.put("riskScore", permissions == null ? 0.91 : permissions.getRiskScore());
         body.put("requiredPolicies", permissions == null ? List.of() : permissions.getRequiredPolicies());
@@ -97,7 +98,7 @@ public class CommandExecTool implements Tool {
         Map<String, String> ctx = new LinkedHashMap<>();
         ctx.put("action", "app.generate");
         ctx.put("tool", catalogToolForAssistant(task));
-        ctx.put("workspaceRef", cwd);
+        ctx.put("workspaceRef", normalizeWorkspacePath(cwd));
         ctx.put("inputsHash", approvalInputsHash(task, cwd));
         body.put("context", ctx);
         return body;

@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autocode.example/schema/events/v1/task_failed.v1.schema.json",
+  "title": "TASK_FAILED TaskEvent v1",
+  "allOf": [
+    { "$ref": "task_event.v1.schema.json" },
+    {
+      "type": "object",
+      "properties": {
+        "type": { "const": "TASK_FAILED" },
+        "payload": {
+          "type": "object",
+          "required": ["reason"],
+          "properties": {
+            "reason": { "type": "string", "minLength": 1 },
+            "detail": { "type": "string" },
+            "planName": { "type": "string" },
+            "errorCode": { "type": "string" },
+            "status": { "type": "string" },
+            "exitCode": { "type": "integer" },
+            "retryable": { "type": "boolean" },
+            "policyReason": { "type": "string" },
+            "tool": { "type": "string" },
+            "cwd": { "type": "string" },
+            "attempt": { "type": "integer", "minimum": 1 },
+            "maxAttempts": { "type": "integer", "minimum": 1 },
+            "lastTestError": { "type": "string" },
+            "riskLevel": { "type": "string", "enum": ["high", "medium", "low"] },
+            "issues": {
+              "type": "array",
+              "items": { "type": "string", "minLength": 1 }
+            },
+            "summary": { "type": "string" },
+            "traceId": { "type": "string" },
+            "runId": { "type": "string" }
+          },
+          "additionalProperties": true
+        }
+      }
+    }
+  ]
+}

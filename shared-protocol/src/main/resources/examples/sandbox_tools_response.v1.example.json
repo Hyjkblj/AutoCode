@@ -1,0 +1,37 @@
+{
+  "ok": true,
+  "tools": [
+    {
+      "name": "command.exec",
+      "version": "1.0.0",
+      "description": "Execute a shell command under policy constraints.",
+      "action": "run_command",
+      "argsSchema": {
+        "type": "object",
+        "required": ["command"],
+        "properties": {
+          "command": { "type": "string" },
+          "prompt": { "type": "string" },
+          "toolVersion": { "type": "string" }
+        }
+      },
+      "params": [
+        {
+          "name": "command",
+          "type": "string",
+          "required": true,
+          "description": "Command text to execute."
+        }
+      ],
+      "permissions": {
+        "commandExec": true,
+        "fileRead": true,
+        "fileWrite": true,
+        "networkAccess": false,
+        "approvalRequired": true,
+        "riskScore": 0.91,
+        "requiredPolicies": ["workspace.allowlist", "command.safety", "approval.gate"]
+      }
+    }
+  ]
+}

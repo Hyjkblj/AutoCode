@@ -4,9 +4,11 @@
 package com.autocode.agent.client;
 
 import com.autocode.agent.config.AgentConfig;
+import com.autocode.agent.runtime.RuntimeSignalParser;
 import com.autocode.protocol.model.ApprovalDecision;
 import com.autocode.protocol.model.ArtifactMetadata;
 import com.autocode.protocol.model.GatewayResponse;
+import com.autocode.protocol.model.ServiceRuntimeDescriptor;
 import com.autocode.protocol.model.TaskEvent;
 import com.autocode.protocol.model.TaskSummary;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -318,16 +320,23 @@ public class AgentApiClient {
         capabilities.add("profile:" + profile);
 
         String runtimeServiceId = trimToNull(env == null ? null : env.get("MVP_RUNTIME_SERVICE_ID"));
-        String runtimePort = trimToNull(env == null ? null : env.get("MVP_RUNTIME_PORT"));
-        String runtimeHealthPath = normalizeHealthPath(trimToNull(env == null ? null : env.get("MVP_RUNTIME_HEALTH_PATH")));
+        Integer runtimePort = RuntimeSignalParser.parsePositivePort(env == null ? null : env.get("MVP_RUNTIME_PORT"));
+        List<ServiceRuntimeDescriptor.PortBinding> runtimePorts = RuntimeSignalParser.parsePortBindings(
+                env == null ? null : env.get("MVP_RUNTIME_PORTS"));
+        String runtimeHealthPath = RuntimeSignalParser.normalizeHealthPath(
+                trimToNull(env == null ? null : env.get("MVP_RUNTIME_HEALTH_PATH")));
         String runtimeHealthUrl = trimToNull(env == null ? null : env.get("MVP_RUNTIME_HEALTH_URL"));
-        if (runtimeServiceId != null || runtimePort != null || runtimeHealthPath != null || runtimeHealthUrl != null) {
+        if (runtimeServiceId != null || runtimePort != null || !runtimePorts.isEmpty()
+                || runtimeHealthPath != null || runtimeHealthUrl != null) {
             capabilities.add("runtime.descriptor.v1");
             if (runtimeServiceId != null) {
                 capabilities.add("runtime.service:" + sanitizeCapabilityValue(runtimeServiceId));
             }
             if (runtimePort != null) {
-                capabilities.add("runtime.port:" + sanitizeCapabilityValue(runtimePort));
+                capabilities.add("runtime.port:" + runtimePort);
+            } else if (!runtimePorts.isEmpty()) {
+                capabilities.add("runtime.port:" + runtimePorts.get(0).getPort());
+                capabilities.add("runtime.ports.count:" + runtimePorts.size());
             }
             if (runtimeHealthPath != null) {
                 capabilities.add("runtime.health.path:" + sanitizeCapabilityValue(runtimeHealthPath));
@@ -346,13 +355,6 @@ public class AgentApiClient {
         }
         String safe = trimmed.replace(",", "_").replace(' ', '_');
         return safe;
-    }
-
-    private static String normalizeHealthPath(String path) {
-        if (path == null) {
-            return null;
-        }
-        return path.startsWith("/") ? path : "/" + path;
     }
 
     private static String trimToNull(String value) {

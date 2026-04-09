@@ -26,4 +26,17 @@ class WorkspacePrefixGuardTest {
         List<String> prefixes = List.of("D:/repo");
         assertTrue(WorkspacePrefixGuard.isPathUnderAllowedPrefixes("D:\\repo\\out\\x.zip", prefixes));
     }
+
+    @Test
+    void siblingPrefixMustNotMatch() {
+        List<String> prefixes = List.of("D:/repo");
+        assertFalse(WorkspacePrefixGuard.isPathUnderAllowedPrefixes("D:/repo2/out.txt", prefixes));
+    }
+
+    @Test
+    void dotSegmentsAreNormalizedBeforePrefixCheck() {
+        List<String> prefixes = List.of("D:/repo");
+        assertTrue(WorkspacePrefixGuard.isPathUnderAllowedPrefixes("D:/repo/sub/../out.txt", prefixes));
+        assertFalse(WorkspacePrefixGuard.isPathUnderAllowedPrefixes("D:/repo/sub/../../outside.txt", prefixes));
+    }
 }

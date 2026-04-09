@@ -9,10 +9,23 @@
   "eventVersion": 1,
   "payload": {
     "approvalId": "apr_test_001",
-    "reason": "publish requires review",
+    "action": "app.generate",
+    "tool": "command.exec",
+    "toolVersion": "1.0.0",
+    "command": "mvn -q test",
+    "cwd": "D:/workspace/test",
+    "workspaceRef": "D:/workspace/test",
+    "approvalTimeoutSeconds": 120,
+    "riskScore": 0.91,
+    "requiredPolicies": [
+      "workspace.allowlist",
+      "command.safety",
+      "approval.gate"
+    ],
+    "reason": "command execution requires review",
     "context": {
-      "action": "app.publish",
-      "tool": "publish.run",
+      "action": "app.generate",
+      "tool": "build.run",
       "workspaceRef": "D:/workspace/test",
       "inputsHash": "sha256:13d1746e51afcf6962ec8f0fc70823ea89993f31708bcfb5f4f2467f7af450f9"
     }

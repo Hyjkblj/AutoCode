@@ -88,6 +88,15 @@ public final class TaskEventContractValidator {
             case APPROVAL_REQUIRED -> {
                 requireMap(payload, "payload");
                 requireString(payload, "approvalId");
+                validateOptionalNonBlankString(payload, "action");
+                validateOptionalNonBlankString(payload, "tool");
+                validateOptionalNonBlankString(payload, "command");
+                validateOptionalNonBlankString(payload, "cwd");
+                validateOptionalNonBlankString(payload, "workspaceRef");
+                validateOptionalNonNegativeInt(payload, "approvalTimeoutSeconds");
+                validateOptionalConfidence(payload, "riskScore");
+                validateOptionalStringList(payload, "requiredPolicies");
+                validateOptionalNonBlankString(payload, "toolVersion");
                 requireApprovalContext(payload, "context");
             }
             case APPROVAL_RESULT -> {

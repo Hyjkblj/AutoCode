@@ -14,6 +14,8 @@
           "required": ["approvalId", "context"],
           "properties": {
             "approvalId": { "type": "string", "minLength": 1 },
+            "traceId": { "type": "string", "minLength": 1 },
+            "runId": { "type": "string", "minLength": 1 },
             "action": { "type": "string", "minLength": 1 },
             "tool": { "type": "string", "minLength": 1 },
             "command": { "type": "string", "minLength": 1 },

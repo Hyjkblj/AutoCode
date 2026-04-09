@@ -22,6 +22,8 @@ class ApprovalPayloadSerdeTest {
             assertNotNull(payloadNode);
             ApprovalRequiredPayload payload = MAPPER.treeToValue(payloadNode, ApprovalRequiredPayload.class);
             assertEquals("apr_test_001", payload.getApprovalId());
+            assertEquals("trc_task_test_123", payload.getTraceId());
+            assertEquals("run_test_approval_001", payload.getRunId());
             assertEquals("app.generate", payload.getAction());
             assertEquals("command.exec", payload.getTool());
             assertEquals("mvn -q test", payload.getCommand());
@@ -44,6 +46,8 @@ class ApprovalPayloadSerdeTest {
             ApprovalResultPayload payload = MAPPER.treeToValue(payloadNode, ApprovalResultPayload.class);
             assertEquals("apr_test_001", payload.getApprovalId());
             assertEquals(ApprovalDecision.REJECT, payload.getDecision());
+            assertEquals("trc_task_test_123", payload.getTraceId());
+            assertEquals("run_test_approval_001", payload.getRunId());
             assertEquals(950L, payload.getWaitMs());
             assertEquals("blocked by reviewer", payload.getMessage());
         }

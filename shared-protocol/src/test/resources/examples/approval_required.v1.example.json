@@ -9,6 +9,8 @@
   "eventVersion": 1,
   "payload": {
     "approvalId": "apr_test_001",
+    "traceId": "trc_task_test_123",
+    "runId": "run_test_approval_001",
     "action": "app.generate",
     "tool": "command.exec",
     "toolVersion": "1.0.0",

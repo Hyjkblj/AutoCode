@@ -13,6 +13,14 @@ public class ApprovalRequiredPayload {
      */
     private String approvalId;
     /**
+     * Optional. End-to-end trace correlation id.
+     */
+    private String traceId;
+    /**
+     * Optional. Runtime execution correlation id.
+     */
+    private String runId;
+    /**
      * Required. Strong-binding context.
      */
     private ApprovalContext context;
@@ -63,6 +71,22 @@ public class ApprovalRequiredPayload {
 
     public void setApprovalId(String approvalId) {
         this.approvalId = approvalId;
+    }
+
+    public String getTraceId() {
+        return traceId;
+    }
+
+    public void setTraceId(String traceId) {
+        this.traceId = traceId;
+    }
+
+    public String getRunId() {
+        return runId;
+    }
+
+    public void setRunId(String runId) {
+        this.runId = runId;
     }
 
     public ApprovalContext getContext() {

@@ -363,6 +363,29 @@ class TaskEventContractValidatorTest {
     }
 
     @Test
+    void approval_required_rejects_blank_trace_id_when_present() {
+        TaskEvent event = new TaskEvent();
+        event.setEventId("e4aa");
+        event.setTaskId("t4aa");
+        event.setType(EventType.APPROVAL_REQUIRED);
+        event.setTimestamp(Instant.parse("2026-04-09T00:00:00Z"));
+        event.setSeq(0);
+        event.setEventVersion(1);
+        event.setPayload(Map.of(
+                "approvalId", "apr_001",
+                "traceId", "   ",
+                "context", Map.of(
+                        "action", "app.publish",
+                        "tool", "deploy.execute",
+                        "workspaceRef", "D:/workspace/test",
+                        "inputsHash", "sha256:abc"
+                )
+        ));
+
+        assertThrows(ContractViolationException.class, () -> TaskEventContractValidator.validate(event));
+    }
+
+    @Test
     void approval_result_rejects_negative_wait_ms() {
         TaskEvent event = new TaskEvent();
         event.setEventId("e4b");
@@ -375,6 +398,24 @@ class TaskEventContractValidatorTest {
                 "approvalId", "apr_001",
                 "decision", "approve",
                 "waitMs", -1
+        ));
+
+        assertThrows(ContractViolationException.class, () -> TaskEventContractValidator.validate(event));
+    }
+
+    @Test
+    void approval_result_rejects_blank_run_id_when_present() {
+        TaskEvent event = new TaskEvent();
+        event.setEventId("e4bb");
+        event.setTaskId("t4bb");
+        event.setType(EventType.APPROVAL_RESULT);
+        event.setTimestamp(Instant.parse("2026-04-09T00:00:00Z"));
+        event.setSeq(0);
+        event.setEventVersion(1);
+        event.setPayload(Map.of(
+                "approvalId", "apr_001",
+                "decision", "approve",
+                "runId", "   "
         ));
 
         assertThrows(ContractViolationException.class, () -> TaskEventContractValidator.validate(event));

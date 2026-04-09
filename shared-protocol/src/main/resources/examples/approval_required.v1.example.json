@@ -9,6 +9,8 @@
   "eventVersion": 1,
   "payload": {
     "approvalId": "apr_01HQ9APR001",
+    "traceId": "trc_task_123",
+    "runId": "run_01HQ9APRREQ001",
     "action": "app.publish",
     "tool": "deploy.execute",
     "toolVersion": "1.0.0",

@@ -16,9 +16,9 @@ This module is the single source of truth for cross-component DTOs and event sch
 - Prefer **optional** payload fields so existing consumers keep working when they ignore unknown keys.
 - `APPROVAL_REQUIRED` requires `approvalId` + `context` (strong-binding context fields stay mandatory).
   - Runtime-aligned optional fields include `action`, `tool`, `command`, `cwd`, `workspaceRef`,
-    `approvalTimeoutSeconds`, `riskScore`, `requiredPolicies`, and `toolVersion`.
+    `approvalTimeoutSeconds`, `riskScore`, `requiredPolicies`, `toolVersion`, `traceId`, and `runId`.
 - `APPROVAL_RESULT` requires `approvalId` + `decision`; consumers should tolerate lowercase/uppercase decision strings.
-  - Runtime-aligned optional fields include `waitMs` (approval wait duration in milliseconds).
+  - Runtime-aligned optional fields include `waitMs` (approval wait duration in milliseconds), `traceId`, and `runId`.
 - `TOOL_START` keeps `tool` as the only required payload key (other fields like `action`/`command`/`cwd` are optional).
   - Runtime-aligned optional fields include `workspaceRef`, `intentSkill`, and `intentRoute`.
 - `TOOL_END` requires `tool` + `status`; output/error/exitCode remain optional for compatibility.

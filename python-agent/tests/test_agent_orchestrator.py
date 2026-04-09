@@ -860,8 +860,55 @@ def test_orchestrator_publishes_artifact_ready_for_web_target(monkeypatch, tmp_p
     AgentOrchestrator(reviewer_agent=reviewer, tester_agent=tester).handle_task(task, client)
 
     types = [event["type"] for _, event in client.events]
+    assert "SPEC_PROPOSED" in types
+    assert "BUILD_STARTED" in types
+    assert "BUILD_LOG" in types
+    assert "BUILD_DONE" in types
     assert "ARTIFACT_READY" in types
     assert types[-1] == "TASK_DONE"
+
+    spec_event = [event for _, event in client.events if event["type"] == "SPEC_PROPOSED"][0]
+    spec_payload = spec_event["payload"]
+    assert spec_payload["target"] == "web"
+    assert spec_payload["templateId"] == "product"
+    assert spec_payload["exportMode"] == "zip"
+    assert spec_payload["path"] == "spec.json"
+    assert spec_payload["schemaVersion"] == "v1"
+    assert spec_payload["artifact"]["type"] == "spec"
+    assert spec_payload["artifact"]["artifactId"].startswith("art_spec_task_105w")
+
+    build_started_event = [event for _, event in client.events if event["type"] == "BUILD_STARTED"][0]
+    build_started_payload = build_started_event["payload"]
+    assert build_started_payload["buildId"] == "build_task_105w_web"
+    assert build_started_payload["tool"] == "artifact.export.zip"
+    assert build_started_payload["target"] == "web"
+    assert build_started_payload["traceId"] == "trc_task_105w"
+    assert build_started_payload["runId"] == "run_task_105w"
+
+    build_log_event = [event for _, event in client.events if event["type"] == "BUILD_LOG"][0]
+    build_log_payload = build_log_event["payload"]
+    assert build_log_payload["buildId"] == "build_task_105w_web"
+    assert build_log_payload["level"] == "info"
+    assert build_log_payload["message"] == "Packaging generated web files into export.zip artifact."
+    assert build_log_payload["traceId"] == "trc_task_105w"
+    assert build_log_payload["runId"] == "run_task_105w"
+
+    build_done_event = [event for _, event in client.events if event["type"] == "BUILD_DONE"][0]
+    build_done_payload = build_done_event["payload"]
+    assert build_done_payload["buildId"] == "build_task_105w_web"
+    assert build_done_payload["status"] == "success"
+    assert isinstance(build_done_payload["durationMs"], int)
+    assert build_done_payload["durationMs"] >= 0
+    assert build_done_payload["traceId"] == "trc_task_105w"
+    assert build_done_payload["runId"] == "run_task_105w"
+
+    spec_index = types.index("SPEC_PROPOSED")
+    build_started_index = types.index("BUILD_STARTED")
+    build_log_index = types.index("BUILD_LOG")
+    build_done_index = types.index("BUILD_DONE")
+    artifact_ready_index = types.index("ARTIFACT_READY")
+    assert spec_index < build_started_index < build_log_index < build_done_index < artifact_ready_index
+
     ready_event = [event for _, event in client.events if event["type"] == "ARTIFACT_READY"][0]
     artifact = ready_event["payload"]["artifact"]
     assert artifact["artifactId"] == "art_uploaded_001"

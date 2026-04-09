@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import re
+import time
 from pathlib import Path
 from typing import Any
 
@@ -349,7 +350,12 @@ class AgentOrchestrator(BaseAgent):
         artifact: dict[str, Any] | None = None
         if _is_web_generation_task(task):
             try:
-                artifact = self._publish_web_artifact(task, client)
+                artifact = self._publish_web_artifact(
+                    task,
+                    client,
+                    trace_id=test.trace_id,
+                    run_id=test.run_id,
+                )
             except Exception as exc:  # noqa: BLE001
                 self.publish_event(
                     task,
@@ -389,18 +395,67 @@ class AgentOrchestrator(BaseAgent):
             "artifactId": artifact.get("artifactId") if artifact else None,
         }
 
-    def _publish_web_artifact(self, task: dict[str, Any], client: ControlPlaneClient) -> dict[str, Any]:
-        workspace = _resolve_workspace(task)
-        generated_files = _resolve_generated_files(task, workspace)
-        bundle = build_export_zip(workspace, generated_files, file_name=_artifact_file_name(task))
-        uploaded = self._try_upload_artifact(task, client, bundle)
-        payload = _build_artifact_ready_payload(bundle, uploaded)
-        _apply_web_artifact_run_hints(payload)
-        payload["target"] = "web"
-        payload["exportMode"] = _resolve_export_mode(task)
-        template_id = _resolve_template_id(task)
-        if template_id:
-            payload["templateId"] = template_id
+    def _publish_web_artifact(
+        self,
+        task: dict[str, Any],
+        client: ControlPlaneClient,
+        *,
+        trace_id: str | None = None,
+        run_id: str | None = None,
+    ) -> dict[str, Any]:
+        resolved_trace_id = _first_non_blank(trace_id, task.get("traceId"))
+        resolved_run_id = _first_non_blank(run_id, task.get("runId"))
+        build_id = _resolve_web_build_id(task)
+        started_at = time.perf_counter()
+
+        spec_payload = _build_spec_proposed_payload(task)
+        _apply_runtime_ids(spec_payload, resolved_trace_id, resolved_run_id)
+        self.publish_event(task, client, "SPEC_PROPOSED", spec_payload)
+
+        build_started_payload: dict[str, Any] = {
+            "buildId": build_id,
+            "tool": "artifact.export.zip",
+            "target": "web",
+        }
+        _apply_runtime_ids(build_started_payload, resolved_trace_id, resolved_run_id)
+        self.publish_event(task, client, "BUILD_STARTED", build_started_payload)
+
+        build_log_payload = _build_build_log_payload(
+            build_id,
+            "Packaging generated web files into export.zip artifact.",
+        )
+        _apply_runtime_ids(build_log_payload, resolved_trace_id, resolved_run_id)
+        self.publish_event(task, client, "BUILD_LOG", build_log_payload)
+
+        try:
+            workspace = _resolve_workspace(task)
+            generated_files = _resolve_generated_files(task, workspace)
+            bundle = build_export_zip(workspace, generated_files, file_name=_artifact_file_name(task))
+            uploaded = self._try_upload_artifact(task, client, bundle)
+            payload = _build_artifact_ready_payload(bundle, uploaded)
+            _apply_web_artifact_run_hints(payload)
+            payload["target"] = "web"
+            payload["exportMode"] = _resolve_export_mode(task)
+            template_id = _resolve_template_id(task)
+            if template_id:
+                payload["templateId"] = template_id
+        except Exception:
+            build_done_payload = _build_build_done_payload(
+                build_id=build_id,
+                status="failed",
+                duration_ms=_duration_ms(started_at),
+            )
+            _apply_runtime_ids(build_done_payload, resolved_trace_id, resolved_run_id)
+            self.publish_event(task, client, "BUILD_DONE", build_done_payload)
+            raise
+
+        build_done_payload = _build_build_done_payload(
+            build_id=build_id,
+            status="success",
+            duration_ms=_duration_ms(started_at),
+        )
+        _apply_runtime_ids(build_done_payload, resolved_trace_id, resolved_run_id)
+        self.publish_event(task, client, "BUILD_DONE", build_done_payload)
         self.publish_event(task, client, "ARTIFACT_READY", payload)
         return payload["artifact"]
 
@@ -883,6 +938,79 @@ def _artifact_file_name(task: dict[str, Any]) -> str:
     if export_mode == "zip":
         return "export.zip"
     return f"export.{export_mode}"
+
+
+def _build_spec_proposed_payload(task: dict[str, Any]) -> dict[str, Any]:
+    template_id = _resolve_template_id(task)
+    export_mode = _resolve_export_mode(task)
+    payload: dict[str, Any] = {
+        "target": "web",
+        "exportMode": export_mode,
+        "artifact": {
+            "artifactId": _resolve_spec_artifact_id(task),
+            "type": "spec",
+            "name": "spec.json",
+            "mime": "application/json",
+        },
+        "path": "spec.json",
+        "summary": _build_spec_summary(task, template_id, export_mode),
+        "schemaVersion": "v1",
+    }
+    if template_id:
+        payload["templateId"] = template_id
+    return payload
+
+
+def _build_spec_summary(task: dict[str, Any], template_id: str | None, export_mode: str) -> str:
+    prompt = str(task.get("prompt", "")).strip()
+    if len(prompt) > 120:
+        prompt = prompt[:117] + "..."
+    template = template_id or "default"
+    if not prompt:
+        prompt = "(empty)"
+    return f"Generate web artifact via template '{template}' with export mode '{export_mode}'. Prompt: {prompt}"
+
+
+def _resolve_spec_artifact_id(task: dict[str, Any]) -> str:
+    task_id = _normalize_identifier(str(task.get("taskId", "")).strip())
+    return f"art_spec_{task_id or 'task'}"
+
+
+def _resolve_web_build_id(task: dict[str, Any]) -> str:
+    task_id = _normalize_identifier(str(task.get("taskId", "")).strip())
+    return f"build_{task_id or 'task'}_web"
+
+
+def _normalize_identifier(value: str) -> str:
+    return re.sub(r"[^A-Za-z0-9]+", "_", value).strip("_").lower()
+
+
+def _build_build_log_payload(build_id: str, message: str, level: str = "info") -> dict[str, Any]:
+    return {
+        "buildId": build_id,
+        "level": level,
+        "message": message,
+    }
+
+
+def _build_build_done_payload(*, build_id: str, status: str, duration_ms: int) -> dict[str, Any]:
+    return {
+        "buildId": build_id,
+        "status": status,
+        "durationMs": max(duration_ms, 0),
+    }
+
+
+def _duration_ms(started_at: float) -> int:
+    elapsed_seconds = max(time.perf_counter() - started_at, 0.0)
+    return int(elapsed_seconds * 1000)
+
+
+def _apply_runtime_ids(payload: dict[str, Any], trace_id: str | None, run_id: str | None) -> None:
+    if trace_id and trace_id.strip():
+        payload["traceId"] = trace_id.strip()
+    if run_id and run_id.strip():
+        payload["runId"] = run_id.strip()
 
 
 def _resolve_template_id(task: dict[str, Any]) -> str | None:

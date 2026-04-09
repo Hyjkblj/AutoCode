@@ -51,7 +51,10 @@ public class FileReadWritePolicy implements ToolInvocationPolicy {
     );
 
     private static final Pattern ABSOLUTE_PATH = Pattern.compile(
-            "(?i)([a-z]:[\\\\/][^\\s\"'|;&]+|/[^\\s\"'|;&]+)"
+            "(?i)(?:(?<=^)|(?<=[\\s\"']))([a-z]:[\\\\/][^\\s\"'|;&]+|/[^\\s\"'|;&]+)"
+    );
+    private static final Pattern PATH_TOKEN = Pattern.compile(
+            "(\"[^\"]*\"|'[^']*'|[^\\s\"'|;&]+)"
     );
 
     private final List<String> allowedPrefixes;
@@ -79,8 +82,7 @@ public class FileReadWritePolicy implements ToolInvocationPolicy {
         }
 
         boolean destructive = isDestructive(normalized);
-        for (String candidate : extractAbsolutePathCandidates(command)) {
-            String path = WorkspacePrefixGuard.normalizePath(candidate);
+        for (String path : extractPathCandidates(command, context == null ? null : context.getCwd())) {
             if (destructive && isRootPath(path)) {
                 return PolicyDecision.deny("root_write_blocked");
             }
@@ -145,6 +147,65 @@ public class FileReadWritePolicy implements ToolInvocationPolicy {
             candidates.add(raw);
         }
         return new ArrayList<>(candidates);
+    }
+
+    private static List<String> extractPathCandidates(String command, String cwd) {
+        LinkedHashSet<String> candidates = new LinkedHashSet<>();
+        for (String abs : extractAbsolutePathCandidates(command)) {
+            String normalized = WorkspacePrefixGuard.normalizePath(abs);
+            if (!normalized.isBlank()) {
+                candidates.add(normalized);
+            }
+        }
+        String normalizedCwd = WorkspacePrefixGuard.normalizePath(cwd);
+        if (!normalizedCwd.isBlank()) {
+            Matcher matcher = PATH_TOKEN.matcher(command);
+            while (matcher.find()) {
+                String token = trimQuotes(matcher.group(1));
+                String resolved = resolveRelativePathCandidate(token, normalizedCwd);
+                if (resolved == null || resolved.isBlank()) {
+                    continue;
+                }
+                candidates.add(resolved);
+            }
+        }
+        return new ArrayList<>(candidates);
+    }
+
+    private static String resolveRelativePathCandidate(String token, String normalizedCwd) {
+        if (token == null || token.isBlank()) {
+            return null;
+        }
+        String trimmed = token.trim();
+        String lowered = trimmed.toLowerCase(Locale.ROOT);
+        if (trimmed.startsWith("-")) {
+            return null;
+        }
+        if (trimmed.startsWith("$") || trimmed.startsWith("%")) {
+            return null;
+        }
+        if (lowered.contains("://")) {
+            return null;
+        }
+        if (ABSOLUTE_PATH.matcher(trimmed).matches()) {
+            return null;
+        }
+        boolean pathLike = lowered.startsWith("./")
+                || lowered.startsWith(".\\")
+                || lowered.startsWith("../")
+                || lowered.startsWith("..\\")
+                || lowered.startsWith("~/")
+                || lowered.startsWith("~\\")
+                || trimmed.contains("/")
+                || trimmed.contains("\\");
+        if (!pathLike) {
+            return null;
+        }
+
+        if (lowered.startsWith("~/") || lowered.startsWith("~\\")) {
+            return WorkspacePrefixGuard.normalizePath(trimmed);
+        }
+        return WorkspacePrefixGuard.normalizePath(normalizedCwd + "/" + trimmed);
     }
 
     private static boolean isRootPath(String normalizedPath) {

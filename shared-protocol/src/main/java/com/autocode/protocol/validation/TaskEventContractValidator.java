@@ -59,10 +59,14 @@ public final class TaskEventContractValidator {
             }
             case SPEC_PROPOSED -> {
                 requireMap(payload, "payload");
+                validateOptionalNonBlankString(payload, "traceId");
+                validateOptionalNonBlankString(payload, "runId");
                 requireArtifact(payload, "artifact");
             }
             case FILE_PATCH_PREVIEW -> {
                 requireMap(payload, "payload");
+                validateOptionalNonBlankString(payload, "traceId");
+                validateOptionalNonBlankString(payload, "runId");
                 // Either patch or files must exist.
                 Object patch = payload.get("patch");
                 Object files = payload.get("files");
@@ -79,12 +83,22 @@ public final class TaskEventContractValidator {
                 requireString(payload, "tool");
                 requireString(payload, "status");
             }
-            case BUILD_STARTED -> requireMap(payload, "payload");
+            case BUILD_STARTED -> {
+                requireMap(payload, "payload");
+                validateOptionalNonBlankString(payload, "traceId");
+                validateOptionalNonBlankString(payload, "runId");
+            }
             case BUILD_LOG -> {
                 requireMap(payload, "payload");
+                validateOptionalNonBlankString(payload, "traceId");
+                validateOptionalNonBlankString(payload, "runId");
                 requireString(payload, "message");
             }
-            case BUILD_DONE -> requireMap(payload, "payload");
+            case BUILD_DONE -> {
+                requireMap(payload, "payload");
+                validateOptionalNonBlankString(payload, "traceId");
+                validateOptionalNonBlankString(payload, "runId");
+            }
             case APPROVAL_REQUIRED -> {
                 requireMap(payload, "payload");
                 requireString(payload, "approvalId");

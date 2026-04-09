@@ -10,6 +10,16 @@ import java.util.List;
  */
 public class FilePatchPreviewPayload {
     /**
+     * Optional. End-to-end trace correlation id.
+     */
+    private String traceId;
+
+    /**
+     * Optional. Runtime execution correlation id.
+     */
+    private String runId;
+
+    /**
      * Suggested values: unified | files.
      */
     private String format;
@@ -28,6 +38,22 @@ public class FilePatchPreviewPayload {
      * Optional. Hash of the preview content (e.g. sha256 over patch or normalized file list).
      */
     private String previewHash;
+
+    public String getTraceId() {
+        return traceId;
+    }
+
+    public void setTraceId(String traceId) {
+        this.traceId = traceId;
+    }
+
+    public String getRunId() {
+        return runId;
+    }
+
+    public void setRunId(String runId) {
+        this.runId = runId;
+    }
 
     public String getFormat() {
         return format;

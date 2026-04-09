@@ -65,6 +65,23 @@ class TaskEventContractValidatorTest {
     }
 
     @Test
+    void specProposed_rejects_blank_trace_id_when_present() {
+        TaskEvent event = new TaskEvent();
+        event.setEventId("e9b");
+        event.setTaskId("t9b");
+        event.setType(EventType.SPEC_PROPOSED);
+        event.setTimestamp(Instant.parse("2026-04-06T00:00:00Z"));
+        event.setSeq(0);
+        event.setEventVersion(1);
+        event.setPayload(Map.of(
+                "traceId", "   ",
+                "artifact", Map.of("artifactId", "a1", "type", "spec")
+        ));
+
+        assertThrows(ContractViolationException.class, () -> TaskEventContractValidator.validate(event));
+    }
+
+    @Test
     void filePatchPreview_example_resource_is_valid() throws Exception {
         try (InputStream in = TaskEventContractValidatorTest.class.getResourceAsStream("/examples/file_patch_preview.v1.example.json")) {
             assertNotNull(in, "Missing test resource: /examples/file_patch_preview.v1.example.json");
@@ -401,6 +418,23 @@ class TaskEventContractValidatorTest {
         event.setSeq(0);
         event.setEventVersion(1);
         event.setPayload(Map.of("buildId", "build_001", "level", "info"));
+
+        assertThrows(ContractViolationException.class, () -> TaskEventContractValidator.validate(event));
+    }
+
+    @Test
+    void build_log_rejects_blank_run_id_when_present() {
+        TaskEvent event = new TaskEvent();
+        event.setEventId("e7b");
+        event.setTaskId("t7b");
+        event.setType(EventType.BUILD_LOG);
+        event.setTimestamp(Instant.parse("2026-04-09T00:00:00Z"));
+        event.setSeq(0);
+        event.setEventVersion(1);
+        event.setPayload(Map.of(
+                "message", "build step",
+                "runId", "   "
+        ));
 
         assertThrows(ContractViolationException.class, () -> TaskEventContractValidator.validate(event));
     }

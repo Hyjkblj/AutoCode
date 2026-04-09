@@ -8,6 +8,8 @@
   "seq": 10,
   "eventVersion": 1,
   "payload": {
+    "traceId": "trc_task_test_spec",
+    "runId": "run_test_spec_001",
     "artifact": {
       "artifactId": "art_spec_test_001",
       "hash": "sha256:1b2c3d4e5f60718293a4b5c6d7e8f901234567890abcdef1234567890abcdef",

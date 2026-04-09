@@ -22,8 +22,13 @@ This module is the single source of truth for cross-component DTOs and event sch
 - `TOOL_START` keeps `tool` as the only required payload key (other fields like `action`/`command`/`cwd` are optional).
   - Runtime-aligned optional fields include `workspaceRef`, `intentSkill`, and `intentRoute`.
 - `TOOL_END` requires `tool` + `status`; output/error/exitCode remain optional for compatibility.
+- `SPEC_PROPOSED` requires `artifact`; runtime-aligned optional fields include `traceId` and `runId`.
+- `BUILD_STARTED` has no required payload keys in v1; runtime-aligned optional fields include `traceId` and `runId`.
 - `BUILD_LOG` requires `message`; `buildId`/`level` are optional in v1.
+  - Runtime-aligned optional fields include `traceId` and `runId`.
+- `BUILD_DONE` has no required payload keys in v1; runtime-aligned optional fields include `traceId` and `runId`.
 - `FILE_PATCH_PREVIEW` requires at least one of `patch` or `files` (either representation is valid in v1).
+  - Runtime-aligned optional fields include `traceId` and `runId`.
 - `TASK_DONE` requires `result`; additional completion metadata remains optional.
   - LLM/orchestrator optional fields include `intent`, `planName`, `steps`, `reviewApproved`, `reviewSummary`,
     `testStatus`, `testAttempts`, `testRetries`, `attempt`, `maxAttempts`.

@@ -31,4 +31,24 @@ class ArtifactReadyPayloadSerdeTest {
             assertEquals("npm ci && npm run build", p.getArtifact().getBuild().getCommand());
         }
     }
+
+    @Test
+    void deserializes_nl2web_alias_metadata_shape() throws Exception {
+        try (InputStream in = ArtifactReadyPayloadSerdeTest.class.getResourceAsStream("/examples/artifact_ready_nl2web.v1.example.json")) {
+            assertNotNull(in, "Missing test resource /examples/artifact_ready_nl2web.v1.example.json");
+            JsonNode root = MAPPER.readTree(in);
+            JsonNode payloadNode = root.get("payload");
+            assertNotNull(payloadNode);
+            ArtifactReadyPayload p = MAPPER.treeToValue(payloadNode, ArtifactReadyPayload.class);
+            assertEquals("web", p.getTarget());
+            assertEquals("web-basic", p.getTemplateId());
+            assertEquals("zip", p.getExportMode());
+            assertNotNull(p.getArtifact());
+            assertEquals("art_export_zip_test_001", p.getArtifact().getArtifactId());
+            assertEquals("export.zip", p.getArtifact().getFileName());
+            assertEquals("sha256:1b2c3d4e5f60718293a4b5c6d7e8f901234567890abcdef1234567890abcdef", p.getArtifact().getSha256());
+            assertEquals("application/zip", p.getArtifact().getMimeType());
+            assertEquals("zip", p.getKind());
+        }
+    }
 }

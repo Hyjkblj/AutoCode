@@ -7,9 +7,12 @@
   "required": ["artifactId", "type"],
   "properties": {
     "artifactId": { "type": "string", "minLength": 1 },
+    "fileName": { "type": "string" },
     "hash": { "type": "string" },
+    "sha256": { "type": "string" },
     "size": { "type": "integer", "minimum": 0 },
     "mime": { "type": "string" },
+    "mimeType": { "type": "string" },
     "type": { "type": "string", "minLength": 1 },
     "name": { "type": "string" },
     "downloadUrl": { "type": "string" },

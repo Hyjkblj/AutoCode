@@ -368,6 +368,65 @@ class TaskWorkflowIntegrationTest extends OperatorProj1MembershipFixture {
     }
 
     @Test
+    void taskFailedReasonShouldBeQueryableViaTaskEvents() throws Exception {
+        String createResponse = createTask("nl2web unsupported target");
+        String taskId = objectMapper.readTree(createResponse).path("payload").path("taskId").asText();
+
+        String taskFailedEvent = """
+                {
+                  "event": {
+                    "eventId": "evt-nl2web-failed-reason-1",
+                    "type": "TASK_FAILED",
+                    "assistant": "ai-agent",
+                    "payload": {
+                      "reason": "unsupported_target",
+                      "errorCode": "UNSUPPORTED_TARGET",
+                      "summary": "only target=web is supported in mvp"
+                    }
+                  }
+                }
+                """;
+
+        mockMvc.perform(post("/api/v1/agent/tasks/{taskId}/events", taskId)
+                        .header("X-Agent-Token", "agent-dev-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(taskFailedEvent))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.payload.status").value("FAILED"));
+
+        String taskResponse = mockMvc.perform(get("/api/v1/tasks/{taskId}", taskId)
+                        .header("Authorization", "Bearer operator-dev-token"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        JsonNode taskPayload = objectMapper.readTree(taskResponse).path("payload");
+        assertEquals("FAILED", taskPayload.path("status").asText());
+        JsonNode failureReason = taskPayload.get("failureReason");
+        if (failureReason != null && !failureReason.isNull()) {
+            assertEquals("unsupported_target", failureReason.asText());
+        }
+
+        String eventsResponse = mockMvc.perform(get("/api/v1/tasks/{taskId}/events", taskId)
+                        .header("Authorization", "Bearer operator-dev-token"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        JsonNode events = objectMapper.readTree(eventsResponse).path("payload");
+        boolean hasFailureReason = false;
+        for (JsonNode event : events) {
+            if (!"evt-nl2web-failed-reason-1".equals(event.path("eventId").asText())) {
+                continue;
+            }
+            hasFailureReason = true;
+            JsonNode payload = event.path("payload");
+            assertEquals("unsupported_target", payload.path("reason").asText());
+            assertEquals("UNSUPPORTED_TARGET", payload.path("errorCode").asText());
+            assertEquals("only target=web is supported in mvp", payload.path("summary").asText());
+            break;
+        }
+        assertTrue(hasFailureReason, "TASK_FAILED reason should be queryable from /events");
+    }
+
+    @Test
     void approvalContextMismatchShouldFailTask() throws Exception {
         String createResponse = createTask("Mismatch approval context");
         String taskId = objectMapper.readTree(createResponse).path("payload").path("taskId").asText();

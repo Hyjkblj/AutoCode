@@ -18,7 +18,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -93,8 +92,10 @@ import androidx.navigation.navArgument
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
 
@@ -518,6 +519,7 @@ private fun TaskDetailTab(
     val pendingApproval by vm.pendingApproval.collectAsStateWithLifecycle()
     val task = state.tasks.find { it.id == taskId }
     val events = state.taskEvents[taskId].orEmpty().sortedBy { it.seq }
+    val fixTimeline = remember(events) { buildFixLoopTimeline(events) }
     val eventsListState = rememberLazyListState()
     val approvalForTask = pendingApproval?.takeIf { it.taskId == taskId }
 
@@ -572,6 +574,12 @@ private fun TaskDetailTab(
                 progress = { task.progress / 100f },
                 modifier = Modifier.fillMaxWidth(),
             )
+            if (fixTimeline.isNotEmpty()) {
+                Spacer(Modifier.height(16.dp))
+                Text("修复进度时间线", style = MaterialTheme.typography.titleSmall)
+                Spacer(Modifier.height(8.dp))
+                FixLoopTimelineCard(points = fixTimeline)
+            }
             Spacer(Modifier.height(20.dp))
             Text(
                 if (task.source == TaskSource.REMOTE) "事件流（实时）" else "执行日志（本地模拟）",
@@ -919,6 +927,38 @@ private fun AgentEventItem(event: TaskEventDto, fallbackLine: String) {
                     )
                     Spacer(Modifier.height(6.dp))
                     Text(fallbackLine)
+                    if (!done) {
+                        val errorCode = payloadText(payload, "errorCode", "code")
+                        val riskLevel = payloadText(payload, "riskLevel", "risk")
+                        val attempt = payloadIntValue(payload, "fixLoopAttempt", "attempt", "retryAttempt")
+                        val maxAttempts = payloadIntValue(payload, "maxAttempts", "retryMax", "maxRetry")
+                        val issues = payloadTextList(payload, "issues")
+                        errorCode?.let {
+                            Spacer(Modifier.height(6.dp))
+                            Text("errorCode: $it", fontFamily = FontFamily.Monospace)
+                        }
+                        riskLevel?.let {
+                            Spacer(Modifier.height(4.dp))
+                            Text("riskLevel: $it")
+                        }
+                        if (attempt != null || maxAttempts != null) {
+                            Spacer(Modifier.height(4.dp))
+                            val progressLabel =
+                                if (attempt != null && maxAttempts != null) "$attempt/$maxAttempts"
+                                else "${attempt ?: "?"}/${maxAttempts ?: "?"}"
+                            Text("fixLoop: $progressLabel", fontFamily = FontFamily.Monospace)
+                        }
+                        if (issues.isNotEmpty()) {
+                            Spacer(Modifier.height(4.dp))
+                            Text("issues:")
+                            issues.take(5).forEach { issue ->
+                                Text("- $issue", style = MaterialTheme.typography.bodySmall)
+                            }
+                            if (issues.size > 5) {
+                                Text("- ...(${issues.size - 5} more)", style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                    }
                     Spacer(Modifier.height(6.dp))
                     Text(header, style = MaterialTheme.typography.labelSmall)
                 }
@@ -961,6 +1001,121 @@ private fun payloadLongValue(payload: JsonObject, vararg keys: String): Long? {
         if (value != null) return value
     }
     return null
+}
+
+private fun payloadIntValue(payload: JsonObject, vararg keys: String): Int? {
+    keys.forEach { key ->
+        val primitive = payload[key]?.jsonPrimitive ?: return@forEach
+        primitive.longOrNull?.toInt()?.let { return it }
+        primitive.doubleOrNull?.toInt()?.let { return it }
+        primitive.contentOrNull?.trim()?.toIntOrNull()?.let { return it }
+    }
+    return null
+}
+
+private fun payloadTextList(payload: JsonObject, vararg keys: String): List<String> {
+    keys.forEach { key ->
+        val element = payload[key] ?: return@forEach
+        val fromArray =
+            (element as? JsonArray)
+                ?.mapNotNull { it.jsonPrimitive.contentOrNull?.trim() }
+                ?.filter { it.isNotEmpty() }
+                .orEmpty()
+        if (fromArray.isNotEmpty()) return fromArray
+        val single = element.jsonPrimitive.contentOrNull?.trim().orEmpty()
+        if (single.isNotEmpty()) {
+            return single
+                .split('\n', ';')
+                .map { it.trim() }
+                .filter { it.isNotEmpty() }
+        }
+    }
+    return emptyList()
+}
+
+private data class FixLoopPoint(
+    val seq: Long,
+    val title: String,
+    val reason: String?,
+    val riskLevel: String?,
+    val errorCode: String?,
+    val attempt: Int?,
+    val maxAttempts: Int?,
+)
+
+private fun buildFixLoopTimeline(events: List<TaskEventDto>): List<FixLoopPoint> {
+    val timeline = mutableListOf<FixLoopPoint>()
+    events.forEach { event ->
+        val type = event.type?.uppercase().orEmpty()
+        val payload = event.payload
+        val attempt = payloadIntValue(payload, "fixLoopAttempt", "attempt", "retryAttempt")
+        val maxAttempts = payloadIntValue(payload, "maxAttempts", "retryMax", "maxRetry")
+        val riskLevel = payloadText(payload, "riskLevel", "risk")
+        val errorCode = payloadText(payload, "errorCode", "code")
+        val reason = payloadText(payload, "reason", "message", "error")
+        val hasStructuredData =
+            attempt != null ||
+                maxAttempts != null ||
+                !riskLevel.isNullOrBlank() ||
+                !errorCode.isNullOrBlank()
+        if (!hasStructuredData && type !in setOf("TASK_FAILED", "TASK_DONE", "APPROVAL_REQUIRED")) return@forEach
+        val title =
+            when (type) {
+                "TASK_FAILED" -> "执行失败"
+                "TASK_DONE" -> "执行完成"
+                "APPROVAL_REQUIRED" -> "等待审批"
+                else -> event.type ?: "EVENT"
+            }
+        timeline +=
+            FixLoopPoint(
+                seq = event.seq,
+                title = title,
+                reason = reason,
+                riskLevel = riskLevel,
+                errorCode = errorCode,
+                attempt = attempt,
+                maxAttempts = maxAttempts,
+            )
+    }
+    return timeline
+        .sortedBy { it.seq }
+        .takeLast(8)
+}
+
+@Composable
+private fun FixLoopTimelineCard(points: List<FixLoopPoint>) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+    ) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            points.forEachIndexed { index, point ->
+                if (index > 0) {
+                    Spacer(Modifier.height(2.dp))
+                }
+                Text(
+                    text = "Step ${index + 1} · ${point.title}",
+                    style = MaterialTheme.typography.labelLarge,
+                )
+                point.reason?.takeIf { it.isNotBlank() }?.let {
+                    Text(it, style = MaterialTheme.typography.bodySmall)
+                }
+                val meta = mutableListOf<String>()
+                point.errorCode?.takeIf { it.isNotBlank() }?.let { meta += "errorCode=$it" }
+                point.riskLevel?.takeIf { it.isNotBlank() }?.let { meta += "risk=$it" }
+                if (point.attempt != null || point.maxAttempts != null) {
+                    meta += "fixLoop=${point.attempt ?: "?"}/${point.maxAttempts ?: "?"}"
+                }
+                if (meta.isNotEmpty()) {
+                    Text(
+                        text = meta.joinToString(" · "),
+                        style = MaterialTheme.typography.bodySmall,
+                        fontFamily = FontFamily.Monospace,
+                    )
+                }
+            }
+        }
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

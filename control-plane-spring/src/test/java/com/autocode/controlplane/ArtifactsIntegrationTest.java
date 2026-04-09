@@ -20,10 +20,11 @@ import com.autocode.controlplane.persistence.repo.UserEntityRepository;
 
 import java.time.Instant;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -203,6 +204,123 @@ class ArtifactsIntegrationTest {
                 .andExpect(jsonPath("$.ok").value(true))
                 .andExpect(jsonPath("$.payload.taskId").value(taskId))
                 .andExpect(jsonPath("$.payload.chainValid").value(false));
+    }
+
+    @Test
+    void artifactReadyLifecycleShouldExposeNl2webMetadataAndEnforceDownloadAuth() throws Exception {
+        String createPayload = """
+                {
+                  "projectId": "proj-1",
+                  "assistant": "ai-agent",
+                  "prompt": "build a landing page"
+                }
+                """;
+
+        String createResponse = mockMvc.perform(post("/api/v1/tasks")
+                        .header("Authorization", "Bearer operator-dev-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(createPayload))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        String taskId = objectMapper.readTree(createResponse).path("payload").path("taskId").asText();
+        byte[] zipBytes = "zip-bytes".getBytes();
+        MockMultipartFile file = new MockMultipartFile(
+                "file",
+                "export.zip",
+                "application/zip",
+                zipBytes
+        );
+
+        String uploadResponse = mockMvc.perform(multipart("/api/v1/tasks/{taskId}/artifacts", taskId)
+                        .file(file)
+                        .header("X-Agent-Token", "agent-dev-token"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.ok").value(true))
+                .andExpect(jsonPath("$.payload.fileName").value("export.zip"))
+                .andExpect(jsonPath("$.payload.size").value(zipBytes.length))
+                .andExpect(jsonPath("$.payload.mimeType").value("application/zip"))
+                .andReturn().getResponse().getContentAsString();
+
+        JsonNode uploadPayload = objectMapper.readTree(uploadResponse).path("payload");
+        String artifactId = uploadPayload.path("artifactId").asText();
+        String sha256 = uploadPayload.path("sha256").asText();
+
+        String artifactReadyEvent = """
+                {
+                  "event": {
+                    "eventId": "evt-nl2web-artifact-ready-1",
+                    "type": "ARTIFACT_READY",
+                    "assistant": "ai-agent",
+                    "payload": {
+                      "kind": "zip",
+                      "artifact": {
+                        "artifactId": "%s",
+                        "type": "zip",
+                        "name": "export.zip",
+                        "fileName": "export.zip",
+                        "hash": "sha256:%s",
+                        "sha256": "%s",
+                        "size": %d,
+                        "mime": "application/zip",
+                        "mimeType": "application/zip"
+                      }
+                    }
+                  }
+                }
+                """.formatted(artifactId, sha256, sha256, zipBytes.length);
+
+        mockMvc.perform(post("/api/v1/agent/tasks/{taskId}/events", taskId)
+                        .header("X-Agent-Token", "agent-dev-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(artifactReadyEvent))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.ok").value(true));
+
+        String eventsResponse = mockMvc.perform(get("/api/v1/tasks/{taskId}/events", taskId)
+                        .header("Authorization", "Bearer operator-dev-token"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        JsonNode events = objectMapper.readTree(eventsResponse).path("payload");
+        JsonNode readyEvent = null;
+        for (JsonNode event : events) {
+            if ("evt-nl2web-artifact-ready-1".equals(event.path("eventId").asText())) {
+                readyEvent = event;
+                break;
+            }
+        }
+        assertTrue(readyEvent != null, "ARTIFACT_READY event should be queryable");
+        assertEquals(artifactId, readyEvent.path("payload").path("artifact").path("artifactId").asText());
+        assertEquals("export.zip", readyEvent.path("payload").path("artifact").path("fileName").asText());
+        assertEquals(zipBytes.length, readyEvent.path("payload").path("artifact").path("size").asInt());
+        assertEquals("application/zip", readyEvent.path("payload").path("artifact").path("mimeType").asText());
+
+        mockMvc.perform(get("/api/v1/tasks/{taskId}/artifacts", taskId)
+                        .header("Authorization", "Bearer operator-dev-token"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.ok").value(true))
+                .andExpect(jsonPath("$.payload.items.length()").value(1))
+                .andExpect(jsonPath("$.payload.items[0].artifactId").value(artifactId))
+                .andExpect(jsonPath("$.payload.items[0].fileName").value("export.zip"))
+                .andExpect(jsonPath("$.payload.items[0].size").value(zipBytes.length))
+                .andExpect(jsonPath("$.payload.items[0].mimeType").value("application/zip"));
+
+        mockMvc.perform(get("/api/v1/tasks/{taskId}/artifacts/{artifactId}/download", taskId, artifactId)
+                        .header("Authorization", "Bearer operator-dev-token"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.ok").value(false));
+
+        mockMvc.perform(get("/api/v1/tasks/{taskId}/artifacts/{artifactId}/download", taskId, artifactId)
+                        .queryParam("token", "test-download-token")
+                        .header("Authorization", "Bearer operator-dev-token"))
+                .andExpect(status().isOk())
+                .andExpect(result -> {
+                    byte[] bytes = result.getResponse().getContentAsByteArray();
+                    if (bytes.length == 0) {
+                        throw new AssertionError("downloaded bytes should not be empty");
+                    }
+                });
     }
 
     @Test

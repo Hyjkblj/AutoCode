@@ -208,7 +208,19 @@ public class TaskService {
      */
     @Transactional(readOnly = true)
     public Optional<TaskSummary> getTaskSummary(String taskId) {
-        return taskRepository.findById(taskId).map(modelMapper::toSummary);
+        return taskRepository.findById(taskId).map(task -> {
+            if (task.getStatus() != TaskStatus.FAILED) {
+                return modelMapper.toSummary(task);
+            }
+            Map<String, Object> latestFailurePayload = taskEventRepository
+                    .findTopByTaskIdAndEventTypeOrderBySeqNumDesc(taskId, EventType.TASK_FAILED)
+                    .map(TaskEventEntity::getPayloadJson)
+                    .map(this::readPayload)
+                    .orElseGet(HashMap::new);
+            String failureReason = asNonBlankString(latestFailurePayload.get("reason"), null);
+            String failureErrorCode = asNonBlankString(latestFailurePayload.get("errorCode"), null);
+            return modelMapper.toSummary(task, failureReason, failureErrorCode);
+        });
     }
 
     @Transactional(readOnly = true)

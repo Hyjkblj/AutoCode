@@ -5,9 +5,11 @@ import com.autocode.controlplane.persistence.entity.UserEntity;
 import com.autocode.controlplane.persistence.repo.UserEntityRepository;
 import com.autocode.controlplane.persistence.repo.UserRoleEntityRepository;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
 import org.springframework.security.oauth2.jwt.JwtClaimsSet;
 import org.springframework.security.oauth2.jwt.JwtEncoder;
 import org.springframework.security.oauth2.jwt.JwtEncoderParameters;
+import org.springframework.security.oauth2.jwt.JwsHeader;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.Instant;
@@ -81,7 +83,8 @@ public class AuthController {
                 .expiresAt(now.plusSeconds(props.getAccessTtlSeconds()))
                 .claim("roles", roles)
                 .build();
-        String token = jwtEncoder.encode(JwtEncoderParameters.from(claims)).getTokenValue();
+        JwsHeader jwsHeader = JwsHeader.with(MacAlgorithm.HS256).build();
+        String token = jwtEncoder.encode(JwtEncoderParameters.from(jwsHeader, claims)).getTokenValue();
         return ApiResponse.ok(Map.of(
                 "accessToken", token,
                 "tokenType", "Bearer",

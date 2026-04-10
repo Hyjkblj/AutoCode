@@ -4,7 +4,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.security.config.Customizer;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
@@ -23,22 +23,25 @@ import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtClaimValidator;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
 import javax.crypto.SecretKey;
 import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 
-import static org.springframework.security.config.Customizer.withDefaults;
-
 @Configuration
 @EnableMethodSecurity
-@EnableConfigurationProperties({JwtAuthProperties.class, MtlsProperties.class})
+@EnableConfigurationProperties({JwtAuthProperties.class, MtlsProperties.class, AuthProperties.class})
 @ConditionalOnProperty(prefix = "mvp.auth", name = "mode", havingValue = "jwt")
 public class JwtSecurityConfig {
 
     @Bean
-    public SecurityFilterChain jwtFilterChain(HttpSecurity http, MtlsProperties mtlsProperties) throws Exception {
+    public SecurityFilterChain jwtFilterChain(
+            HttpSecurity http,
+            MtlsProperties mtlsProperties,
+            JwtAgentTokenAuthAdapterFilter jwtAgentTokenAuthAdapterFilter
+    ) throws Exception {
         http
                 .csrf(csrf -> csrf.disable())
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
@@ -46,9 +49,11 @@ public class JwtSecurityConfig {
                         .requestMatchers("/actuator/**", "/ws/**", "/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
                         .requestMatchers("/api/v1/auth/**").permitAll()
                         .requestMatchers("/api/v1/agent/**").hasAnyAuthority("ROLE_AGENT", "ROLE_ADMIN")
+                        .requestMatchers(HttpMethod.POST, "/api/v1/tasks/*/artifacts", "/api/v1/tasks/*/artifacts/").hasAnyAuthority("ROLE_AGENT", "ROLE_OPERATOR", "ROLE_ADMIN")
                         .anyRequest().hasAnyAuthority("ROLE_OPERATOR", "ROLE_ADMIN", "ROLE_VIEWER")
                 )
                 .addFilterBefore(new AgentMtlsEnforcementFilter(mtlsProperties), org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter.class)
+                .addFilterBefore(jwtAgentTokenAuthAdapterFilter, UsernamePasswordAuthenticationFilter.class)
                 .oauth2ResourceServer(oauth2 -> oauth2
                         .jwt(jwt -> jwt.jwtAuthenticationConverter(jwtAuthenticationConverter()))
                 );

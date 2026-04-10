@@ -171,6 +171,11 @@ private fun LoginRoute(vm: AppViewModel) {
     val state by vm.uiState.collectAsStateWithLifecycle()
     var user by rememberSaveable { mutableStateOf("") }
     var pass by rememberSaveable { mutableStateOf("") }
+    var baseUrlDraft by rememberSaveable { mutableStateOf(state.baseUrl) }
+
+    LaunchedEffect(state.baseUrl) {
+        baseUrlDraft = state.baseUrl
+    }
 
     Column(
         modifier = Modifier
@@ -186,6 +191,15 @@ private fun LoginRoute(vm: AppViewModel) {
             style = MaterialTheme.typography.bodyMedium,
         )
         Spacer(Modifier.height(24.dp))
+        OutlinedTextField(
+            value = baseUrlDraft,
+            onValueChange = { baseUrlDraft = it },
+            label = { Text("Control Plane Base URL") },
+            placeholder = { Text("e.g. http://10.92.85.245:8048") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Spacer(Modifier.height(12.dp))
         OutlinedTextField(
             value = user,
             onValueChange = { user = it },
@@ -209,7 +223,7 @@ private fun LoginRoute(vm: AppViewModel) {
         Button(
             onClick = {
                 vm.consumeError()
-                vm.login(user, pass)
+                vm.login(user, pass, baseUrlDraft)
             },
             modifier = Modifier.fillMaxWidth(),
         ) {

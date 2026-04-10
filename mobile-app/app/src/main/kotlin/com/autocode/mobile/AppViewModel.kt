@@ -397,7 +397,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun login(username: String, password: String) {
+    fun login(username: String, password: String, baseUrlOverride: String? = null) {
         val u = username.trim()
         val p = password.trim()
         if (u.isEmpty() || p.isEmpty()) {
@@ -405,6 +405,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
         viewModelScope.launch {
+            val overrideBaseUrl = baseUrlOverride?.trim()
+            if (overrideBaseUrl != null) {
+                _uiState.update { it.copy(baseUrl = overrideBaseUrl) }
+                persistAll()
+            }
             val base = _uiState.value.baseUrl.trim()
             if (base.isNotEmpty()) {
                 val r = ControlPlaneClient.login(base, u, p)

@@ -702,7 +702,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             val agentProfile = _uiState.value.agentProfile.apiValue()
             val r =
                 ControlPlaneClient.createTask(
-                    base = base,
+                    baseUrl = base,
                     bearerToken = session.accessToken,
                     projectId = projectId,
                     prompt = text,

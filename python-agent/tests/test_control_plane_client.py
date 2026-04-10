@@ -90,4 +90,5 @@ def test_upload_artifact_posts_multipart(monkeypatch, tmp_path) -> None:
     body = captured["body"].decode("utf-8", errors="ignore")
     assert 'name="file"; filename="export.zip"' in body
     assert 'name="name"' in body
+    assert "export.zip" in body
 

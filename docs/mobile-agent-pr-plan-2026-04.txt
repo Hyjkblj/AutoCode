@@ -1,10 +1,62 @@
-移动端 Agent 对接升级规划
+移动端 Agent 对接升级规划（第三方组件优先版）
 日期：2026-04-05
+最后更新：2026-04-07
 负责人：Agent-4（Mobile Visual App Agent）
 worktree：D:/Develop/Project/AutoCode-a4
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-一、当前移动端完成度基线
+一、第三方组件选型（避免造轮子）
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+原则：能用成熟库解决的问题，不自己写。
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  需求场景              │  选用库                          │  理由            │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  STOMP/WebSocket       │  krossbow（joffrey-bion）        │  Kotlin协程原生  │
+│                        │  krossbow-stomp-core             │  支持STOMP协议   │
+│                        │  krossbow-websocket-okhttp       │  基于OkHttp      │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  运行时权限申请        │  accompanist-permissions         │  Google官方扩展  │
+│                        │  com.google.accompanist          │  Compose原生API  │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  下拉刷新              │  material3 PullToRefreshBox       │  已在BOM中       │
+│                        │  （Compose BOM 2024.10+）        │  无需额外依赖    │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  Markdown/代码高亮     │  multiplatform-markdown-renderer │  KMP原生，维护活 │
+│  diff展示              │  mikepenz/multiplatform-markdown │  跃，支持M3+高亮 │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  审批倒计时进度条      │  Material3 LinearProgressIndicator│  已有依赖        │
+│                        │  + AnimatedContent               │  无需额外库      │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  语音输入              │  Android SpeechRecognizer        │  系统级，无SDK   │
+│                        │  + RecognizerIntent              │  无需第三方      │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  图片/图标             │  coil-compose                    │  Compose异步加载 │
+│                        │  io.coil-kt:coil-compose         │  轻量            │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+新增依赖汇总（build.gradle.kts）：
+  // STOMP over WebSocket（以实际 Maven Central 最新版为准，建议锁定后写入 libs.versions.toml）
+  implementation("org.hildan.krossbow:krossbow-stomp-core:7.1.0")
+  implementation("org.hildan.krossbow:krossbow-websocket-okhttp:7.1.0")
+
+  // 运行时权限（语音输入）
+  implementation("com.google.accompanist:accompanist-permissions:0.36.0")
+
+  // Markdown + 代码高亮（diff展示）
+  // 推荐：mikepenz/multiplatform-markdown-renderer（维护活跃，支持 Material3 + 语法高亮 + coil3）
+  // 替代：jeziellago/compose-markdown（轻量但维护较少）
+  implementation("com.mikepenz:multiplatform-markdown-renderer-android:<version>")
+  implementation("com.mikepenz:multiplatform-markdown-renderer-m3:<version>")
+  implementation("com.mikepenz:multiplatform-markdown-renderer-code:<version>")   // 语法高亮（可选）
+  implementation("com.mikepenz:multiplatform-markdown-renderer-coil3:<version>")  // 图片加载集成（可选）
+
+  // 图片加载（Agent头像/图标）
+  implementation("io.coil-kt.coil3:coil-compose:<version>")  // coil3，与 markdown-renderer-coil3 配套
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+二、当前移动端完成度基线
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 已完成（M5 PR1~PR3，已合入 origin/master）
@@ -24,22 +76,15 @@ worktree：D:/Develop/Project/AutoCode-a4
 - 发布流程真实 API 对接
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-二、统一隔离规则（Agent-4 必须遵守）
+三、统一隔离规则（Agent-4 必须遵守）
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 允许修改路径（白名单）
 - mobile-app/**
 
 禁止修改路径
-- control-plane-spring/**
-- shared-protocol/**
-- pc-agent-java/**
-- python-agent/**
-- docs/**
-- scripts/**
-- pom.xml（仓库根）
-
-如移动端依赖控制平面新增 API，必须拆成 Agent-1 的 PR 先合入，再由 Agent-4 消费。
+- control-plane-spring/**、shared-protocol/**、pc-agent-java/**、python-agent/**
+- docs/**、scripts/**、pom.xml（仓库根）
 
 提交规范
 - git status --short 必须干净
@@ -48,107 +93,106 @@ worktree：D:/Develop/Project/AutoCode-a4
 - 禁止提交 build/ .gradle/ *.apk 等构建产物
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-三、PR 规划
+四、PR 规划
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-合并顺序：MOB-01 → MOB-02 → MOB-03 → MOB-04 → MOB-05 → MOB-06
-MOB-01 和 MOB-02 可并行开发（无互相依赖）。
+合并顺序：MOB-01 → MOB-02 → MOB-05 → MOB-06
+MOB-03 / MOB-04 独立，可与 MOB-01 并行开发。
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 MOB-01：WebSocket 实时事件流  [TODO]
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 负责人：Agent-4
-优先级：P0（AI Agent 接入后最核心的展示层）
-分支建议：feat/a4-mob-websocket-events
-依赖：无（控制平面 WebSocket 已就绪）
+优先级：P0
+分支：feat/a4-mob-websocket-events
+依赖：无
 
 目标
-- 替换当前 HTTP 轮询（每 2.5s），改为 WebSocket 订阅实时事件流。
-- 用户在任务详情页能实时看到 AI Agent 的每一步工作过程。
-- 断线后自动重连，并通过 lastSeq 补回断线期间的事件。
+- 替换 HTTP 轮询，改为 STOMP/WebSocket 订阅实时事件流。
+- 断线后自动重连，通过 lastSeq 补回断线期间的事件。
 
-技术方案
-- 使用 OkHttp WebSocket（已在 build.gradle.kts 中引入）。
-- 连接地址：ws://{baseUrl}/ws（STOMP over WebSocket）。
-- 订阅 topic：/topic/tasks/{taskId}。
-- 首次连接时携带 lastSeq=0，断线重连时携带最后收到的 seq。
-- 补流接口：GET /api/v1/tasks/{taskId}/events?lastSeq={n}（HTTP 拉取历史）。
+技术方案（使用 krossbow，不自己写 STOMP 帧解析）
+
+  // 连接示例（krossbow + OkHttp）
+  val client = StompClient(OkHttpWebSocketClient())
+  val session = client.connect("ws://$baseUrl/ws",
+      customStompConnectHeaders = mapOf("Authorization" to "Bearer $token"))
+  val subscription = session.subscribe("/topic/tasks/$taskId",
+      converter = SimpleTextMessageConverter)
+  subscription.collect { frame ->
+      val event = Json.decodeFromString<EventDto>(frame.body ?: return@collect)
+      onEvent(event)
+  }
+
+- 断线重连：krossbow 内置重连策略，配置 reconnectDelay 即可。
+- 补流：断线重连后调用 GET /api/v1/tasks/{taskId}/events?lastSeq={n} 补历史。
 
 新增/变更内容
-- network/WebSocketClient.kt（新增）
-  - connect(taskId, lastSeq, onEvent, onDisconnect)
+- build.gradle.kts：新增 krossbow-stomp-core + krossbow-websocket-okhttp
+- network/StompEventClient.kt（新增，封装 krossbow）
+  - connect(taskId, token, lastSeq, onEvent)
   - disconnect()
-  - 自动重连（指数退避，最大 30s）
 - network/EventDto.kt（新增）
-  - eventId, taskId, type, payload, seq, timestamp
-- AppViewModel.kt（变更）
-  - 新增 subscribeTaskEvents(taskId)
-  - 新增 unsubscribeTaskEvents()
-  - 移除 startRemotePolling() 中的状态轮询（保留任务列表轮询）
-- AppUi.kt（变更）
-  - TaskDetailTab：进入页面时订阅，离开时取消订阅
-  - 事件流展示区：按 seq 顺序渲染每条事件
+- AppViewModel.kt：新增 subscribeTaskEvents / unsubscribeTaskEvents
+- AppUi.kt：TaskDetailTab 进入时订阅，离开时取消
 
-事件类型展示规则
-- TASK_STARTED       → "任务已开始"
-- ASSISTANT_OUTPUT   → 显示 payload.message（AI Agent 工作日志）
-- TOOL_START         → "执行工具：{tool}  命令：{command}"
-- TOOL_END           → "工具完成：{status}  耗时：{execMs}ms"
-- FILE_PATCH_PREVIEW → "代码变更预览（点击展开）"
-- APPROVAL_REQUIRED  → 触发审批卡片弹出（MOB-02 实现）
-- APPROVAL_RESULT    → "审批结果：{decision}"
-- TASK_DONE          → "任务完成"
-- TASK_FAILED        → "任务失败：{reason}"
+事件展示规则
+- TASK_STARTED       → 状态提示行
+- ASSISTANT_OUTPUT   → 气泡卡片（payload.message + agent 名称）
+- TOOL_START         → 工具调用卡片（可折叠，展示 tool/command/cwd）
+- TOOL_END           → 执行结果行（exitCode/耗时/颜色）
+- FILE_PATCH_PREVIEW → Markdown 代码块（MOB-05 渲染）
+- APPROVAL_REQUIRED  → 触发 MOB-02 审批弹窗
+- TASK_DONE/FAILED   → 终态横幅
 
 验收
-- 连接控制平面，创建任务，任务详情页实时出现事件流
-- 断开网络后重连，事件流从断点续流（lastSeq 正确）
-- 离线模式（无 baseUrl）降级为本地模拟 ticker，不报错
+- 任务详情页实时出现事件流
+- 断线重连后 lastSeq 正确，无重复事件
+- 离线模式降级为本地 ticker，不报错
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 MOB-02：审批交互卡片  [TODO]
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 负责人：Agent-4
-优先级：P0（AI Agent 执行高风险命令时必须有审批入口）
-分支建议：feat/a4-mob-approval-card
-依赖：MOB-01（依赖 WebSocket 推送 APPROVAL_REQUIRED 事件）
+优先级：P0
+分支：feat/a4-mob-approval-card
+依赖：MOB-01
 
 目标
-- 收到 APPROVAL_REQUIRED 事件时，弹出审批卡片。
-- 卡片展示完整审批上下文（command / cwd / action / riskScore / reason）。
-- 用户点击批准/拒绝后，调用控制平面审批 API。
-- 审批结果通过 WebSocket 回传，卡片自动关闭。
+- 收到 APPROVAL_REQUIRED 事件时弹出审批卡片。
+- 展示 command / cwd / riskScore / reason / 倒计时。
+- 用户批准/拒绝后调用控制平面审批 API。
 
-技术方案
-- 审批卡片使用 AlertDialog 或 BottomSheet（Material3）。
-- 审批 API：POST /api/v1/tasks/{taskId}/approval
-  - body: { approvalId, decision: "approve"|"reject", comment }
-- 审批超时（approvalTimeoutSeconds）倒计时展示，超时自动关闭卡片。
+技术方案（使用 Material3 ModalBottomSheet，不自定义弹窗）
+
+  // 直接用 Material3 ModalBottomSheet
+  if (pendingApproval != null) {
+      ModalBottomSheet(onDismissRequest = { /* 超时关闭 */ }) {
+          ApprovalSheetContent(
+              approval = pendingApproval,
+              onApprove = { vm.submitApproval(it, "approve") },
+              onReject  = { vm.submitApproval(it, "reject") }
+          )
+      }
+  }
+
+- 倒计时：使用 LaunchedEffect + delay 循环，配合 LinearProgressIndicator。
+- 审批 API：POST /api/v1/tasks/{taskId}/approval（已有接口）。
 
 新增/变更内容
-- AppUi.kt（变更）
-  - ApprovalCard Composable（新增）
-    - 展示：action / command / cwd / riskScore / reason
-    - 按钮：批准（绿色）/ 拒绝（红色）
-    - 倒计时进度条
-  - TaskDetailTab：监听 pendingApproval 状态，弹出 ApprovalCard
-- AppViewModel.kt（变更）
-  - 新增 pendingApproval: StateFlow<ApprovalRequest?>
-  - 新增 submitApproval(taskId, approvalId, decision, comment)
-  - 收到 APPROVAL_REQUIRED 事件时更新 pendingApproval
-  - 收到 APPROVAL_RESULT 事件时清空 pendingApproval
-- network/ControlPlaneClient.kt（变更）
-  - 新增 submitApproval(baseUrl, token, taskId, approvalId, decision, comment)
-- Models.kt（变更）
-  - 新增 ApprovalRequest(approvalId, taskId, action, command, cwd, riskScore, reason, timeoutSeconds)
+- build.gradle.kts：无新增依赖（Material3 已有）
+- Models.kt：新增 ApprovalRequest 数据类
+- AppViewModel.kt：新增 pendingApproval StateFlow + submitApproval()
+- AppUi.kt：新增 ApprovalBottomSheet Composable
+- network/ControlPlaneClient.kt：新增 submitApproval()
 
 验收
-- AI Agent 执行 git push 等高风险命令时，移动端弹出审批卡片
-- 卡片展示 command/cwd/riskScore 等上下文信息
-- 点击批准后任务继续执行，点击拒绝后任务失败
-- 倒计时结束后卡片自动关闭（超时处理）
+- AI Agent 触发高风险命令时底部弹出审批卡片
+- 展示 command/cwd/riskScore 等上下文
+- 批准/拒绝后任务正确继续/终止
+- 倒计时结束自动关闭（超时处理）
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 MOB-03：语音输入  [TODO]
@@ -156,38 +200,39 @@ MOB-03：语音输入  [TODO]
 
 负责人：Agent-4
 优先级：P1
-分支建议：feat/a4-mob-voice-input
+分支：feat/a4-mob-voice-input
 依赖：无（独立功能）
 
 目标
-- 在任务输入框旁增加语音按钮，长按录音，松开识别。
-- 识别结果自动填入任务描述输入框，用户可编辑后发起任务。
-- 识别失败时展示错误提示，不影响文本输入。
+- 任务输入框旁增加语音按钮，点击触发识别，结果填入输入框。
+- 权限拒绝时友好降级，不影响文本输入。
 
-技术方案
-- 使用 Android SpeechRecognizer + RecognizerIntent（系统级，无需第三方 SDK）。
-- 权限：RECORD_AUDIO（运行时申请）。
-- 识别语言：zh-CN（中文优先，可配置）。
+技术方案（accompanist-permissions 处理权限，系统 SpeechRecognizer 识别）
+
+  // 权限申请（accompanist，不自己写 ActivityResultContracts 样板代码）
+  val audioPermState = rememberPermissionState(Manifest.permission.RECORD_AUDIO)
+
+  // 语音识别（系统级，无第三方 SDK）
+  val recognizerIntent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+      putExtra(RecognizerIntent.EXTRA_LANGUAGE, "zh-CN")
+      putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+  }
+  val launcher = rememberLauncherForActivityResult(
+      ActivityResultContracts.StartActivityForResult()
+  ) { result ->
+      val text = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
+      if (text != null) onVoiceResult(text)
+  }
 
 新增/变更内容
-- AndroidManifest.xml（变更）
-  - 新增 <uses-permission android:name="android.permission.RECORD_AUDIO" />
-- AppUi.kt（变更）
-  - TaskListTab：输入框右侧增加麦克风 IconButton
-  - VoiceInputButton Composable（新增）
-    - 长按开始录音（动画反馈）
-    - 松开触发识别
-    - 识别中显示波形动画占位
-  - 运行时权限申请流程（ActivityResultContracts.RequestPermission）
-- AppViewModel.kt（变更）
-  - 新增 startVoiceInput(context)
-  - 新增 voiceInputResult: StateFlow<String?>
-  - 识别完成后更新 voiceInputResult，UI 监听并填入输入框
+- build.gradle.kts：新增 accompanist-permissions
+- AndroidManifest.xml：新增 RECORD_AUDIO 权限
+- AppUi.kt：TaskListTab 输入框右侧增加麦克风 IconButton + 权限引导 Dialog
 
 验收
-- 点击麦克风按钮，系统弹出权限申请（首次）
-- 说话后识别结果自动填入输入框
-- 识别失败（无网络/拒绝权限）展示友好提示，不崩溃
+- 点击麦克风，accompanist 弹出权限申请（首次）
+- 识别结果自动填入输入框
+- 权限拒绝时按钮置灰并展示提示，不崩溃
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 MOB-04：项目列表动态拉取  [TODO]
@@ -195,71 +240,94 @@ MOB-04：项目列表动态拉取  [TODO]
 
 负责人：Agent-4
 优先级：P1
-分支建议：feat/a4-mob-dynamic-projects
-依赖：无（控制平面项目 API 已就绪）
+分支：feat/a4-mob-dynamic-projects
+依赖：无
 
 目标
-- 登录后从控制平面拉取用户有权限的项目列表，替换硬编码的 proj-1/2/3。
-- 离线模式保留硬编码兜底。
-- 项目列表本地缓存（DataStore），下次启动时先展示缓存再刷新。
+- 登录后从控制平面拉取项目列表，替换硬编码 proj-1/2/3。
+- 支持下拉刷新，离线时兜底硬编码列表。
 
-技术方案
-- 控制平面当前无独立项目列表 API，通过 ProjectMembership 关联。
-  - 方案 A：Agent-1 新增 GET /api/v1/projects（推荐，需 Agent-1 配合）
-  - 方案 B：移动端从已有任务列表中提取 projectId 去重（降级方案，无需后端改动）
-  - 本 PR 先实现方案 B，方案 A 等 Agent-1 提供接口后升级。
+技术方案（Material3 PullToRefreshBox，不自己写下拉逻辑）
+
+  // Material3 PullToRefreshBox（BOM 2024.10+ 已内置）
+  PullToRefreshBox(
+      isRefreshing = isRefreshing,
+      onRefresh = { vm.refreshProjects() }
+  ) {
+      LazyColumn { items(projects) { ProjectItem(it) } }
+  }
+
+- 项目 API：当前无独立接口，先从任务列表提取 projectId 去重（降级方案）。
+  等 Agent-1 提供 GET /api/v1/projects 后升级。
 
 新增/变更内容
-- network/ControlPlaneClient.kt（变更）
-  - 新增 listProjects(baseUrl, token)（方案 A 就绪后实现，当前返回空）
-- AppViewModel.kt（变更）
-  - mockProjects 改为 dynamicProjects: StateFlow<List<Project>>
-  - 登录成功后触发 refreshProjects()
-  - 离线时兜底 proj-1/2/3
-- AppUi.kt（变更）
-  - ProjectsTab：展示动态项目列表，支持下拉刷新
+- build.gradle.kts：无新增依赖（Material3 PullToRefreshBox 已在 BOM 中）
+- AppViewModel.kt：mockProjects 改为 dynamicProjects StateFlow + refreshProjects()
+- AppUi.kt：ProjectsTab 增加 PullToRefreshBox + 加载状态
 
 验收
-- 连接控制平面登录后，项目列表从服务端拉取（或从任务去重）
-- 离线模式展示兜底项目列表，不报错
-- 切换项目后任务列表正确过滤
+- 登录后项目列表动态加载（或从任务去重）
+- 下拉刷新正常工作
+- 离线时展示兜底列表，不报错
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 MOB-05：AI Agent 工作过程可视化  [TODO]
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 负责人：Agent-4
-优先级：P1（依赖 MOB-01 WebSocket）
-分支建议：feat/a4-mob-agent-visualization
+优先级：P1
+分支：feat/a4-mob-agent-visualization
 依赖：MOB-01
 
 目标
-- 任务详情页展示 AI Agent 集群的完整工作过程（不只是状态，而是每个 Agent 的思考与行动）。
-- 区分不同 Agent 的输出（IntentAgent / PlannerAgent / CoderAgent / ReviewerAgent / TesterAgent）。
-- FILE_PATCH_PREVIEW 事件展示代码 diff（高亮显示增删行）。
-- 整体体验类似 Claude Code 的流式输出界面。
+- 任务详情页展示各 Agent 的工作过程（气泡/工具卡片/diff）。
+- FILE_PATCH_PREVIEW 展示代码 diff（增删行高亮）。
+- 体验类似 Claude Code 流式输出界面。
+
+技术方案（multiplatform-markdown-renderer 渲染 diff，不自己写语法高亮）
+
+  // diff 展示：把 FILE_PATCH_PREVIEW 的 patch 字段包成 markdown diff 代码块
+  // mikepenz/multiplatform-markdown-renderer 配合 -code 模块自动处理语法高亮
+  import com.mikepenz.markdown.m3.Markdown
+
+  Markdown(
+      content = "```diff\n${event.payload["patch"]}\n```",
+      typography = markdownTypography(code = MaterialTheme.typography.bodySmall)
+  )
+
+  // ASSISTANT_OUTPUT 气泡：直接用 Card + Row，左侧 Agent 图标用 coil3 加载
+  import coil3.compose.AsyncImage
+
+  Card(colors = CardDefaults.cardColors(containerColor = agentColor(event.agentName))) {
+      Row {
+          AsyncImage(model = agentIconUrl(event.agentName), contentDescription = null)  // coil3
+          Text(event.payload["message"] ?: "")
+      }
+  }
+
+  // TOOL_START 可折叠卡片：用 AnimatedVisibility，不引入额外库
+  var expanded by remember { mutableStateOf(false) }
+  Card(modifier = Modifier.clickable { expanded = !expanded }) {
+      Column {
+          Text("▶ ${event.payload["tool"]}  ${event.payload["command"]}")
+          AnimatedVisibility(expanded) {
+              Text("cwd: ${event.payload["cwd"]}", fontFamily = FontFamily.Monospace)
+          }
+      }
+  }
 
 新增/变更内容
-- AppUi.kt（变更）
-  - AgentEventItem Composable（新增）：按事件类型渲染不同样式
-    - ASSISTANT_OUTPUT：气泡卡片，左侧显示 Agent 名称图标
-    - TOOL_START：工具调用卡片（command/cwd/tool，可折叠）
-    - TOOL_END：执行结果（exitCode/耗时/状态颜色）
-    - FILE_PATCH_PREVIEW：diff 展示（绿色增行/红色删行，Monospace）
-    - APPROVAL_REQUIRED：高亮警告卡片（触发 MOB-02 审批弹窗）
-    - TASK_DONE / TASK_FAILED：终态横幅
-  - TaskDetailTab：事件流列表替换原有 logs 文本列表
-    - LazyColumn 渲染 AgentEventItem
-    - 新事件到达时自动滚动到底部
-- Models.kt（变更）
-  - 新增 AgentEvent(eventId, type, agentName, payload, seq, timestamp)
-  - AppViewModel 中 TaskItem.logs 升级为 events: List<AgentEvent>
+- build.gradle.kts：新增 multiplatform-markdown-renderer（-android / -m3 / -code）+ coil3-compose
+- Models.kt：新增 AgentEvent 数据类
+- AppUi.kt：
+  - AgentEventItem Composable（按事件类型分支渲染）
+  - TaskDetailTab：LazyColumn 渲染 AgentEventItem，新事件自动滚底
 
 验收
-- 任务执行时，详情页实时出现各 Agent 的工作日志气泡
-- FILE_PATCH_PREVIEW 展示绿色/红色 diff 行
-- TOOL_START/TOOL_END 展示命令和执行结果
-- 新事件到达时页面自动滚动到最新
+- 各 Agent 气泡实时出现，颜色区分不同 Agent
+- FILE_PATCH_PREVIEW 展示带颜色的 diff（+绿色/-红色）
+- TOOL_START/END 卡片可折叠展开
+- 新事件到达时自动滚动到底部
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 MOB-06：发布流程真实 API 对接  [TODO]
@@ -267,114 +335,82 @@ MOB-06：发布流程真实 API 对接  [TODO]
 
 负责人：Agent-4
 优先级：P2
-分支建议：feat/a4-mob-publish-api
-依赖：MOB-05（依赖产物展示完善）
+分支：feat/a4-mob-publish-api
+依赖：MOB-05
 
 目标
-- 将"提交发布申请"从本地记录升级为真实调用控制平面部署 API。
-- 展示部署状态（DEPLOY_PLAN → DEPLOY_RESULT）。
-- 发布历史从控制平面拉取，不再只依赖本地 DataStore。
+- 发布申请触发真实控制平面 deploy 任务。
+- 通过 WebSocket 接收 DEPLOY_PLAN / DEPLOY_RESULT 展示部署状态。
+- 发布历史从控制平面拉取。
 
 技术方案
-- 部署触发：POST /api/v1/tasks（创建 deploy 类型任务，agentProfile=deployer）
-  - prompt 包含部署目标信息（artifactId / environment / version）
-- 部署状态通过 WebSocket 事件流接收（DEPLOY_PLAN / DEPLOY_RESULT）
-- 历史记录：GET /api/v1/tasks?projectId=xxx&assistant=deployer（过滤部署任务）
+- 触发：POST /api/v1/tasks（agentProfile=deployer）
+- 状态：WebSocket 事件流（已有 MOB-01 基础）
+- 历史：GET /api/v1/tasks?projectId=xxx（过滤 deployer 任务）
 
 新增/变更内容
-- network/ControlPlaneClient.kt（变更）
-  - 新增 createDeployTask(baseUrl, token, projectId, artifactId, environment, version)
-- AppViewModel.kt（变更）
-  - recordPublishEntry() 改为调用 createDeployTask()
-  - 新增 loadPublishHistory()（从控制平面拉取部署任务列表）
-- AppUi.kt（变更）
-  - ArtifactDetailScreen：发布按钮触发真实部署任务
-  - PublishHistoryScreen：展示部署任务状态（含 DEPLOY_RESULT 详情）
-  - 新增 DeployStatusCard Composable（展示 environment / status / endpointUrl）
+- build.gradle.kts：无新增依赖
+- network/ControlPlaneClient.kt：新增 createDeployTask() + listTasksByProfile()
+- AppViewModel.kt：recordPublishEntry() 改为调用 createDeployTask()
+- AppUi.kt：PublishHistoryScreen 展示真实部署状态 + endpointUrl
 
 验收
-- 点击"提交发布申请"后，控制平面创建 deploy 任务
-- WebSocket 收到 DEPLOY_PLAN 事件，展示部署计划
-- 收到 DEPLOY_RESULT 事件，展示部署结果（成功/失败/endpointUrl）
-- 发布历史从控制平面拉取，重装 App 后历史不丢失
+- 发布申请后控制平面创建 deploy 任务
+- WebSocket 收到 DEPLOY_RESULT 展示结果（成功/失败/endpointUrl）
+- 重装 App 后历史从控制平面拉取，不丢失
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-四、合并顺序
+五、合并顺序
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-MOB-01 (WebSocket 实时事件流)  ←── P0，优先开始
+MOB-01 (WebSocket + krossbow)
     │
-    └── MOB-02 (审批交互卡片)   ←── P0，依赖 MOB-01
+    └── MOB-02 (审批卡片 + ModalBottomSheet)
             │
-            └── MOB-05 (AI Agent 可视化)  ←── P1，依赖 MOB-01
+            └── MOB-05 (可视化 + compose-markdown + coil)
                         │
-                        └── MOB-06 (发布 API 对接)  ←── P2
+                        └── MOB-06 (发布 API)
 
-MOB-03 (语音输入)              ←── P1，独立，可与 MOB-01 并行
-MOB-04 (项目列表动态拉取)      ←── P1，独立，可与 MOB-01 并行
-
-并行开发窗口（P0 阶段）
-- Agent-4 主线：MOB-01（WebSocket）
-- Agent-4 副线：MOB-03（语音）+ MOB-04（项目列表）可同步推进
+MOB-03 (语音 + accompanist)  ← 独立并行
+MOB-04 (项目列表 + PullToRefreshBox)  ← 独立并行
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-五、PR 分配总览
+六、PR 分配总览
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-┌──────────────────────────────────────────────────────────────────┐
-│  PR 编号  │  标题                      │  优先级  │  依赖        │
-├──────────────────────────────────────────────────────────────────┤
-│  MOB-01  │  WebSocket 实时事件流       │   P0     │  无          │
-│  MOB-02  │  审批交互卡片               │   P0     │  MOB-01      │
-│  MOB-03  │  语音输入                   │   P1     │  无          │
-│  MOB-04  │  项目列表动态拉取           │   P1     │  无          │
-│  MOB-05  │  AI Agent 工作过程可视化    │   P1     │  MOB-01      │
-│  MOB-06  │  发布流程真实 API 对接      │   P2     │  MOB-05      │
-└──────────────────────────────────────────────────────────────────┘
-
-全部由 Agent-4 负责，白名单：mobile-app/**
+┌──────────────────────────────────────────────────────────────────────────────┐
+│  PR    │  标题                    │  核心第三方库              │  优先级  │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ MOB-01 │  WebSocket 实时事件流    │  krossbow（STOMP）         │   P0     │
+│ MOB-02 │  审批交互卡片            │  Material3 ModalBottomSheet│   P0     │
+│ MOB-03 │  语音输入                │  accompanist-permissions   │   P1     │
+│ MOB-04 │  项目列表动态拉取        │  Material3 PullToRefreshBox│   P1     │
+│ MOB-05 │  AI Agent 工作过程可视化 │  multiplatform-markdown-renderer + coil3 │   P1     │
+│ MOB-06 │  发布流程真实 API 对接   │  无新增                    │   P2     │
+└──────────────────────────────────────────────────────────────────────────────┘
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-六、总门禁
+七、总门禁
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 每个 MOB-* PR 合并前必须通过：
 
-  # 构建验证
   cd mobile-app && .\gradlew.bat :app:assembleDebug
-
-  # 工作区干净
   git status --short  # 必须为空
 
-  # 禁止提交构建产物
-  git status --short | grep -v "^??" | grep -v "\.kt$"  # 应为空
-
 功能验收清单：
-- [ ] MOB-01：任务详情页实时展示 WebSocket 事件流，断线后自动重连续流
-- [ ] MOB-02：AI Agent 触发审批时移动端弹出卡片，批准/拒绝后任务正确继续/终止
-- [ ] MOB-03：语音输入识别结果填入任务描述框，权限拒绝时友好降级
-- [ ] MOB-04：登录后项目列表从控制平面动态加载，离线时兜底
-- [ ] MOB-05：任务详情页展示各 Agent 气泡、diff 预览、工具调用卡片
-- [ ] MOB-06：发布申请触发真实部署任务，WebSocket 收到 DEPLOY_RESULT 展示结果
+- [ ] MOB-01：实时事件流，断线重连续流（lastSeq 正确）
+- [ ] MOB-02：审批卡片弹出，批准/拒绝后任务正确继续/终止
+- [ ] MOB-03：语音识别填入输入框，权限拒绝友好降级
+- [ ] MOB-04：项目列表动态加载，下拉刷新正常
+- [ ] MOB-05：各 Agent 气泡 + diff 高亮 + 工具卡片实时展示
+- [ ] MOB-06：发布触发真实部署，DEPLOY_RESULT 展示结果
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-七、与其他 Agent 的协作依赖
+八、与其他 Agent 的协作依赖
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Agent-4 依赖以下 PR 先合入，再消费：
-
-1. PY-AG-01~02（Agent-3）合入后
-   - 控制平面出现 profile=ai-agent 的任务
-   - 移动端创建任务时可选 agentProfile=ai-agent
-   - MOB-05 的 ASSISTANT_OUTPUT 事件才有真实内容
-
-2. PY-AG-04（Agent-3 + Agent-2）合入后
-   - Java 沙箱执行命令，APPROVAL_REQUIRED 事件才会真实触发
-   - MOB-02 审批卡片才能端到端验证
-
-3. AG-UP-05（Agent-3 + Agent-1）合入后
-   - 控制平面记录 Agent capabilities
-   - 移动端可展示当前节点能力（可选，非阻塞）
-
-Agent-4 不需要等待上述 PR 才能开发，MOB-01~04 均可独立开发和本地验证，
-PY-AG-* 合入后做联调验收即可。
+MOB-01~04 可独立开发和本地验证，不需要等待 Python Agent PR 合入。
+PY-AG-* 合入后做联调验收：
+- PY-AG-02 合入后：ASSISTANT_OUTPUT 事件有真实 Agent 内容
+- PY-AG-04 合入后：APPROVAL_REQUIRED 事件真实触发，MOB-02 可端到端验证

@@ -5,11 +5,13 @@ spring:
   application:
     name: control-plane-spring
   autoconfigure:
-    exclude: org.springframework.boot.autoconfigure.security.servlet.UserDetailsServiceAutoConfiguration
+    exclude:
+      - org.springframework.boot.autoconfigure.security.servlet.UserDetailsServiceAutoConfiguration
+      - org.springframework.boot.actuate.autoconfigure.tracing.otlp.OtlpAutoConfiguration
   datasource:
     url: ${MVP_DB_URL:jdbc:mysql://localhost:3306/mvp_codeops?useUnicode=true&characterEncoding=utf8&serverTimezone=UTC}
     username: ${MVP_DB_USERNAME:root}
-    password: ${MVP_DB_PASSWORD}
+    password: ${MVP_DB_PASSWORD:000000}
   jpa:
     open-in-view: false
     hibernate:
@@ -23,7 +25,7 @@ spring:
     redis:
       host: ${MVP_REDIS_HOST:192.168.88.130}
       port: ${MVP_REDIS_PORT:6379}
-      password: ${MVP_REDIS_PASSWORD}
+      password: ${MVP_REDIS_PASSWORD:000000}
       repositories:
         enabled: false
 
@@ -32,6 +34,9 @@ management:
     web:
       exposure:
         include: health,info,metrics,prometheus
+  health:
+    rabbit:
+      enabled: ${MVP_HEALTH_RABBIT_ENABLED:false}
   endpoint:
     health:
       probes:
@@ -40,6 +45,7 @@ management:
     tags:
       application: ${spring.application.name}
   tracing:
+    enabled: ${MVP_TRACING_ENABLED:false}
     sampling:
       probability: ${MVP_TRACING_SAMPLING_PROBABILITY:0.1}
 
@@ -57,8 +63,8 @@ mvp:
     lease-recover-interval-ms: ${MVP_SCHEDULER_LEASE_RECOVER_INTERVAL_MS:5000}
   auth:
     mode: token
-    operator-token: ${MVP_OPERATOR_TOKEN}
-    agent-token: ${MVP_AGENT_TOKEN}
+    operator-token: ${MVP_OPERATOR_TOKEN:operator-dev-token}
+    agent-token: ${MVP_AGENT_TOKEN:agent-dev-token}
     # Rotation / revocation (optional):
     # operator-tokens: tokenA,tokenB
     # agent-tokens: tokenC,tokenD

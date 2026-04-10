@@ -688,6 +688,114 @@ def test_orchestrator_flask_health_task_enters_fix_loop_when_test_fails(monkeypa
     assert client.events[-1][1]["payload"]["maxAttempts"] == 3
 
 
+def test_orchestrator_publishes_artifact_ready_for_web_target(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("LLM_BACKEND", "openai")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    workspace = tmp_path / "workspace"
+    workspace.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("MVP_ALLOWED_WORKSPACE_PREFIXES", str(workspace))
+
+    task = {
+        "taskId": "task_105",
+        "assistant": "ai-agent",
+        "sessionKey": "sess_105",
+        "prompt": "生成一个基础web页面",
+        "workspacePath": str(workspace),
+        "target": "web",
+    }
+    client = _FakeClient()
+    reviewer = _FakeReviewerAgent(ReviewResult(approved=True, summary="review passed", issues=[]))
+    tester = _FakeTesterAgent(
+        RunResult(
+            success=True,
+            attempts=1,
+            retries=0,
+            command="echo test",
+            status="ok",
+            reason=None,
+            trace_id="trc_task_105",
+            run_id="run_task_105",
+        )
+    )
+
+    AgentOrchestrator(reviewer_agent=reviewer, tester_agent=tester).handle_task(task, client)
+
+    types = [event["type"] for _, event in client.events]
+    assert "ARTIFACT_READY" in types
+    assert types[-1] == "TASK_DONE"
+    ready_event = [event for _, event in client.events if event["type"] == "ARTIFACT_READY"][0]
+    artifact = ready_event["payload"]["artifact"]
+    assert artifact["artifactId"] == "art_uploaded_001"
+    assert artifact["type"] == "zip"
+    assert artifact["name"] == "export.zip"
+
+    assert client.upload_calls
+    zip_path = client.upload_calls[0]["filePath"]
+    with zipfile.ZipFile(zip_path, "r") as zipf:
+        names = sorted(zipf.namelist())
+    assert names == ["README.generated.md", "app.js", "index.html", "styles.css"]
+
+
+def test_orchestrator_publishes_artifact_when_assistant_web_without_target(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("LLM_BACKEND", "openai")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    workspace = tmp_path / "workspace"
+    workspace.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("MVP_ALLOWED_WORKSPACE_PREFIXES", str(workspace))
+
+    task = {
+        "taskId": "task_105b",
+        "assistant": "web",
+        "sessionKey": "sess_105b",
+        "prompt": "请帮我生成一个待办应用",
+        "workspacePath": str(workspace),
+    }
+    client = _FakeClient()
+    reviewer = _FakeReviewerAgent(ReviewResult(approved=True, summary="review passed", issues=[]))
+    tester = _FakeTesterAgent(
+        RunResult(
+            success=True,
+            attempts=1,
+            retries=0,
+            command="echo test",
+            status="ok",
+            reason=None,
+            trace_id="trc_task_105b",
+            run_id="run_task_105b",
+        )
+    )
+
+    AgentOrchestrator(reviewer_agent=reviewer, tester_agent=tester).handle_task(task, client)
+
+    types = [event["type"] for _, event in client.events]
+    assert "ARTIFACT_READY" in types
+    assert types[-1] == "TASK_DONE"
+    ready_event = [event for _, event in client.events if event["type"] == "ARTIFACT_READY"][0]
+    artifact = ready_event["payload"]["artifact"]
+    assert artifact["type"] == "zip"
+    assert artifact["name"] == "export.zip"
+    assert client.upload_calls
+
+
+def test_orchestrator_rejects_unsupported_target(monkeypatch) -> None:
+    monkeypatch.setenv("LLM_BACKEND", "openai")
+    monkeypatch.setenv("OPENAI_API_KEY", "dummy")
+    task = {
+        "taskId": "task_106",
+        "assistant": "ai-agent",
+        "sessionKey": "sess_106",
+        "prompt": "generate miniapp",
+        "target": "miniapp",
+    }
+    client = _FakeClient()
+
+    AgentOrchestrator().handle_task(task, client)
+
+    types = [event["type"] for _, event in client.events]
+    assert types == ["TASK_FAILED"]
+    assert client.events[0][1]["payload"]["reason"] == "unsupported_target"
+
+
 def test_orchestrator_routes_deploy_to_exec_tool_and_marks_task_done(monkeypatch) -> None:
     monkeypatch.setenv("LLM_BACKEND", "openai")
     monkeypatch.setenv("OPENAI_API_KEY", "dummy")

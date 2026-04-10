@@ -2,74 +2,58 @@ from __future__ import annotations
 
 import json
 import os
-import re
-from typing import Any, Callable
-from urllib import error, request
-
-
-_FENCED_BLOCK_RE = re.compile(r"^```[a-zA-Z0-9_-]*\s*(.*?)\s*```$", re.DOTALL)
+from dataclasses import dataclass
+from typing import Callable
+from urllib import request
 
 
 class LLMClientError(RuntimeError):
-    """Raised when an LLM request cannot be completed or parsed."""
+    pass
 
 
 ResponseProvider = Callable[[str, list[dict[str, str]], str, float], str]
 
 
-def strip_markdown_fence(text: str) -> str:
-    normalized = (text or "").strip()
-    if not normalized:
-        return ""
-    match = _FENCED_BLOCK_RE.match(normalized)
-    if match:
-        return match.group(1).strip()
-    return normalized
+@dataclass(frozen=True)
+class LLMSettings:
+    backend: str
+    model: str
+    temperature: float
+    timeout_seconds: int
 
 
 class LLMClient:
     def __init__(
         self,
-        *,
         backend: str | None = None,
         model: str | None = None,
         temperature: float | None = None,
-        openai_api_key: str | None = None,
-        anthropic_api_key: str | None = None,
-        timeout_seconds: float = 30.0,
+        timeout_seconds: int | None = None,
         response_provider: ResponseProvider | None = None,
     ) -> None:
-        backend_env = backend if backend is not None else os.getenv("LLM_BACKEND", "openai")
-        normalized_backend = (backend_env or "openai").strip().lower()
-        self.backend = normalized_backend if normalized_backend in {"openai", "claude"} else "openai"
+        resolved_backend = (backend or os.getenv("LLM_BACKEND", "openai")).strip().lower()
+        if resolved_backend not in {"openai", "claude"}:
+            resolved_backend = "openai"
 
-        model_env = model if model is not None else os.getenv("LLM_MODEL", "gpt-4.1-mini")
-        self.model = (model_env or "gpt-4.1-mini").strip() or "gpt-4.1-mini"
+        resolved_model = (model or os.getenv("LLM_MODEL", "gpt-4.1-mini")).strip() or "gpt-4.1-mini"
+        resolved_temperature = _to_float(temperature if temperature is not None else os.getenv("LLM_TEMPERATURE"), 0.2)
+        resolved_timeout = _to_int(timeout_seconds if timeout_seconds is not None else os.getenv("LLM_TIMEOUT_SECONDS"), 30)
 
-        temperature_raw: object
-        if temperature is not None:
-            temperature_raw = temperature
-        else:
-            temperature_raw = os.getenv("LLM_TEMPERATURE", "0.2")
-        self.temperature = _parse_temperature(temperature_raw, fallback=0.2)
-        self.timeout_seconds = timeout_seconds
+        self.settings = LLMSettings(
+            backend=resolved_backend,
+            model=resolved_model,
+            temperature=resolved_temperature,
+            timeout_seconds=resolved_timeout,
+        )
         self._response_provider = response_provider
 
-        self.openai_api_key = (openai_api_key if openai_api_key is not None else os.getenv("OPENAI_API_KEY", "")).strip()
-        self.anthropic_api_key = (
-            anthropic_api_key if anthropic_api_key is not None else os.getenv("ANTHROPIC_API_KEY", "")
-        ).strip()
-
-    def required_key_name(self) -> str:
-        return "OPENAI_API_KEY" if self.backend == "openai" else "ANTHROPIC_API_KEY"
-
-    def has_required_key(self) -> bool:
-        if self.backend == "openai":
-            return bool(self.openai_api_key)
-        return bool(self.anthropic_api_key)
-
     def is_configured(self) -> bool:
-        return self.has_required_key()
+        return self.required_key_name() is None
+
+    def required_key_name(self) -> str | None:
+        if self.settings.backend == "openai":
+            return None if os.getenv("OPENAI_API_KEY", "").strip() else "OPENAI_API_KEY"
+        return None if os.getenv("ANTHROPIC_API_KEY", "").strip() else "ANTHROPIC_API_KEY"
 
     def generate(self, prompt: str, system_prompt: str = "") -> str:
         messages: list[dict[str, str]] = []
@@ -79,141 +63,143 @@ class LLMClient:
         return self.chat(messages)
 
     def chat(self, messages: list[dict[str, str]]) -> str:
-        if not self.has_required_key():
-            raise LLMClientError(f"{self.required_key_name()} missing")
-
-        normalized_messages = _normalize_messages(messages)
-
-        # Test seam: deterministic provider injection without network dependency.
-        if self._response_provider is not None:
-            try:
-                content = self._response_provider(self.backend, normalized_messages, self.model, self.temperature)
-            except Exception as exc:  # noqa: BLE001
-                raise LLMClientError(str(exc)) from exc
-            return strip_markdown_fence(content)
+        missing_key = self.required_key_name()
+        if missing_key:
+            raise LLMClientError(f"{missing_key} missing")
+        if not messages:
+            raise LLMClientError("messages must not be empty")
 
         try:
-            if self.backend == "claude":
-                content = self._request_claude(normalized_messages)
+            if self._response_provider is not None:
+                raw = self._response_provider(
+                    self.settings.backend,
+                    messages,
+                    self.settings.model,
+                    self.settings.temperature,
+                )
+            elif self.settings.backend == "openai":
+                raw = self._chat_openai(messages)
             else:
-                content = self._request_openai(normalized_messages)
-        except LLMClientError:
-            raise
+                raw = self._chat_claude(messages)
         except Exception as exc:  # noqa: BLE001
-            raise LLMClientError(f"{self.backend} call failed: {exc}") from exc
-        return strip_markdown_fence(content)
+            raise LLMClientError(str(exc)) from exc
 
-    def _request_openai(self, messages: list[dict[str, str]]) -> str:
-        payload = {
-            "model": self.model,
-            "temperature": self.temperature,
+        text = _strip_markdown_fence(str(raw))
+        if not text.strip():
+            raise LLMClientError("empty completion from llm")
+        return text
+
+    def _chat_openai(self, messages: list[dict[str, str]]) -> str:
+        api_key = os.getenv("OPENAI_API_KEY", "").strip()
+        body = {
+            "model": self.settings.model,
             "messages": messages,
+            "temperature": self.settings.temperature,
         }
-        data = self._post_json(
-            "https://api.openai.com/v1/chat/completions",
-            {
-                "Authorization": f"Bearer {self.openai_api_key}",
+        req = request.Request(
+            url="https://api.openai.com/v1/chat/completions",
+            data=json.dumps(body).encode("utf-8"),
+            method="POST",
+            headers={
+                "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json",
+                "Accept": "application/json",
             },
-            payload,
-            provider="openai",
         )
-        choices = data.get("choices")
+        with request.urlopen(req, timeout=self.settings.timeout_seconds) as resp:  # noqa: S310
+            payload = json.loads(resp.read().decode("utf-8"))
+
+        choices = payload.get("choices")
         if not isinstance(choices, list) or not choices:
-            raise LLMClientError(f"openai response missing choices: {data}")
-        first = choices[0]
-        if not isinstance(first, dict):
-            raise LLMClientError(f"openai response choice is invalid: {data}")
-        message = first.get("message")
-        if not isinstance(message, dict):
-            raise LLMClientError(f"openai response missing message: {data}")
+            raise LLMClientError("invalid openai response: choices missing")
+        message = choices[0].get("message", {})
         content = message.get("content")
+        if isinstance(content, str):
+            return content
         if isinstance(content, list):
-            chunks: list[str] = []
-            for item in content:
-                if isinstance(item, dict) and isinstance(item.get("text"), str):
-                    chunks.append(item["text"])
-            content = "\n".join(chunks)
-        if not isinstance(content, str) or not content.strip():
-            raise LLMClientError(f"openai response missing message.content: {data}")
-        return content
+            parts = [str(item.get("text", "")) for item in content if isinstance(item, dict)]
+            return "\n".join(part for part in parts if part.strip())
+        raise LLMClientError("invalid openai response: message content missing")
 
-    def _request_claude(self, messages: list[dict[str, str]]) -> str:
-        payload = {
-            "model": self.model,
-            "temperature": self.temperature,
-            "max_tokens": 1024,
-            "messages": messages,
+    def _chat_claude(self, messages: list[dict[str, str]]) -> str:
+        api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
+        # Claude API expects a single system string plus user/assistant messages.
+        system = ""
+        converted: list[dict[str, str]] = []
+        for item in messages:
+            role = str(item.get("role", "")).strip().lower()
+            content = str(item.get("content", ""))
+            if role == "system":
+                system = content if not system else f"{system}\n{content}"
+                continue
+            if role not in {"user", "assistant"}:
+                role = "user"
+            converted.append({"role": role, "content": content})
+        if not converted:
+            converted.append({"role": "user", "content": ""})
+
+        body: dict[str, object] = {
+            "model": self.settings.model,
+            "temperature": self.settings.temperature,
+            "messages": converted,
+            "max_tokens": 1200,
         }
-        data = self._post_json(
-            "https://api.anthropic.com/v1/messages",
-            {
-                "x-api-key": self.anthropic_api_key,
+        if system.strip():
+            body["system"] = system
+
+        req = request.Request(
+            url="https://api.anthropic.com/v1/messages",
+            data=json.dumps(body).encode("utf-8"),
+            method="POST",
+            headers={
+                "x-api-key": api_key,
                 "anthropic-version": "2023-06-01",
-                "content-type": "application/json",
+                "Content-Type": "application/json",
+                "Accept": "application/json",
             },
-            payload,
-            provider="claude",
         )
-        blocks = data.get("content")
-        if not isinstance(blocks, list) or not blocks:
-            raise LLMClientError(f"claude response missing content blocks: {data}")
-        chunks: list[str] = []
-        for block in blocks:
-            if isinstance(block, dict) and isinstance(block.get("text"), str):
-                chunks.append(block["text"])
-        content = "\n".join(chunks).strip()
-        if not content:
-            raise LLMClientError(f"claude response missing text block: {data}")
-        return content
+        with request.urlopen(req, timeout=self.settings.timeout_seconds) as resp:  # noqa: S310
+            payload = json.loads(resp.read().decode("utf-8"))
 
-    def _post_json(self, url: str, headers: dict[str, str], payload: dict[str, Any], *, provider: str) -> dict[str, Any]:
-        body = json.dumps(payload).encode("utf-8")
-        req = request.Request(url=url, data=body, headers=headers, method="POST")
-        try:
-            with request.urlopen(req, timeout=self.timeout_seconds) as resp:
-                raw = resp.read().decode("utf-8", errors="replace")
-        except error.HTTPError as exc:
-            detail = exc.read().decode("utf-8", errors="replace")
-            raise LLMClientError(f"{provider} API error {exc.code}: {detail}") from exc
-        except error.URLError as exc:
-            raise LLMClientError(f"{provider} network error: {exc.reason}") from exc
-        except Exception as exc:  # noqa: BLE001
-            raise LLMClientError(f"{provider} request failed: {exc}") from exc
+        content = payload.get("content")
+        if not isinstance(content, list):
+            raise LLMClientError("invalid claude response: content missing")
 
-        try:
-            data = json.loads(raw)
-        except json.JSONDecodeError as exc:
-            raise LLMClientError(f"{provider} response is not valid JSON: {raw}") from exc
-        if not isinstance(data, dict):
-            raise LLMClientError(f"{provider} response must be an object: {data!r}")
-        return data
+        texts = [str(item.get("text", "")) for item in content if isinstance(item, dict)]
+        merged = "\n".join(part for part in texts if part.strip())
+        if not merged.strip():
+            raise LLMClientError("invalid claude response: text missing")
+        return merged
 
 
-def _parse_temperature(value: object, *, fallback: float) -> float:
+def _to_float(raw: object, default: float) -> float:
+    if raw is None:
+        return default
     try:
-        parsed = float(value)  # type: ignore[arg-type]
+        return float(raw)
     except (TypeError, ValueError):
-        return fallback
-    if parsed < 0:
-        return 0.0
-    if parsed > 2:
-        return 2.0
-    return parsed
+        return default
 
 
-def _normalize_messages(messages: list[dict[str, str]]) -> list[dict[str, str]]:
-    normalized: list[dict[str, str]] = []
-    for item in messages or []:
-        if not isinstance(item, dict):
-            continue
-        role = str(item.get("role", "")).strip().lower()
-        content = str(item.get("content", "")).strip()
-        if role not in {"system", "user", "assistant"}:
-            continue
-        if not content:
-            continue
-        normalized.append({"role": role, "content": content})
-    if not normalized:
-        raise LLMClientError("messages must contain at least one valid role/content item")
-    return normalized
+def _to_int(raw: object, default: int) -> int:
+    if raw is None:
+        return default
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return default
+    return value if value > 0 else default
+
+
+def _strip_markdown_fence(text: str) -> str:
+    cleaned = (text or "").strip()
+    if not cleaned.startswith("```"):
+        return cleaned
+    lines = cleaned.splitlines()
+    if not lines:
+        return cleaned
+    if lines[0].startswith("```"):
+        lines = lines[1:]
+    if lines and lines[-1].strip() == "```":
+        lines = lines[:-1]
+    return "\n".join(lines).strip()

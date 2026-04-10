@@ -2,6 +2,15 @@ package com.autocode.agent.sandbox;
 
 import com.autocode.agent.client.AgentApiClient;
 import com.autocode.agent.config.AgentConfig;
+import com.autocode.protocol.model.SandboxErrorResponse;
+import com.autocode.protocol.model.SandboxExecuteRequest;
+import com.autocode.protocol.model.SandboxExecuteResponse;
+import com.autocode.protocol.model.SandboxHealthResponse;
+import com.autocode.protocol.model.SandboxToolsResponse;
+import com.autocode.protocol.validation.ContractViolationException;
+import com.autocode.protocol.validation.SandboxExecuteContractValidator;
+import com.autocode.protocol.validation.SandboxHttpContractValidator;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
@@ -11,7 +20,6 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
-import java.util.Map;
 import java.util.Objects;
 
 /**
@@ -67,12 +75,23 @@ public class SandboxHttpServer {
         InetSocketAddress address = new InetSocketAddress(host, port);
         HttpServer httpServer = HttpServer.create(address, 0);
         httpServer.createContext("/sandbox/execute", new ExecuteHandler());
-        httpServer.createContext("/sandbox/health", exchange -> {
+        httpServer.createContext("/sandbox/tools", exchange -> {
             if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
-                writeJson(exchange, 405, Map.of("ok", false, "error", "method_not_allowed"));
+                writeError(exchange, 405, "method_not_allowed", "method_not_allowed");
                 return;
             }
-            writeJson(exchange, 200, Map.of("ok", true, "status", "up"));
+            SandboxToolsResponse response = SandboxToolsResponse.of(service.listToolManifests());
+            SandboxHttpContractValidator.validateToolsResponse(response);
+            writeJson(exchange, 200, response);
+        });
+        httpServer.createContext("/sandbox/health", exchange -> {
+            if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
+                writeError(exchange, 405, "method_not_allowed", "method_not_allowed");
+                return;
+            }
+            SandboxHealthResponse response = SandboxHealthResponse.up();
+            SandboxHttpContractValidator.validateHealthResponse(response);
+            writeJson(exchange, 200, response);
         });
         httpServer.start();
         server = httpServer;
@@ -91,36 +110,35 @@ public class SandboxHttpServer {
         @Override
         public void handle(HttpExchange exchange) throws IOException {
             if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
-                writeJson(exchange, 405, Map.of("ok", false, "error", "method_not_allowed"));
+                writeError(exchange, 405, "method_not_allowed", "method_not_allowed");
                 return;
             }
             try {
                 byte[] bodyBytes = exchange.getRequestBody().readAllBytes();
                 SandboxExecuteRequest request = objectMapper.readValue(bodyBytes, SandboxExecuteRequest.class);
                 SandboxExecuteResponse response = service.execute(request);
+                SandboxExecuteContractValidator.validateResponse(response);
                 writeJson(exchange, 200, response);
+            } catch (JsonProcessingException ex) {
+                writeError(exchange, 400, "invalid_request", "invalid_json");
             } catch (IllegalArgumentException ex) {
-                writeJson(exchange, 400, Map.of(
-                        "ok", false,
-                        "status", "invalid_request",
-                        "error", ex.getMessage()
-                ));
+                writeError(exchange, 400, "invalid_request", ex.getMessage());
+            } catch (ContractViolationException ex) {
+                writeError(exchange, 500, "contract_violation", ex.getMessage());
             } catch (InterruptedException ex) {
                 Thread.currentThread().interrupt();
-                writeJson(exchange, 503, Map.of(
-                        "ok", false,
-                        "status", "interrupted",
-                        "error", "sandbox_interrupted"
-                ));
+                writeError(exchange, 503, "interrupted", "sandbox_interrupted");
             } catch (Exception ex) {
                 log.warn("Sandbox execute failed: {}", ex.getMessage());
-                writeJson(exchange, 500, Map.of(
-                        "ok", false,
-                        "status", "error",
-                        "error", ex.getMessage() == null ? "sandbox_error" : ex.getMessage()
-                ));
+                writeError(exchange, 500, "error", ex.getMessage() == null ? "sandbox_error" : ex.getMessage());
             }
         }
+    }
+
+    private void writeError(HttpExchange exchange, int statusCode, String status, String error) throws IOException {
+        SandboxErrorResponse response = SandboxErrorResponse.of(status, error);
+        SandboxHttpContractValidator.validateErrorResponse(response);
+        writeJson(exchange, statusCode, response);
     }
 
     private void writeJson(HttpExchange exchange, int statusCode, Object payload) throws IOException {

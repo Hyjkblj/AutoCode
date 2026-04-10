@@ -1,7 +1,7 @@
-package com.autocode.agent.sandbox;
+package com.autocode.protocol.model;
 
 /**
- * Request body for {@code POST /sandbox/execute}.
+ * Request body for the localhost sandbox execute endpoint.
  */
 public class SandboxExecuteRequest {
     private String taskId;

@@ -22,7 +22,10 @@ class ToolPayloadSerdeTest {
             ToolStartPayload payload = MAPPER.treeToValue(payloadNode, ToolStartPayload.class);
             assertEquals("command.exec", payload.getTool());
             assertEquals("run_command", payload.getAction());
+            assertEquals("D:/workspace/test", payload.getWorkspaceRef());
             assertEquals("run_test_001", payload.getRunId());
+            assertEquals("skill.code.author", payload.getIntentSkill());
+            assertEquals("rule_based", payload.getIntentRoute());
         }
     }
 

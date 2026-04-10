@@ -12,6 +12,8 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
+            "traceId": { "type": "string", "minLength": 1 },
+            "runId": { "type": "string", "minLength": 1 },
             "target": { "type": "string" },
             "templateId": { "type": "string" },
             "exportMode": { "type": "string" },
@@ -42,4 +44,3 @@
     }
   ]
 }
-

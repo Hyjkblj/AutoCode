@@ -214,20 +214,17 @@ public class TaskExecutor {
             }
         }
 
-        HashMap<String, Object> toolStart = new HashMap<>();
-        toolStart.put("tool", call.getTool());
         String resolvedToolVersion = trimToNull(tool.version());
-        if (resolvedToolVersion != null) {
-            toolStart.put("toolVersion", resolvedToolVersion);
-        }
-        toolStart.put("command", command);
-        toolStart.put("cwd", cwd);
-        toolStart.put("action", call.getAction());
-        toolStart.put("intentSkill", routedIntent.skill());
-        toolStart.put("intentRoute", routedIntent.routeSource());
-        if (approvalIdForExec != null) {
-            toolStart.put("approvalId", approvalIdForExec);
-        }
+        Map<String, Object> toolStart = buildToolStartPayload(
+                call.getTool(),
+                resolvedToolVersion,
+                command,
+                cwd,
+                call.getAction(),
+                routedIntent.skill(),
+                routedIntent.routeSource(),
+                approvalIdForExec
+        );
         send(task, traceId, runId, EventType.TOOL_START, toolStart);
 
         ToolExecutionResult exec;
@@ -604,7 +601,7 @@ public class TaskExecutor {
             Map<String, String> env) {
         String action = firstNonBlank(readOptionalEnv(env, "MVP_DEPLOY_ACTION"), DEFAULT_DEPLOY_ACTION);
         String tool = firstNonBlank(readOptionalEnv(env, "MVP_DEPLOY_TOOL"), DEFAULT_DEPLOY_TOOL);
-        String workspaceRef = firstNonBlank(readOptionalEnv(env, "MVP_DEPLOY_WORKSPACE_REF"), cwd);
+        String workspaceRef = normalizeWorkspaceRef(firstNonBlank(readOptionalEnv(env, "MVP_DEPLOY_WORKSPACE_REF"), cwd));
         String artifactId = artifact == null ? "" : firstNonBlank(artifact.getArtifactId(), "");
         String inputsHash = firstNonBlank(
                 readOptionalEnv(env, "MVP_DEPLOY_INPUTS_HASH"),
@@ -616,6 +613,32 @@ public class TaskExecutor {
         context.put("workspaceRef", workspaceRef);
         context.put("inputsHash", inputsHash);
         return context;
+    }
+
+    static Map<String, Object> buildToolStartPayload(
+            String tool,
+            String toolVersion,
+            String command,
+            String cwd,
+            String action,
+            String intentSkill,
+            String intentRoute,
+            String approvalId) {
+        HashMap<String, Object> payload = new HashMap<>();
+        payload.put("tool", tool);
+        if (trimToNull(toolVersion) != null) {
+            payload.put("toolVersion", toolVersion);
+        }
+        payload.put("command", command);
+        payload.put("cwd", cwd);
+        payload.put("workspaceRef", normalizeWorkspaceRef(cwd));
+        payload.put("action", action);
+        payload.put("intentSkill", intentSkill);
+        payload.put("intentRoute", intentRoute);
+        if (trimToNull(approvalId) != null) {
+            payload.put("approvalId", approvalId);
+        }
+        return payload;
     }
 
     static Map<String, Object> buildDeployApprovalPayload(
@@ -722,7 +745,7 @@ public class TaskExecutor {
         normalized.put("taskId", nz(task == null ? null : task.getTaskId()));
         normalized.put("projectId", nz(task == null ? null : task.getProjectId()));
         normalized.put("requestId", nz(requestId));
-        normalized.put("workspaceRef", nz(workspaceRef));
+        normalized.put("workspaceRef", normalizeWorkspaceRef(workspaceRef));
         normalized.put("artifactId", nz(artifactId));
         normalized.put("prompt", nz(task == null ? null : task.getPrompt()));
         try {
@@ -736,6 +759,14 @@ public class TaskExecutor {
 
     private static String nz(String value) {
         return value == null ? "" : value;
+    }
+
+    private static String normalizeWorkspaceRef(String value) {
+        String normalized = trimToNull(value);
+        if (normalized == null) {
+            return "";
+        }
+        return normalized.replace('\\', '/');
     }
 
     private static void putIfNotBlank(Map<String, Object> target, String key, String value) {
@@ -857,16 +888,22 @@ public class TaskExecutor {
         descriptor.setServiceId(serviceId);
         descriptor.setDisplayName(readOptionalEnv(env, "MVP_RUNTIME_DISPLAY_NAME"));
 
-        Integer port = parsePositivePort(readOptionalEnv(env, "MVP_RUNTIME_PORT"));
-        if (port != null) {
-            ServiceRuntimeDescriptor.PortBinding binding = new ServiceRuntimeDescriptor.PortBinding();
-            binding.setName(firstNonBlank(readOptionalEnv(env, "MVP_RUNTIME_PORT_NAME"), "http"));
-            binding.setProtocol(firstNonBlank(readOptionalEnv(env, "MVP_RUNTIME_PORT_PROTOCOL"), "http"));
-            binding.setPort(port);
-            descriptor.setPorts(List.of(binding));
+        List<ServiceRuntimeDescriptor.PortBinding> portBindings = RuntimeSignalParser.parsePortBindings(env);
+        if (portBindings.isEmpty()) {
+            Integer port = RuntimeSignalParser.parsePositivePort(readOptionalEnv(env, "MVP_RUNTIME_PORT"));
+            if (port != null) {
+                ServiceRuntimeDescriptor.PortBinding binding = new ServiceRuntimeDescriptor.PortBinding();
+                binding.setName(firstNonBlank(readOptionalEnv(env, "MVP_RUNTIME_PORT_NAME"), "http"));
+                binding.setProtocol(firstNonBlank(readOptionalEnv(env, "MVP_RUNTIME_PORT_PROTOCOL"), "http"));
+                binding.setPort(port);
+                portBindings = List.of(binding);
+            }
+        }
+        if (!portBindings.isEmpty()) {
+            descriptor.setPorts(portBindings);
         }
 
-        String healthPath = normalizeHealthPath(readOptionalEnv(env, "MVP_RUNTIME_HEALTH_PATH"));
+        String healthPath = RuntimeSignalParser.normalizeHealthPath(readOptionalEnv(env, "MVP_RUNTIME_HEALTH_PATH"));
         if (healthPath != null) {
             ServiceRuntimeDescriptor.HealthCheckSpec healthCheck = new ServiceRuntimeDescriptor.HealthCheckSpec();
             healthCheck.setPath(healthPath);
@@ -927,7 +964,7 @@ public class TaskExecutor {
         if (explicitHealthUrl != null) {
             hints.add(explicitHealthUrl);
         } else {
-            String healthPath = normalizeHealthPath(readOptionalEnv(env, "MVP_RUNTIME_HEALTH_PATH"));
+            String healthPath = RuntimeSignalParser.normalizeHealthPath(readOptionalEnv(env, "MVP_RUNTIME_HEALTH_PATH"));
             if (healthPath != null) {
                 String healthBase = buildHealthBaseUrl(env);
                 hints.add(healthBase == null ? healthPath : healthBase + healthPath);
@@ -969,6 +1006,7 @@ public class TaskExecutor {
         return readOptionalEnv(env, "MVP_RUNTIME_SERVICE_ID") != null
                 || readOptionalEnv(env, "MVP_RUNTIME_DISPLAY_NAME") != null
                 || readOptionalEnv(env, "MVP_RUNTIME_PORT") != null
+                || readOptionalEnv(env, "MVP_RUNTIME_PORTS") != null
                 || readOptionalEnv(env, "MVP_RUNTIME_HEALTH_PATH") != null
                 || readOptionalEnv(env, "MVP_RUNTIME_HEALTH_URL") != null
                 || readOptionalEnv(env, "MVP_RUNTIME_START_COMMAND") != null
@@ -978,7 +1016,7 @@ public class TaskExecutor {
     }
 
     private static String buildHealthBaseUrl(Map<String, String> env) {
-        Integer port = parsePositivePort(readOptionalEnv(env, "MVP_RUNTIME_PORT"));
+        Integer port = RuntimeSignalParser.resolvePrimaryRuntimePort(env);
         if (port == null) {
             return null;
         }
@@ -988,29 +1026,6 @@ public class TaskExecutor {
                 "http");
         String host = firstNonBlank(readOptionalEnv(env, "MVP_RUNTIME_HEALTH_HOST"), "127.0.0.1");
         return scheme + "://" + host + ":" + port;
-    }
-
-    private static Integer parsePositivePort(String value) {
-        if (value == null) {
-            return null;
-        }
-        try {
-            int port = Integer.parseInt(value);
-            if (port < 1 || port > 65535) {
-                return null;
-            }
-            return port;
-        } catch (NumberFormatException ex) {
-            return null;
-        }
-    }
-
-    private static String normalizeHealthPath(String path) {
-        String value = trimToNull(path);
-        if (value == null) {
-            return null;
-        }
-        return value.startsWith("/") ? value : "/" + value;
     }
 
     private static boolean isTruthy(String value) {

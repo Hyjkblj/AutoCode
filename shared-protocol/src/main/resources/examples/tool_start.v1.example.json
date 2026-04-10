@@ -12,9 +12,12 @@
     "action": "run_command",
     "command": "mvn -pl shared-protocol test",
     "cwd": "D:/Develop/Project/AutoCode",
+    "workspaceRef": "D:/Develop/Project/AutoCode",
     "toolVersion": "1.0.0",
     "approvalId": "apr_01HQ9APPROVAL001",
     "traceId": "trc_task_123",
-    "runId": "run_01HQ9TOOL001"
+    "runId": "run_01HQ9TOOL001",
+    "intentSkill": "skill.code.author",
+    "intentRoute": "rule_based"
   }
 }

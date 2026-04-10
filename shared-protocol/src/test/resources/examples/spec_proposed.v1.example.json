@@ -8,6 +8,8 @@
   "seq": 10,
   "eventVersion": 1,
   "payload": {
+    "traceId": "trc_task_test_spec",
+    "runId": "run_test_spec_001",
     "target": "web",
     "templateId": "web-basic",
     "exportMode": "zip",

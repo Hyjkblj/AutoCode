@@ -1,6 +1,26 @@
 package com.autocode.mobile
 
+import android.Manifest
 import android.app.Application
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.room.Dao
+import androidx.room.Database
+import androidx.room.Entity
+import androidx.room.Insert
+import androidx.room.OnConflictStrategy
+import androidx.room.PrimaryKey
+import androidx.room.Query
+import androidx.room.Room
+import androidx.room.RoomDatabase
+import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -8,11 +28,14 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.autocode.mobile.network.AgentNodeDto
 import com.autocode.mobile.network.ArtifactListItem
 import com.autocode.mobile.network.ControlPlaneClient
+import com.autocode.mobile.network.ProjectSummaryDto
 import com.autocode.mobile.network.TaskEventDto
 import com.autocode.mobile.network.TaskSummaryDto
 import com.autocode.mobile.network.WebSocketClient
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -21,6 +44,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -39,7 +63,9 @@ private object PrefsKeys {
     val TASKS_JSON = stringPreferencesKey("tasks_json")
     val BASE_URL = stringPreferencesKey("base_url")
     val GENERATION_TARGET = stringPreferencesKey("generation_target")
+    val AGENT_PROFILE = stringPreferencesKey("agent_profile")
     val PUBLISH_HISTORY_JSON = stringPreferencesKey("publish_history_json")
+    val NOTIFICATIONS_ENABLED = booleanPreferencesKey("notifications_enabled")
 }
 
 data class UiState(
@@ -48,14 +74,19 @@ data class UiState(
     val selectedProjectId: String? = null,
     val dynamicProjects: List<Project> = emptyList(),
     val isRefreshingProjects: Boolean = false,
+    val agentNodes: List<AgentNodeDto> = emptyList(),
+    val isRefreshingAgentNodes: Boolean = false,
     val tasks: List<TaskItem> = emptyList(),
     val taskEvents: Map<String, List<TaskEventDto>> = emptyMap(),
     val errorMessage: String? = null,
     /** 控制面根 URL，空表示离线模拟（PR-1/PR-2） */
     val baseUrl: String = "",
     val generationTarget: GenerationTarget = GenerationTarget.WEB,
+    val agentProfile: AgentProfile = AgentProfile.CODER,
     /** PR-3：发布/版本历史（本地持久化） */
     val publishHistory: List<PublishHistoryEntry> = emptyList(),
+    val isRefreshingPublishHistory: Boolean = false,
+    val notificationsEnabled: Boolean = true,
 )
 
 class AppViewModel(application: Application) : AndroidViewModel(application) {
@@ -75,10 +106,26 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val _pendingApproval = MutableStateFlow<ApprovalRequest?>(null)
     val pendingApproval: StateFlow<ApprovalRequest?> = _pendingApproval.asStateFlow()
     private val wsClient = WebSocketClient()
+    private val taskEventCacheDatabase by lazy {
+        Room.databaseBuilder(
+            application,
+            TaskEventCacheDatabase::class.java,
+            "task_event_cache.db",
+        ).fallbackToDestructiveMigration().build()
+    }
+    private val taskEventCacheDao by lazy {
+        taskEventCacheDatabase.taskEventCacheDao()
+    }
+    private val taskNotificationCenter = TaskNotificationCenter(application)
     private var subscribedTaskId: String? = null
     private var subscribedBaseUrl: String? = null
     private var subscribedToken: String? = null
     private val maxTaskEventsPerTask = 300
+    private val maxCachedTaskEventsPerTask = 300
+    private val maxCachedTaskEventsTotal = 4000
+    private val lastRemoteStatusByTaskId = mutableMapOf<String, String>()
+    private val recentNotificationKeys = ArrayDeque<String>()
+    private val maxRecentNotificationKeys = 200
     private val fallbackProjectMap: Map<String, Project> by lazy {
         mockProjects.associateBy { it.id }
     }
@@ -94,6 +141,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             loadFromStore()
             refreshProjectsInternal()
+            refreshAgentNodesInternal()
+            refreshPublishHistoryInternal()
             _uiState.update { it.copy(isLoading = false) }
             startLocalProgressTicker()
             startRemotePolling()
@@ -108,10 +157,17 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val rawTasks = prefs[PrefsKeys.TASKS_JSON]
         val baseUrl = prefs[PrefsKeys.BASE_URL].orEmpty()
         val targetRaw = prefs[PrefsKeys.GENERATION_TARGET]
+        val profileRaw = prefs[PrefsKeys.AGENT_PROFILE]
+        val notificationsEnabled = prefs[PrefsKeys.NOTIFICATIONS_ENABLED] ?: true
         val generationTarget =
             when (targetRaw?.trim()) {
                 "wechat_mini" -> GenerationTarget.WECHAT_MINI_PROGRAM
                 else -> GenerationTarget.WEB
+            }
+        val agentProfile =
+            when (profileRaw?.trim()) {
+                "ai-agent" -> AgentProfile.AI_AGENT
+                else -> AgentProfile.CODER
             }
 
         val tasks: List<TaskItem> =
@@ -146,6 +202,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 t
             }
         }
+        val cachedTaskEvents = loadCachedTaskEvents(normalizedTasks, publishHistory)
 
         _uiState.update {
             it.copy(
@@ -153,11 +210,15 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 selectedProjectId = effectiveProject,
                 dynamicProjects = initialProjects,
                 tasks = normalizedTasks,
+                taskEvents = cachedTaskEvents,
                 baseUrl = baseUrl,
                 generationTarget = generationTarget,
+                agentProfile = agentProfile,
                 publishHistory = publishHistory,
+                notificationsEnabled = notificationsEnabled,
             )
         }
+        seedRemoteStatusMemory(normalizedTasks, publishHistory)
         if (session != null && normalizedTasks != tasks) {
             persistTasks(normalizedTasks)
         }
@@ -179,7 +240,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             p[PrefsKeys.TASKS_JSON] = json.encodeToString(taskListSerializer, s.tasks)
             p[PrefsKeys.BASE_URL] = s.baseUrl.trim()
             p[PrefsKeys.GENERATION_TARGET] = generationTargetStorageValue(s.generationTarget)
+            p[PrefsKeys.AGENT_PROFILE] = agentProfileStorageValue(s.agentProfile)
             p[PrefsKeys.PUBLISH_HISTORY_JSON] = json.encodeToString(publishHistorySerializer, s.publishHistory)
+            p[PrefsKeys.NOTIFICATIONS_ENABLED] = s.notificationsEnabled
         }
     }
 
@@ -189,9 +252,121 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             GenerationTarget.WECHAT_MINI_PROGRAM -> "wechat_mini"
         }
 
+    private fun agentProfileStorageValue(p: AgentProfile): String =
+        when (p) {
+            AgentProfile.CODER -> "coder"
+            AgentProfile.AI_AGENT -> "ai-agent"
+        }
+
     private suspend fun persistTasks(tasks: List<TaskItem>) {
         getApplication<Application>().mobileDataStore.edit { p ->
             p[PrefsKeys.TASKS_JSON] = json.encodeToString(taskListSerializer, tasks)
+        }
+    }
+
+    private suspend fun loadCachedTaskEvents(
+        tasks: List<TaskItem>,
+        publishHistory: List<PublishHistoryEntry>,
+    ): Map<String, List<TaskEventDto>> {
+        val taskIds = LinkedHashSet<String>()
+        tasks
+            .asSequence()
+            .map { it.id.trim() }
+            .filter { it.isNotEmpty() }
+            .forEach { taskIds += it }
+        publishHistory
+            .asSequence()
+            .map { it.taskId.trim() }
+            .filter { it.isNotEmpty() }
+            .forEach { taskIds += it }
+        if (taskIds.isEmpty()) return emptyMap()
+        return loadCachedTaskEventsByTaskIds(taskIds.toList())
+    }
+
+    private suspend fun loadCachedTaskEventsByTaskIds(taskIds: List<String>): Map<String, List<TaskEventDto>> {
+        if (taskIds.isEmpty()) return emptyMap()
+        val rows =
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    taskEventCacheDao.listByTaskIds(taskIds)
+                }
+            }.getOrElse {
+                return emptyMap()
+            }
+        if (rows.isEmpty()) return emptyMap()
+        return rows
+            .groupBy { it.taskId }
+            .mapValues { (_, entities) ->
+                entities
+                    .sortedWith(compareBy<TaskEventCacheEntity> { it.seq }.thenBy { it.storedAt })
+                    .mapNotNull { it.toTaskEventDto(json) }
+                    .takeLast(maxTaskEventsPerTask)
+            }
+            .filterValues { it.isNotEmpty() }
+    }
+
+    private suspend fun loadCachedTaskEventsForTask(taskId: String): List<TaskEventDto> {
+        val normalizedTaskId = taskId.trim()
+        if (normalizedTaskId.isEmpty()) return emptyList()
+        val rows =
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    taskEventCacheDao.listByTaskId(
+                        taskId = normalizedTaskId,
+                        limit = maxCachedTaskEventsPerTask,
+                    )
+                }
+            }.getOrElse {
+                return emptyList()
+            }
+        return rows
+            .sortedWith(compareBy<TaskEventCacheEntity> { it.seq }.thenBy { it.storedAt })
+            .mapNotNull { it.toTaskEventDto(json) }
+            .takeLast(maxTaskEventsPerTask)
+    }
+
+    private suspend fun persistTaskEventsCache(taskId: String, events: List<TaskEventDto>) {
+        val normalizedTaskId = taskId.trim()
+        if (normalizedTaskId.isEmpty() || events.isEmpty()) return
+        val entities =
+            events.map { event ->
+                TaskEventCacheEntity(
+                    stableKey = eventStableKey(normalizedTaskId, event),
+                    taskId = normalizedTaskId,
+                    eventId = event.eventId,
+                    type = event.type,
+                    payloadJson = json.encodeToString(JsonObject.serializer(), event.payload),
+                    seq = event.seq,
+                    timestamp = event.timestamp,
+                    eventVersion = event.eventVersion,
+                    storedAt = System.currentTimeMillis(),
+                )
+            }
+        runCatching {
+            withContext(Dispatchers.IO) {
+                taskEventCacheDao.upsertAll(entities)
+                taskEventCacheDao.pruneTask(normalizedTaskId, maxCachedTaskEventsPerTask)
+                taskEventCacheDao.pruneGlobal(maxCachedTaskEventsTotal)
+            }
+        }
+    }
+
+    private suspend fun hydrateTaskEventsFromCache(taskId: String) {
+        val normalizedTaskId = taskId.trim()
+        if (normalizedTaskId.isEmpty()) return
+        val existing = _uiState.value.taskEvents[normalizedTaskId].orEmpty()
+        if (existing.isNotEmpty()) return
+        val cached = loadCachedTaskEventsForTask(normalizedTaskId)
+        if (cached.isEmpty()) return
+        _uiState.update { state ->
+            val mergedEvents = mergeEventList(state.taskEvents[normalizedTaskId].orEmpty(), cached)
+            val mergedTasks = cached.fold(state.tasks) { acc, event ->
+                applyEventToTasks(acc, normalizedTaskId, event)
+            }
+            state.copy(
+                taskEvents = state.taskEvents + (normalizedTaskId to mergedEvents),
+                tasks = mergedTasks,
+            )
         }
     }
 
@@ -199,17 +374,26 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.update { it.copy(errorMessage = null) }
     }
 
-    fun saveConnectivitySettings(baseUrl: String, target: GenerationTarget) {
+    fun saveConnectivitySettings(baseUrl: String, target: GenerationTarget, profile: AgentProfile) {
         viewModelScope.launch {
             _uiState.update {
                 it.copy(
                     baseUrl = baseUrl.trim(),
                     generationTarget = target,
+                    agentProfile = profile,
                     errorMessage = null,
                 )
             }
             persistAll()
             refreshProjectsInternal()
+            refreshAgentNodesInternal()
+        }
+    }
+
+    fun setNotificationsEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(notificationsEnabled = enabled) }
+            persistAll()
         }
     }
 
@@ -236,6 +420,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     }
                     persistAll()
                     refreshProjectsInternal()
+                    refreshAgentNodesInternal()
                 } else {
                     val msg = r.exceptionOrNull()?.message ?: "登录失败"
                     _uiState.update { it.copy(errorMessage = msg) }
@@ -248,6 +433,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 persistAll()
                 refreshProjectsInternal()
+                refreshAgentNodesInternal()
             }
         }
     }
@@ -256,8 +442,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             unsubscribeTaskEvents()
             _pendingApproval.value = null
+            lastRemoteStatusByTaskId.clear()
+            recentNotificationKeys.clear()
             val baseUrl = _uiState.value.baseUrl
             val target = _uiState.value.generationTarget
+            val profile = _uiState.value.agentProfile
+            val notificationsEnabled = _uiState.value.notificationsEnabled
             _uiState.update {
                 UiState(
                     isLoading = false,
@@ -268,7 +458,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     tasks = emptyList(),
                     baseUrl = baseUrl,
                     generationTarget = target,
+                    agentProfile = profile,
                     publishHistory = emptyList(),
+                    notificationsEnabled = notificationsEnabled,
                 )
             }
             getApplication<Application>().mobileDataStore.edit { p ->
@@ -294,25 +486,179 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private suspend fun refreshProjectsInternal() {
+    fun refreshAgentNodes() {
+        viewModelScope.launch {
+            refreshAgentNodesInternal()
+        }
+    }
+
+    fun refreshPublishHistory() {
+        viewModelScope.launch {
+            refreshPublishHistoryInternal()
+        }
+    }
+
+    private suspend fun refreshPublishHistoryInternal() {
         val before = _uiState.value
-        _uiState.update { it.copy(isRefreshingProjects = true) }
-        val projects = deriveProjectsFromTasks(before.tasks, before.selectedProjectId)
-        val selected =
-            when {
-                before.session == null -> null
-                !before.selectedProjectId.isNullOrBlank() && projects.any { it.id == before.selectedProjectId } ->
-                    before.selectedProjectId
-                else -> projects.firstOrNull()?.id
+        val base = before.baseUrl.trim()
+        val token = before.session?.accessToken?.trim().orEmpty()
+        if (base.isEmpty() || token.isEmpty()) return
+
+        _uiState.update { it.copy(isRefreshingPublishHistory = true) }
+        val selectedProjectId = before.selectedProjectId?.trim()?.takeIf { it.isNotEmpty() }
+        val deployTaskResult =
+            ControlPlaneClient.listTasks(
+                baseUrl = base,
+                bearerToken = token,
+                projectId = selectedProjectId,
+                assistant = "deployer",
+            )
+        var merged =
+            if (deployTaskResult.isSuccess) {
+                mergePublishHistoryFromRemoteTasks(
+                    existing = before.publishHistory,
+                    remoteTasks = deployTaskResult.getOrNull().orEmpty(),
+                )
+            } else {
+                before.publishHistory
             }
+        val hydrationTargets = merged.toList()
+        hydrationTargets.forEach { entry ->
+            val taskId = entry.taskId.trim()
+            if (taskId.isEmpty()) return@forEach
+            val summary = ControlPlaneClient.getTask(base, token, taskId).getOrNull()
+            if (summary != null) {
+                merged = updatePublishHistoryFromSummary(merged, summary)
+            }
+            val current = merged.firstOrNull { it.taskId == taskId }
+            val shouldHydrateEvents =
+                current?.let {
+                    it.endpointUrl.isNullOrBlank() ||
+                        it.deployRequestId.isNullOrBlank() ||
+                        it.status in setOf("queued", "running", "waiting_approval", "deploy_planned", "unknown")
+                } ?: false
+            if (shouldHydrateEvents) {
+                val events = ControlPlaneClient.listTaskEvents(base, token, taskId, 0L).getOrNull().orEmpty()
+                merged = updatePublishHistoryFromEvents(merged, taskId, events)
+            }
+        }
+
         _uiState.update {
             it.copy(
-                dynamicProjects = projects,
-                selectedProjectId = selected,
-                isRefreshingProjects = false,
+                publishHistory = merged.sortedByDescending { entry -> entry.createdAt },
+                isRefreshingPublishHistory = false,
+                errorMessage =
+                    if (deployTaskResult.isSuccess) null
+                    else deployTaskResult.exceptionOrNull()?.message ?: it.errorMessage,
             )
         }
         persistAll()
+    }
+
+    private suspend fun refreshAgentNodesInternal() {
+        val before = _uiState.value
+        val base = before.baseUrl.trim()
+        val token = before.session?.accessToken?.trim().orEmpty()
+        if (base.isEmpty() || token.isEmpty()) {
+            _uiState.update {
+                it.copy(
+                    agentNodes = emptyList(),
+                    isRefreshingAgentNodes = false,
+                )
+            }
+            return
+        }
+
+        _uiState.update { it.copy(isRefreshingAgentNodes = true) }
+        val result = ControlPlaneClient.listAgentNodes(base, token)
+        if (result.isSuccess) {
+            val nodes = result.getOrNull().orEmpty().sortedBy { it.nodeId.lowercase() }
+            _uiState.update {
+                it.copy(
+                    agentNodes = nodes,
+                    isRefreshingAgentNodes = false,
+                    errorMessage = null,
+                )
+            }
+        } else {
+            _uiState.update {
+                it.copy(
+                    isRefreshingAgentNodes = false,
+                    errorMessage = result.exceptionOrNull()?.message ?: "Failed to load agent nodes",
+                )
+            }
+        }
+    }
+
+    private suspend fun refreshProjectsInternal() {
+        val before = _uiState.value
+        _uiState.update { it.copy(isRefreshingProjects = true) }
+        val localProjects = deriveProjectsFromTasks(before.tasks, before.selectedProjectId)
+        val base = before.baseUrl.trim()
+        val token = before.session?.accessToken?.trim().orEmpty()
+        val shouldFetchRemote = base.isNotEmpty() && token.isNotEmpty()
+        var fallbackError: String? = null
+
+        if (shouldFetchRemote) {
+            val remote = ControlPlaneClient.listProjects(base, token)
+            if (remote.isSuccess) {
+                val remoteProjects = mapRemoteProjects(remote.getOrNull().orEmpty())
+                val selected =
+                    when {
+                        before.session == null -> null
+                        !before.selectedProjectId.isNullOrBlank() &&
+                            remoteProjects.any { it.id == before.selectedProjectId } -> before.selectedProjectId
+                        else -> remoteProjects.firstOrNull()?.id
+                    }
+                _uiState.update {
+                    it.copy(
+                        dynamicProjects = remoteProjects,
+                        selectedProjectId = selected,
+                        isRefreshingProjects = false,
+                        errorMessage = null,
+                    )
+                }
+                persistAll()
+                return
+            }
+            fallbackError =
+                remote.exceptionOrNull()?.message
+                    ?: "Failed to load projects from control-plane; using local fallback"
+        }
+
+        val selected =
+            when {
+                before.session == null -> null
+                !before.selectedProjectId.isNullOrBlank() && localProjects.any { it.id == before.selectedProjectId } ->
+                    before.selectedProjectId
+                else -> localProjects.firstOrNull()?.id
+            }
+        _uiState.update {
+            it.copy(
+                dynamicProjects = localProjects,
+                selectedProjectId = selected,
+                isRefreshingProjects = false,
+                errorMessage = fallbackError ?: it.errorMessage,
+            )
+        }
+        persistAll()
+    }
+
+    private fun mapRemoteProjects(items: List<ProjectSummaryDto>): List<Project> {
+        if (items.isEmpty()) return emptyList()
+        val dedup = LinkedHashMap<String, Project>()
+        items.forEach { item ->
+            val projectId = item.projectId.trim()
+            if (projectId.isEmpty()) return@forEach
+            val projectName =
+                item.name
+                    ?.trim()
+                    ?.takeIf { it.isNotEmpty() }
+                    ?: fallbackProjectMap[projectId]?.name
+                    ?: "Project $projectId"
+            dedup[projectId] = Project(projectId, projectName)
+        }
+        return dedup.values.toList()
     }
 
     private fun deriveProjectsFromTasks(tasks: List<TaskItem>, selectedProjectId: String?): List<Project> {
@@ -353,7 +699,16 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
         if (base.isNotEmpty() && session != null) {
             val assistant = _uiState.value.generationTarget.assistantForApi()
-            val r = ControlPlaneClient.createTask(base, session.accessToken, projectId, text, assistant)
+            val agentProfile = _uiState.value.agentProfile.apiValue()
+            val r =
+                ControlPlaneClient.createTask(
+                    base = base,
+                    bearerToken = session.accessToken,
+                    projectId = projectId,
+                    prompt = text,
+                    assistant = assistant,
+                    agentProfile = agentProfile,
+                )
             if (r.isSuccess) {
                 val dto = r.getOrThrow()
                 val mapped = mapServerToTaskItem(dto, projectId, text)
@@ -542,28 +897,86 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         return suffixes.any { s -> name.endsWith(s) }
     }
 
-    fun recordPublishEntry(
+    suspend fun recordPublishEntry(
         taskId: String,
         artifactId: String?,
         artifactName: String?,
         versionLabel: String,
-        status: String = "submitted_mock",
-    ) {
-        viewModelScope.launch {
-            val normalizedVersion = versionLabel.trim().ifEmpty { "v-${System.currentTimeMillis()}" }
-            val e =
+        environment: String = "staging",
+    ): Result<PublishHistoryEntry> {
+        val state = _uiState.value
+        val normalizedVersion = versionLabel.trim().ifEmpty { "v-${System.currentTimeMillis()}" }
+        val normalizedEnvironment = environment.trim().ifEmpty { "staging" }
+        val sourceTaskId = taskId.trim().ifEmpty { null }
+        val base = state.baseUrl.trim()
+        val token = state.session?.accessToken?.trim().orEmpty()
+
+        if (base.isNotEmpty() && token.isNotEmpty()) {
+            val projectId =
+                taskById(taskId)?.projectId ?: state.selectedProjectId
+                    ?: return Result.failure(IllegalStateException("无法确定发布项目"))
+            val deployResult =
+                ControlPlaneClient.createDeployTask(
+                    baseUrl = base,
+                    bearerToken = token,
+                    projectId = projectId,
+                    artifactId = artifactId,
+                    environment = normalizedEnvironment,
+                    versionLabel = normalizedVersion,
+                    sourceTaskId = sourceTaskId,
+                )
+            if (deployResult.isFailure) {
+                return Result.failure(deployResult.exceptionOrNull() ?: IllegalStateException("发布任务创建失败"))
+            }
+            val dto = deployResult.getOrThrow()
+            val deployPrompt =
+                dto.prompt ?: "Deploy artifact ${artifactId ?: "unknown-artifact"} to $normalizedEnvironment"
+            val mappedTask = mapServerToTaskItem(dto, projectId, deployPrompt)
+            val entry =
                 PublishHistoryEntry(
-                    id = "pub_${System.currentTimeMillis()}",
-                    taskId = taskId,
+                    id = "pub_${dto.taskId}",
+                    taskId = dto.taskId,
                     artifactId = artifactId,
                     artifactName = artifactName,
+                    sourceTaskId = sourceTaskId,
                     versionLabel = normalizedVersion,
-                    status = status,
+                    status = normalizePublishStatus(dto.status),
+                    environment = normalizedEnvironment,
                     createdAt = System.currentTimeMillis(),
                 )
-            _uiState.update { it.copy(publishHistory = listOf(e) + it.publishHistory) }
+            _uiState.update { st ->
+                val tasks =
+                    if (st.tasks.any { it.id == mappedTask.id }) st.tasks else listOf(mappedTask) + st.tasks
+                st.copy(
+                    tasks = tasks,
+                    publishHistory = upsertPublishHistory(st.publishHistory, entry),
+                    errorMessage = null,
+                )
+            }
             persistAll()
+            return Result.success(entry)
         }
+
+        val fallbackEntry =
+            PublishHistoryEntry(
+                id = "pub_${System.currentTimeMillis()}",
+                taskId = taskId,
+                artifactId = artifactId,
+                artifactName = artifactName,
+                sourceTaskId = sourceTaskId,
+                versionLabel = normalizedVersion,
+                status = "submitted_mock",
+                environment = normalizedEnvironment,
+                createdAt = System.currentTimeMillis(),
+            )
+        _uiState.update { st ->
+            st.copy(
+                publishHistory = upsertPublishHistory(st.publishHistory, fallbackEntry),
+                errorMessage = null,
+            )
+        }
+        persistAll()
+        return Result.success(fallbackEntry)
     }
 
     fun subscribeTaskEvents(taskId: String) {
@@ -590,6 +1003,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         subscribedToken = token
 
         viewModelScope.launch {
+            hydrateTaskEventsFromCache(normalizedTaskId)
             backfillTaskEvents(normalizedTaskId, lastSeq(normalizedTaskId))
             wsClient.connect(
                 baseUrl = base,
@@ -599,7 +1013,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 onEvent = { event ->
                     if (subscribedTaskId == normalizedTaskId) {
                         viewModelScope.launch {
-                            mergeTaskEvents(normalizedTaskId, listOf(event))
+                            mergeTaskEvents(normalizedTaskId, listOf(event), allowNotifications = true)
                         }
                     }
                 },
@@ -707,6 +1121,19 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 val decision = stringValue(payload, "decision", "result") ?: "unknown"
                 "审批结果：$decision"
             }
+            "DEPLOY_PLAN" -> {
+                val env = stringValue(payload, "environment", "env") ?: "unknown"
+                "部署计划：environment=$env"
+            }
+            "DEPLOY_RESULT" -> {
+                val status = normalizePublishStatus(stringValue(payload, "status")).ifBlank { "unknown" }
+                val endpoint = stringValue(payload, "endpointUrl", "endpoint", "url")
+                if (endpoint.isNullOrBlank()) {
+                    "部署结果：$status"
+                } else {
+                    "部署结果：$status -> $endpoint"
+                }
+            }
             "TASK_DONE" -> "任务完成"
             "TASK_FAILED" -> {
                 val reason = stringValue(payload, "reason", "message", "error")
@@ -727,39 +1154,104 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val result = ControlPlaneClient.listTaskEvents(base, token, taskId, lastSeq)
         val events = result.getOrNull().orEmpty()
         if (events.isNotEmpty()) {
-            mergeTaskEvents(taskId, events)
+            mergeTaskEvents(taskId, events, allowNotifications = lastSeq > 0L)
         }
     }
 
-    private suspend fun mergeTaskEvents(taskId: String, incoming: List<TaskEventDto>) {
+    private suspend fun mergeTaskEvents(
+        taskId: String,
+        incoming: List<TaskEventDto>,
+        allowNotifications: Boolean = false,
+    ) {
         if (incoming.isEmpty()) return
         val sortedIncoming = incoming.sortedBy { it.seq }
+        var publishHistoryChanged = false
+        var newlyMergedEvents: List<TaskEventDto> = emptyList()
         _uiState.update { state ->
-            val mergedEvents = mergeEventList(state.taskEvents[taskId].orEmpty(), sortedIncoming)
+            val existingEvents = state.taskEvents[taskId].orEmpty()
+            val existingKeys = existingEvents.asSequence().map { eventStableKey(taskId, it) }.toSet()
+            newlyMergedEvents =
+                sortedIncoming.filter { event ->
+                    val key = eventStableKey(taskId, event)
+                    !existingKeys.contains(key)
+                }
+            val mergedEvents = mergeEventList(existingEvents, sortedIncoming)
             val mergedTasks = sortedIncoming.fold(state.tasks) { acc, event ->
                 applyEventToTasks(acc, taskId, event)
             }
+            val mergedHistory = updatePublishHistoryFromEvents(state.publishHistory, taskId, sortedIncoming)
+            publishHistoryChanged = mergedHistory != state.publishHistory
             state.copy(
                 taskEvents = state.taskEvents + (taskId to mergedEvents),
                 tasks = mergedTasks,
+                publishHistory = mergedHistory,
             )
         }
         syncPendingApprovalFromEvents(taskId, sortedIncoming)
-        persistTasks(_uiState.value.tasks)
+        if (allowNotifications && _uiState.value.notificationsEnabled && newlyMergedEvents.isNotEmpty()) {
+            notifyFromTaskEvents(taskId = taskId, events = newlyMergedEvents)
+        }
+        if (newlyMergedEvents.isNotEmpty()) {
+            persistTaskEventsCache(taskId, newlyMergedEvents)
+        }
+        if (publishHistoryChanged) {
+            persistAll()
+        } else {
+            persistTasks(_uiState.value.tasks)
+        }
     }
 
     private fun mergeEventList(existing: List<TaskEventDto>, incoming: List<TaskEventDto>): List<TaskEventDto> {
         val merged = LinkedHashMap<String, TaskEventDto>()
         (existing + incoming).sortedBy { it.seq }.forEach { event ->
-            val key =
-                when {
-                    !event.eventId.isNullOrBlank() -> "id:${event.eventId}"
-                    event.seq > 0L -> "seq:${event.seq}"
-                    else -> "raw:${event.type}:${event.timestamp}:${event.payload}"
-                }
+            val key = eventStableKey(taskId = "", event = event)
             merged[key] = event
         }
         return merged.values.sortedBy { it.seq }.takeLast(maxTaskEventsPerTask)
+    }
+
+    private fun eventStableKey(taskId: String, event: TaskEventDto): String {
+        val prefix = if (taskId.isBlank()) "" else "$taskId:"
+        return when {
+            !event.eventId.isNullOrBlank() -> "${prefix}id:${event.eventId}"
+            event.seq > 0L -> "${prefix}seq:${event.seq}"
+            else -> "${prefix}raw:${event.type}:${event.timestamp}:${event.payload}"
+        }
+    }
+
+    private fun notifyFromTaskEvents(taskId: String, events: List<TaskEventDto>) {
+        events.forEach { event ->
+            val type = event.type?.uppercase().orEmpty()
+            val eventKey = eventStableKey(taskId = taskId, event = event)
+            when (type) {
+                "APPROVAL_REQUIRED" -> {
+                    val summary =
+                        stringValue(event.payload, "reason", "message", "action")
+                            ?: "Task $taskId is waiting for your approval."
+                    if (rememberNotificationKey("approval:$eventKey")) {
+                        taskNotificationCenter.notifyApprovalRequired(taskId = taskId, message = summary)
+                    }
+                }
+                "TASK_DONE" -> {
+                    if (rememberNotificationKey("done:$eventKey")) {
+                        taskNotificationCenter.notifyTaskDone(
+                            taskId = taskId,
+                            message = "Task $taskId completed successfully.",
+                        )
+                    }
+                    lastRemoteStatusByTaskId[taskId] = "success"
+                }
+                "TASK_FAILED" -> {
+                    val reason =
+                        stringValue(event.payload, "reason", "message", "error")
+                            ?: "Task $taskId failed."
+                    if (rememberNotificationKey("failed:$eventKey")) {
+                        taskNotificationCenter.notifyTaskFailed(taskId = taskId, message = reason)
+                    }
+                    lastRemoteStatusByTaskId[taskId] = "failed"
+                }
+            }
+        }
     }
 
     private fun applyEventToTasks(tasks: List<TaskItem>, taskId: String, event: TaskEventDto): List<TaskItem> {
@@ -784,6 +1276,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         when (event.type?.uppercase()) {
             "TASK_STARTED" -> TaskStatus.RUNNING to 15
             "APPROVAL_REQUIRED" -> TaskStatus.RUNNING to 78
+            "DEPLOY_PLAN" -> TaskStatus.RUNNING to 88
+            "DEPLOY_RESULT" -> {
+                when (normalizePublishStatus(stringValue(event.payload, "status"))) {
+                    "success" -> TaskStatus.SUCCEEDED to 100
+                    "failed", "canceled", "rejected" -> TaskStatus.FAILED to 100
+                    else -> TaskStatus.RUNNING to 95
+                }
+            }
             "TASK_DONE" -> TaskStatus.SUCCEEDED to 100
             "TASK_FAILED" -> TaskStatus.FAILED to 100
             else -> null
@@ -825,6 +1325,168 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         )
     }
 
+    private fun upsertPublishHistory(
+        history: List<PublishHistoryEntry>,
+        incoming: PublishHistoryEntry,
+    ): List<PublishHistoryEntry> {
+        val replaced = history.map { if (it.id == incoming.id) incoming else it }
+        return if (replaced.any { it.id == incoming.id }) replaced else listOf(incoming) + history
+    }
+
+    private fun normalizePublishStatus(raw: String?): String {
+        val status = raw?.trim().orEmpty()
+        if (status.isEmpty()) return "unknown"
+        return when (status.uppercase()) {
+            "QUEUED" -> "queued"
+            "RUNNING" -> "running"
+            "WAITING_APPROVAL", "PAUSED" -> "waiting_approval"
+            "DONE", "SUCCEEDED", "SUCCESS" -> "success"
+            "FAILED", "ERROR" -> "failed"
+            "CANCELED", "CANCELLED" -> "canceled"
+            "REJECTED", "REJECT" -> "rejected"
+            else -> status.lowercase()
+        }
+    }
+
+    private fun updatePublishHistoryFromSummary(
+        history: List<PublishHistoryEntry>,
+        dto: TaskSummaryDto,
+    ): List<PublishHistoryEntry> {
+        if (history.isEmpty()) return history
+        val normalized = normalizePublishStatus(dto.status)
+        return history.map { entry ->
+            if (entry.taskId != dto.taskId) return@map entry
+            entry.copy(status = normalized)
+        }
+    }
+
+    private fun updatePublishHistoryFromEvents(
+        history: List<PublishHistoryEntry>,
+        taskId: String,
+        events: List<TaskEventDto>,
+    ): List<PublishHistoryEntry> {
+        if (history.isEmpty() || events.isEmpty()) return history
+        return events.fold(history) { acc, event ->
+            updatePublishHistoryFromEvent(acc, taskId, event)
+        }
+    }
+
+    private fun updatePublishHistoryFromEvent(
+        history: List<PublishHistoryEntry>,
+        taskId: String,
+        event: TaskEventDto,
+    ): List<PublishHistoryEntry> {
+        val type = event.type?.uppercase().orEmpty()
+        if (type.isEmpty()) return history
+        return history.map { entry ->
+            if (entry.taskId != taskId) return@map entry
+            when (type) {
+                "DEPLOY_PLAN" -> {
+                    val payload = event.payload
+                    entry.copy(
+                        status = "deploy_planned",
+                        environment = stringValue(payload, "environment", "env") ?: entry.environment,
+                        deployRequestId =
+                            stringValue(payload, "requestId", "deployRequestId", "request_id") ?: entry.deployRequestId,
+                    )
+                }
+                "DEPLOY_RESULT" -> {
+                    val payload = event.payload
+                    val deployStatus = normalizePublishStatus(stringValue(payload, "status"))
+                    entry.copy(
+                        status = if (deployStatus == "unknown") entry.status else deployStatus,
+                        environment = stringValue(payload, "environment", "env") ?: entry.environment,
+                        endpointUrl = stringValue(payload, "endpointUrl", "endpoint", "url") ?: entry.endpointUrl,
+                        deployRequestId =
+                            stringValue(payload, "requestId", "deployRequestId", "request_id") ?: entry.deployRequestId,
+                    )
+                }
+                "TASK_FAILED" -> {
+                    entry.copy(status = "failed")
+                }
+                "TASK_DONE" -> {
+                    if (entry.status != "success") entry.copy(status = "success") else entry
+                }
+                else -> entry
+            }
+        }
+    }
+
+    private fun mergePublishHistoryFromRemoteTasks(
+        existing: List<PublishHistoryEntry>,
+        remoteTasks: List<TaskSummaryDto>,
+    ): List<PublishHistoryEntry> {
+        if (remoteTasks.isEmpty()) return existing
+        val mergedByTaskId = LinkedHashMap<String, PublishHistoryEntry>()
+        existing.forEach { entry ->
+            val taskId = entry.taskId.trim()
+            if (taskId.isNotEmpty()) {
+                mergedByTaskId[taskId] = entry
+            }
+        }
+        remoteTasks.forEach { dto ->
+            val taskId = dto.taskId.trim()
+            if (taskId.isEmpty()) return@forEach
+            if (!isDeployTask(dto)) return@forEach
+            val prior = mergedByTaskId[taskId]
+            val inferred = parseDeployPrompt(dto.prompt)
+            val createdAt = prior?.createdAt ?: dto.createdAtMillis ?: System.currentTimeMillis()
+            val merged =
+                PublishHistoryEntry(
+                    id = prior?.id ?: "pub_${dto.taskId}",
+                    taskId = dto.taskId,
+                    artifactId = prior?.artifactId ?: inferred?.artifactId,
+                    artifactName = prior?.artifactName,
+                    sourceTaskId = prior?.sourceTaskId ?: inferred?.sourceTaskId,
+                    versionLabel = prior?.versionLabel ?: inferred?.versionLabel ?: "unknown",
+                    status = normalizePublishStatus(dto.status),
+                    environment = prior?.environment ?: inferred?.environment ?: "staging",
+                    endpointUrl = prior?.endpointUrl,
+                    deployRequestId = prior?.deployRequestId,
+                    createdAt = createdAt,
+                )
+            mergedByTaskId[taskId] = merged
+        }
+        return mergedByTaskId.values.sortedByDescending { entry -> entry.createdAt }
+    }
+
+    private fun isDeployTask(dto: TaskSummaryDto): Boolean {
+        val assistant = dto.assistant?.trim()?.lowercase()
+        val profile = dto.agentProfile?.trim()?.lowercase()
+        if (assistant == "deployer" || profile == "deployer") return true
+        val prompt = dto.prompt?.trim()?.lowercase().orEmpty()
+        return prompt.startsWith("deploy ")
+    }
+
+    private data class ParsedDeployPrompt(
+        val artifactId: String? = null,
+        val environment: String? = null,
+        val versionLabel: String? = null,
+        val sourceTaskId: String? = null,
+    )
+
+    private fun parseDeployPrompt(prompt: String?): ParsedDeployPrompt? {
+        val text = prompt?.trim().orEmpty()
+        if (text.isEmpty()) return null
+        val regex =
+            Regex(
+                pattern =
+                    "^Deploy artifact\\s+(.+?)\\s+to\\s+(.+?)\\s+with version\\s+(.+?)(?:\\s*\\(sourceTaskId=(.+?)\\))?$",
+                options = setOf(RegexOption.IGNORE_CASE),
+            )
+        val match = regex.matchEntire(text) ?: return null
+        val artifactId = match.groupValues.getOrNull(1)?.trim().orEmpty().ifBlank { null }
+        val environment = match.groupValues.getOrNull(2)?.trim().orEmpty().ifBlank { null }
+        val versionLabel = match.groupValues.getOrNull(3)?.trim().orEmpty().ifBlank { null }
+        val sourceTaskId = match.groupValues.getOrNull(4)?.trim().orEmpty().ifBlank { null }
+        return ParsedDeployPrompt(
+            artifactId = artifactId,
+            environment = environment,
+            versionLabel = versionLabel,
+            sourceTaskId = sourceTaskId,
+        )
+    }
+
     private fun stringValue(payload: JsonObject, vararg keys: String): String? {
         for (key in keys) {
             val primitive = payload[key] as? JsonPrimitive ?: continue
@@ -852,6 +1514,42 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             primitive.contentOrNull?.trim()?.toLongOrNull()?.let { return it }
         }
         return null
+    }
+
+    private fun seedRemoteStatusMemory(tasks: List<TaskItem>, publishHistory: List<PublishHistoryEntry>) {
+        lastRemoteStatusByTaskId.clear()
+        tasks
+            .asSequence()
+            .filter { it.source == TaskSource.REMOTE }
+            .forEach { task ->
+                lastRemoteStatusByTaskId[task.id] = statusFromTask(task.status)
+            }
+        publishHistory.forEach { entry ->
+            val taskId = entry.taskId.trim()
+            if (taskId.isNotEmpty() && !lastRemoteStatusByTaskId.containsKey(taskId)) {
+                lastRemoteStatusByTaskId[taskId] = normalizePublishStatus(entry.status)
+            }
+        }
+    }
+
+    private fun statusFromTask(status: TaskStatus): String =
+        when (status) {
+            TaskStatus.QUEUED -> "queued"
+            TaskStatus.RUNNING -> "running"
+            TaskStatus.SUCCEEDED -> "success"
+            TaskStatus.FAILED -> "failed"
+        }
+
+    private fun isFailureStatus(status: String): Boolean =
+        status in setOf("failed", "canceled", "rejected", "error")
+
+    private fun rememberNotificationKey(key: String): Boolean {
+        if (recentNotificationKeys.contains(key)) return false
+        recentNotificationKeys.addLast(key)
+        while (recentNotificationKeys.size > maxRecentNotificationKeys) {
+            recentNotificationKeys.removeFirst()
+        }
+        return true
     }
 
     private fun startLocalProgressTicker() {
@@ -891,14 +1589,21 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 val sess = st.session ?: continue
                 if (base.isEmpty()) continue
                 val activeSubscribedTask = subscribedTaskId
-                val remote =
-                    st.tasks.filter {
-                        it.source == TaskSource.REMOTE &&
-                            it.id != activeSubscribedTask
-                    }
-                if (remote.isEmpty()) continue
-                for (t in remote) {
-                    val r = ControlPlaneClient.getTask(base, sess.accessToken, t.id)
+                val remoteTaskIds = LinkedHashSet<String>()
+                st.tasks
+                    .asSequence()
+                    .filter { it.source == TaskSource.REMOTE }
+                    .map { it.id.trim() }
+                    .filter { it.isNotEmpty() && it != activeSubscribedTask }
+                    .forEach { remoteTaskIds += it }
+                st.publishHistory
+                    .asSequence()
+                    .map { it.taskId.trim() }
+                    .filter { it.isNotEmpty() && it != activeSubscribedTask }
+                    .forEach { remoteTaskIds += it }
+                if (remoteTaskIds.isEmpty()) continue
+                for (taskId in remoteTaskIds) {
+                    val r = ControlPlaneClient.getTask(base, sess.accessToken, taskId)
                     if (r.isSuccess) {
                         mergeRemoteTask(r.getOrThrow())
                     }
@@ -909,24 +1614,38 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     private suspend fun mergeRemoteTask(dto: TaskSummaryDto) {
         val (st, prog) = mapServerStatus(dto.status)
+        val normalizedIncomingStatus = normalizePublishStatus(dto.status)
+        val previousRemoteStatus = lastRemoteStatusByTaskId[dto.taskId]
+        var publishHistoryChanged = false
         _uiState.update { state ->
+            val taskExists = state.tasks.any { it.id == dto.taskId }
             val next =
-                state.tasks.map { t ->
-                    if (t.id != dto.taskId) return@map t
-                    val statusLine = "控制面: ${dto.status}"
-                    val newLogs =
-                        if (t.logs.lastOrNull() == statusLine) {
-                            t.logs
-                        } else {
-                            (t.logs + statusLine).takeLast(40)
-                        }
-                    t.copy(
-                        status = st,
-                        progress = prog,
-                        prompt = dto.prompt ?: t.prompt,
-                        logs = newLogs,
-                        updatedAt = System.currentTimeMillis(),
-                    )
+                if (taskExists) {
+                    state.tasks.map { t ->
+                        if (t.id != dto.taskId) return@map t
+                        val statusLine = "Control-plane status: ${dto.status}"
+                        val newLogs =
+                            if (t.logs.lastOrNull() == statusLine) {
+                                t.logs
+                            } else {
+                                (t.logs + statusLine).takeLast(40)
+                            }
+                        t.copy(
+                            status = st,
+                            progress = prog,
+                            prompt = dto.prompt ?: t.prompt,
+                            logs = newLogs,
+                            updatedAt = System.currentTimeMillis(),
+                        )
+                    }
+                } else {
+                    val fallbackProjectId =
+                        dto.projectId?.trim()?.takeIf { it.isNotEmpty() }
+                            ?: state.selectedProjectId
+                            ?: state.dynamicProjects.firstOrNull()?.id
+                            ?: mockProjects.first().id
+                    val fallbackPrompt = dto.prompt?.trim()?.takeIf { it.isNotEmpty() } ?: "Remote task ${dto.taskId}"
+                    listOf(mapServerToTaskItem(dto, fallbackProjectId, fallbackPrompt)) + state.tasks
                 }
             val incomingProjectId = dto.projectId?.trim().orEmpty()
             val hasIncomingProject =
@@ -938,15 +1657,269 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 } else {
                     state.dynamicProjects
                 }
-            state.copy(tasks = next, dynamicProjects = mergedProjects)
+            val mergedHistory = updatePublishHistoryFromSummary(state.publishHistory, dto)
+            publishHistoryChanged = mergedHistory != state.publishHistory
+            state.copy(
+                tasks = next,
+                dynamicProjects = mergedProjects,
+                publishHistory = mergedHistory,
+            )
         }
-        persistTasks(_uiState.value.tasks)
+        lastRemoteStatusByTaskId[dto.taskId] = normalizedIncomingStatus
+        val notificationsEnabled = _uiState.value.notificationsEnabled
+        if (notificationsEnabled && previousRemoteStatus != null && previousRemoteStatus != normalizedIncomingStatus) {
+            val promptLabel = dto.prompt?.trim()?.takeIf { it.isNotEmpty() } ?: "Task ${dto.taskId}"
+            when {
+                normalizedIncomingStatus == "waiting_approval" -> {
+                    val key = "approval:remote:${dto.taskId}:$normalizedIncomingStatus"
+                    if (rememberNotificationKey(key)) {
+                        taskNotificationCenter.notifyApprovalRequired(
+                            taskId = dto.taskId,
+                            message = "$promptLabel is waiting for approval.",
+                        )
+                    }
+                }
+                normalizedIncomingStatus == "success" -> {
+                    val key = "done:remote:${dto.taskId}:$normalizedIncomingStatus"
+                    if (rememberNotificationKey(key)) {
+                        taskNotificationCenter.notifyTaskDone(
+                            taskId = dto.taskId,
+                            message = "$promptLabel completed.",
+                        )
+                    }
+                }
+                isFailureStatus(normalizedIncomingStatus) && !isFailureStatus(previousRemoteStatus) -> {
+                    val key = "failed:remote:${dto.taskId}:$normalizedIncomingStatus"
+                    if (rememberNotificationKey(key)) {
+                        taskNotificationCenter.notifyTaskFailed(
+                            taskId = dto.taskId,
+                            message = "$promptLabel failed with status $normalizedIncomingStatus.",
+                        )
+                    }
+                }
+            }
+        }
+        if (publishHistoryChanged) {
+            persistAll()
+        } else {
+            persistTasks(_uiState.value.tasks)
+        }
     }
 
     override fun onCleared() {
         unsubscribeTaskEvents()
         _pendingApproval.value = null
+        lastRemoteStatusByTaskId.clear()
+        recentNotificationKeys.clear()
+        runCatching { taskEventCacheDatabase.close() }
         super.onCleared()
+    }
+}
+
+@Entity(tableName = "task_event_cache")
+private data class TaskEventCacheEntity(
+    @PrimaryKey
+    val stableKey: String,
+    val taskId: String,
+    val eventId: String?,
+    val type: String?,
+    val payloadJson: String,
+    val seq: Long,
+    val timestamp: String?,
+    val eventVersion: Int,
+    val storedAt: Long,
+)
+
+private fun TaskEventCacheEntity.toTaskEventDto(json: Json): TaskEventDto? {
+    val normalizedTaskId = taskId.trim()
+    if (normalizedTaskId.isEmpty()) return null
+    val payload =
+        runCatching {
+            json.decodeFromString(JsonObject.serializer(), payloadJson)
+        }.getOrElse {
+            JsonObject(emptyMap())
+        }
+    return TaskEventDto(
+        eventId = eventId,
+        taskId = normalizedTaskId,
+        type = type,
+        payload = payload,
+        seq = seq,
+        timestamp = timestamp,
+        eventVersion = eventVersion,
+    )
+}
+
+@Dao
+private interface TaskEventCacheDao {
+    @Query(
+        """
+        SELECT * FROM task_event_cache
+        WHERE taskId = :taskId
+        ORDER BY seq ASC, storedAt ASC
+        LIMIT :limit
+        """,
+    )
+    suspend fun listByTaskId(taskId: String, limit: Int): List<TaskEventCacheEntity>
+
+    @Query(
+        """
+        SELECT * FROM task_event_cache
+        WHERE taskId IN (:taskIds)
+        ORDER BY taskId ASC, seq ASC, storedAt ASC
+        """,
+    )
+    suspend fun listByTaskIds(taskIds: List<String>): List<TaskEventCacheEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertAll(rows: List<TaskEventCacheEntity>)
+
+    @Query(
+        """
+        DELETE FROM task_event_cache
+        WHERE taskId = :taskId
+          AND stableKey NOT IN (
+            SELECT stableKey
+            FROM task_event_cache
+            WHERE taskId = :taskId
+            ORDER BY seq DESC, storedAt DESC
+            LIMIT :limit
+          )
+        """,
+    )
+    suspend fun pruneTask(taskId: String, limit: Int)
+
+    @Query(
+        """
+        DELETE FROM task_event_cache
+        WHERE stableKey NOT IN (
+            SELECT stableKey
+            FROM task_event_cache
+            ORDER BY storedAt DESC
+            LIMIT :limit
+        )
+        """,
+    )
+    suspend fun pruneGlobal(limit: Int)
+}
+
+@Database(
+    entities = [TaskEventCacheEntity::class],
+    version = 1,
+    exportSchema = false,
+)
+private abstract class TaskEventCacheDatabase : RoomDatabase() {
+    abstract fun taskEventCacheDao(): TaskEventCacheDao
+}
+
+private class TaskNotificationCenter(
+    private val application: Application,
+) {
+    fun notifyApprovalRequired(taskId: String, message: String) {
+        showNotification(
+            channelId = CHANNEL_APPROVALS,
+            notificationId = "approval:$taskId:$message".hashCode(),
+            title = "Approval Required",
+            message = message.ifBlank { "Task $taskId is waiting for approval." },
+            priority = NotificationCompat.PRIORITY_HIGH,
+            category = NotificationCompat.CATEGORY_RECOMMENDATION,
+        )
+    }
+
+    fun notifyTaskDone(taskId: String, message: String) {
+        showNotification(
+            channelId = CHANNEL_TASK_UPDATES,
+            notificationId = "done:$taskId:$message".hashCode(),
+            title = "Task Completed",
+            message = message.ifBlank { "Task $taskId completed successfully." },
+            priority = NotificationCompat.PRIORITY_DEFAULT,
+            category = NotificationCompat.CATEGORY_STATUS,
+        )
+    }
+
+    fun notifyTaskFailed(taskId: String, message: String) {
+        showNotification(
+            channelId = CHANNEL_TASK_UPDATES,
+            notificationId = "failed:$taskId:$message".hashCode(),
+            title = "Task Failed",
+            message = message.ifBlank { "Task $taskId failed. Open the app for details." },
+            priority = NotificationCompat.PRIORITY_HIGH,
+            category = NotificationCompat.CATEGORY_ERROR,
+        )
+    }
+
+    private fun showNotification(
+        channelId: String,
+        notificationId: Int,
+        title: String,
+        message: String,
+        priority: Int,
+        category: String,
+    ) {
+        if (!canPostNotifications()) return
+        ensureChannels()
+
+        val openAppIntent =
+            Intent(application, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            }
+        val pendingFlags =
+            PendingIntent.FLAG_UPDATE_CURRENT or
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0
+        val pendingIntent = PendingIntent.getActivity(application, notificationId, openAppIntent, pendingFlags)
+
+        val notification =
+            NotificationCompat
+                .Builder(application, channelId)
+                .setSmallIcon(android.R.drawable.stat_notify_more)
+                .setContentTitle(title)
+                .setContentText(message)
+                .setStyle(NotificationCompat.BigTextStyle().bigText(message))
+                .setAutoCancel(true)
+                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                .setPriority(priority)
+                .setCategory(category)
+                .setContentIntent(pendingIntent)
+                .build()
+
+        NotificationManagerCompat.from(application).notify(notificationId, notification)
+    }
+
+    private fun ensureChannels() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        val manager = application.getSystemService(NotificationManager::class.java) ?: return
+
+        val approvalsChannel =
+            NotificationChannel(
+                CHANNEL_APPROVALS,
+                "Task Approvals",
+                NotificationManager.IMPORTANCE_HIGH,
+            ).apply {
+                description = "Approval required notifications for agent tasks"
+            }
+        val taskUpdatesChannel =
+            NotificationChannel(
+                CHANNEL_TASK_UPDATES,
+                "Task Updates",
+                NotificationManager.IMPORTANCE_DEFAULT,
+            ).apply {
+                description = "Task completion and failure notifications"
+            }
+        manager.createNotificationChannel(approvalsChannel)
+        manager.createNotificationChannel(taskUpdatesChannel)
+    }
+
+    private fun canPostNotifications(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return true
+        return ContextCompat.checkSelfPermission(
+            application,
+            Manifest.permission.POST_NOTIFICATIONS,
+        ) == PackageManager.PERMISSION_GRANTED
+    }
+
+    private companion object {
+        private const val CHANNEL_APPROVALS = "agent_task_approvals"
+        private const val CHANNEL_TASK_UPDATES = "agent_task_updates"
     }
 }
 

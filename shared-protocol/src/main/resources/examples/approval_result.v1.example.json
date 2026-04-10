@@ -10,6 +10,9 @@
   "payload": {
     "approvalId": "apr_01HQ9APR001",
     "decision": "approve",
+    "traceId": "trc_task_123",
+    "runId": "run_01HQ9APRREQ001",
+    "waitMs": 1200,
     "message": "approved by operator_001",
     "context": {
       "action": "app.publish",

@@ -10,6 +10,8 @@
   "payload": {
     "requestId": "deploy_req_test_001",
     "environment": "staging",
+    "traceId": "trc_task_test_123",
+    "runId": "run_test_deploy_001",
     "artifact": {
       "artifactId": "art_zip_test_001",
       "name": "export.zip",

@@ -20,6 +20,8 @@ class BuildPayloadSerdeTest {
             JsonNode payloadNode = root.get("payload");
             assertNotNull(payloadNode);
             BuildStartedPayload payload = MAPPER.treeToValue(payloadNode, BuildStartedPayload.class);
+            assertEquals("trc_task_test_123", payload.getTraceId());
+            assertEquals("run_test_build_001", payload.getRunId());
             assertEquals("build_test_001", payload.getBuildId());
             assertEquals("build.run", payload.getTool());
             assertEquals("web", payload.getTarget());
@@ -34,6 +36,8 @@ class BuildPayloadSerdeTest {
             JsonNode payloadNode = root.get("payload");
             assertNotNull(payloadNode);
             BuildLogPayload payload = MAPPER.treeToValue(payloadNode, BuildLogPayload.class);
+            assertEquals("trc_task_test_123", payload.getTraceId());
+            assertEquals("run_test_build_001", payload.getRunId());
             assertEquals("build_test_001", payload.getBuildId());
             assertEquals("info", payload.getLevel());
             assertEquals("vite build", payload.getMessage());
@@ -48,6 +52,8 @@ class BuildPayloadSerdeTest {
             JsonNode payloadNode = root.get("payload");
             assertNotNull(payloadNode);
             BuildDonePayload payload = MAPPER.treeToValue(payloadNode, BuildDonePayload.class);
+            assertEquals("trc_task_test_123", payload.getTraceId());
+            assertEquals("run_test_build_001", payload.getRunId());
             assertEquals("build_test_001", payload.getBuildId());
             assertEquals("success", payload.getStatus());
             assertEquals(9000L, payload.getDurationMs());

@@ -147,13 +147,14 @@ public class AgentConfig {
 
         public static ClientTls fromEnv() {
             String ks = readEnv("MVP_AGENT_TLS_KEYSTORE_PATH", "");
-            if (ks == null || ks.isBlank()) {
+            String trust = readEnv("MVP_AGENT_TLS_TRUSTSTORE_PATH", "");
+            String keyPath = (ks == null || ks.isBlank()) ? null : ks.trim();
+            String trustPath = (trust == null || trust.isBlank()) ? null : trust.trim();
+            if (keyPath == null && trustPath == null) {
                 return DISABLED;
             }
-            String trust = readEnv("MVP_AGENT_TLS_TRUSTSTORE_PATH", "");
-            String trustPath = (trust == null || trust.isBlank()) ? null : trust.trim();
             return new ClientTls(
-                    ks.trim(),
+                    keyPath,
                     readEnv("MVP_AGENT_TLS_KEYSTORE_PASSWORD", ""),
                     readEnv("MVP_AGENT_TLS_KEYSTORE_TYPE", "PKCS12"),
                     trustPath,
@@ -163,7 +164,8 @@ public class AgentConfig {
 
         /**
          * Override TLS settings from a {@code .properties} file (same keys as env). Unset keys keep {@code base} values.
-         * Blank {@code MVP_AGENT_TLS_KEYSTORE_PATH} explicitly disables mTLS key material.
+         * Blank {@code MVP_AGENT_TLS_KEYSTORE_PATH} disables client-certificate key material while still allowing a
+         * truststore-only TLS configuration.
          */
         public static ClientTls mergeFromProperties(ClientTls base, Properties props) {
             ClientTls b = base != null ? base : DISABLED;
@@ -172,7 +174,9 @@ public class AgentConfig {
             }
 
             String keyStorePath = overridePath(props, "MVP_AGENT_TLS_KEYSTORE_PATH", b.keyStorePath);
-            if (keyStorePath == null || keyStorePath.isBlank()) {
+            String trustStorePath = overridePath(props, "MVP_AGENT_TLS_TRUSTSTORE_PATH", b.trustStorePath);
+            if ((keyStorePath == null || keyStorePath.isBlank())
+                    && (trustStorePath == null || trustStorePath.isBlank())) {
                 return DISABLED;
             }
 
@@ -180,7 +184,7 @@ public class AgentConfig {
                     keyStorePath,
                     overrideText(props, "MVP_AGENT_TLS_KEYSTORE_PASSWORD", b.keyStorePassword),
                     overrideText(props, "MVP_AGENT_TLS_KEYSTORE_TYPE", b.keyStoreType),
-                    overridePath(props, "MVP_AGENT_TLS_TRUSTSTORE_PATH", b.trustStorePath),
+                    trustStorePath,
                     overrideText(props, "MVP_AGENT_TLS_TRUSTSTORE_PASSWORD", b.trustStorePassword),
                     overrideText(props, "MVP_AGENT_TLS_TRUSTSTORE_TYPE", b.trustStoreType));
         }
@@ -212,6 +216,14 @@ public class AgentConfig {
 
         public boolean isKeyMaterialConfigured() {
             return keyStorePath != null && !keyStorePath.isBlank();
+        }
+
+        public boolean isTrustMaterialConfigured() {
+            return trustStorePath != null && !trustStorePath.isBlank();
+        }
+
+        public boolean isTlsConfigured() {
+            return isKeyMaterialConfigured() || isTrustMaterialConfigured();
         }
 
         public String getKeyStorePath() {

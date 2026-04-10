@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autocode.example/schema/events/v1/task_created.v1.schema.json",
+  "title": "TASK_CREATED TaskEvent v1",
+  "allOf": [
+    { "$ref": "task_event.v1.schema.json" },
+    {
+      "type": "object",
+      "properties": {
+        "type": { "const": "TASK_CREATED" },
+        "payload": {
+          "type": "object",
+          "required": ["projectId"],
+          "properties": {
+            "projectId": { "type": "string", "minLength": 1 },
+            "assistant": { "type": "string" },
+            "riskPolicy": { "type": "string" }
+          },
+          "additionalProperties": true
+        }
+      }
+    }
+  ]
+}

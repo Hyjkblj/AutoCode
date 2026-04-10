@@ -20,11 +20,22 @@ class TaskFailedPayloadSerdeTest {
             JsonNode payloadNode = root.get("payload");
             assertNotNull(payloadNode);
             TaskFailedPayload payload = MAPPER.treeToValue(payloadNode, TaskFailedPayload.class);
-            assertEquals("unsupported_target", payload.getReason());
-            assertEquals("NL2WEB_UNSUPPORTED_TARGET", payload.getErrorCode());
+            assertEquals("fix_loop_exhausted", payload.getReason());
+            assertEquals("FIX_LOOP_EXHAUSTED", payload.getErrorCode());
+            assertEquals("code_change_pipeline", payload.getPlanName());
+            assertEquals("failed", payload.getStatus());
             assertEquals("trc_task_test_123", payload.getTraceId());
-            assertEquals("run_test_nl2web_001", payload.getRunId());
+            assertEquals("run_test_001", payload.getRunId());
         }
+    }
+
+    @Test
+    void task_failed_payload_exposes_nl2web_reason_constants() {
+        assertEquals("unsupported_target", TaskFailedPayload.REASON_UNSUPPORTED_TARGET);
+        assertEquals("template_generation_failed", TaskFailedPayload.REASON_TEMPLATE_GENERATION_FAILED);
+        assertEquals("artifact_pack_failed", TaskFailedPayload.REASON_ARTIFACT_PACK_FAILED);
+        assertEquals("artifact_publish_failed", TaskFailedPayload.REASON_ARTIFACT_PUBLISH_FAILED);
+        assertEquals("event_publish_failed", TaskFailedPayload.REASON_EVENT_PUBLISH_FAILED);
     }
 }
 

@@ -99,6 +99,65 @@ class TaskExecutorRuntimeMetadataTest {
         assertEquals("DB_URL", descriptor.getEnvironment().get(1).getName());
     }
 
+    @Test
+    void runtimeDescriptorBuildsFromRuntimePortsList() {
+        Map<String, String> env = new HashMap<>();
+        env.put("MVP_RUNTIME_SERVICE_ID", "control-plane-api");
+        env.put("MVP_RUNTIME_PORTS", "http:8081:http,grpc:9090:grpc");
+        env.put("MVP_RUNTIME_HEALTH_PATH", "/actuator/health");
+
+        ServiceRuntimeDescriptor descriptor = TaskExecutor.buildRuntimeDescriptor(
+                task("task_4"),
+                "mvn test",
+                "D:/workspace",
+                env
+        );
+
+        assertNotNull(descriptor);
+        assertNotNull(descriptor.getPorts());
+        assertEquals(2, descriptor.getPorts().size());
+        assertEquals("http", descriptor.getPorts().get(0).getName());
+        assertEquals(8081, descriptor.getPorts().get(0).getPort());
+        assertEquals("grpc", descriptor.getPorts().get(1).getName());
+        assertEquals(9090, descriptor.getPorts().get(1).getPort());
+        assertEquals("http", descriptor.getHealthCheck().getPortName());
+    }
+
+    @Test
+    void runDescriptorHealthHintUsesRuntimePortsListWhenSinglePortAbsent() {
+        Map<String, String> env = new HashMap<>();
+        env.put("MVP_RUNTIME_PORTS", "http:8081:http");
+        env.put("MVP_RUNTIME_HEALTH_PATH", "healthz");
+
+        ArtifactMetadata.RunDescriptor run = TaskExecutor.buildRunDescriptor(
+                null,
+                "mvn test",
+                env
+        );
+
+        assertNotNull(run);
+        assertNotNull(run.getHints());
+        assertTrue(run.getHints().contains("http://127.0.0.1:8081/healthz"));
+    }
+
+    @Test
+    void runDescriptorHealthHintFallsBackToRuntimePortsWhenSinglePortInvalid() {
+        Map<String, String> env = new HashMap<>();
+        env.put("MVP_RUNTIME_PORT", "not-a-port");
+        env.put("MVP_RUNTIME_PORTS", "http:8081:http");
+        env.put("MVP_RUNTIME_HEALTH_PATH", "healthz");
+
+        ArtifactMetadata.RunDescriptor run = TaskExecutor.buildRunDescriptor(
+                null,
+                "mvn test",
+                env
+        );
+
+        assertNotNull(run);
+        assertNotNull(run.getHints());
+        assertTrue(run.getHints().contains("http://127.0.0.1:8081/healthz"));
+    }
+
     private static TaskSummary task(String taskId) {
         TaskSummary task = new TaskSummary();
         task.setTaskId(taskId);

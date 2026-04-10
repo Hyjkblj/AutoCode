@@ -32,6 +32,8 @@ class IntentAgent:
             return IntentDecision(backend=backend, intent="deploy", confidence=0.9, reason="deploy keywords")
         if any(word in normalized for word in ("test", "pytest", "mvn test")):
             return IntentDecision(backend=backend, intent="test", confidence=0.82, reason="test keywords")
+        if any(word in normalized for word in ("web", "html", "website", "page")):
+            return IntentDecision(backend=backend, intent="code_change", confidence=0.88, reason="web generation keywords")
         if any(word in normalized for word in ("fix", "refactor", "code", "implement")):
             return IntentDecision(backend=backend, intent="code_change", confidence=0.86, reason="coding keywords")
         return IntentDecision(backend=backend, intent="analyze", confidence=0.68, reason="default heuristic")

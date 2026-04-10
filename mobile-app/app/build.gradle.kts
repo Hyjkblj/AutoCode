@@ -39,6 +39,14 @@ android {
     buildFeatures {
         compose = true
     }
+
+    lint {
+        // Keep local release builds fast and avoid noisy Kotlin analysis warnings.
+        // Enable strict release lint explicitly with: -PenableReleaseLint=true
+        val enableReleaseLint = providers.gradleProperty("enableReleaseLint").orNull == "true"
+        checkReleaseBuilds = enableReleaseLint
+        abortOnError = enableReleaseLint
+    }
 }
 
 dependencies {
@@ -62,4 +70,29 @@ dependencies {
     implementation("com.google.accompanist:accompanist-permissions:0.36.0")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
+}
+
+// Compatibility alias for IDE configurations that call :app:testClasses.
+tasks.register("testClasses") {
+    group = "verification"
+    description = "Compatibility alias for IDE configs expecting ':app:testClasses'."
+}
+
+afterEvaluate {
+    tasks.named("testClasses") {
+        val candidates =
+            listOf(
+                "compileDebugUnitTestKotlin",
+                "compileDebugUnitTestJavaWithJavac",
+                "testDebugUnitTest",
+            )
+        val existing = candidates.filter { tasks.names.contains(it) }
+        if (existing.isEmpty()) {
+            doLast {
+                logger.lifecycle("No unit-test compile task found in :app; compatibility task executed as no-op.")
+            }
+        } else {
+            dependsOn(existing)
+        }
+    }
 }

@@ -1,0 +1,18 @@
+$env:MVP_DB_URL = "jdbc:mysql://127.0.0.1:3306/mvp_codeops?useUnicode=true&characterEncoding=utf8&serverTimezone=UTC"
+$env:MVP_DB_USERNAME = "root"
+$env:MVP_DB_PASSWORD = "000000"
+
+$env:MVP_REDIS_HOST = "192.168.88.130"
+$env:MVP_REDIS_PORT = "6379"
+$env:MVP_REDIS_PASSWORD = "000000"
+$env:MVP_REDIS_URL = "redis://:000000@192.168.88.130:6379/0"
+$env:MVP_OPERATOR_TOKEN = "operator-dev-token"
+$env:MVP_AGENT_TOKEN = "agent-dev-token"
+$env:MVP_TRACING_ENABLED = "false"
+
+Write-Host "Local environment variables have been set for this PowerShell session."
+Write-Host "MVP_DB_URL=$env:MVP_DB_URL"
+Write-Host "MVP_REDIS_HOST=$env:MVP_REDIS_HOST"
+Write-Host "MVP_OPERATOR_TOKEN=$env:MVP_OPERATOR_TOKEN"
+Write-Host "MVP_AGENT_TOKEN=$env:MVP_AGENT_TOKEN"
+Write-Host "MVP_TRACING_ENABLED=$env:MVP_TRACING_ENABLED"

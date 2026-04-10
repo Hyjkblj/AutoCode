@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from typing import Any
 
 from agents.base_agent import BaseAgent
 from agents.coder_agent import CoderAgent
-from agents.intent_agent import IntentAgent
+from agents.intent_agent import IntentAgent, IntentDecision
 from agents.planner_agent import PlanResult, PlannerAgent
 from agents.reviewer_agent import ReviewResult, ReviewerAgent
 from agents.tester_agent import TesterAgent, TesterResult
@@ -13,6 +14,7 @@ from client.control_plane_client import ControlPlaneClient
 from memory.redis_memory import RedisMemory
 from orchestrator.dag_scheduler import DagNode, DagScheduler
 from tools.exec_tool import ExecResult, ExecTool
+from utils.artifact_utils import ArtifactBundle, build_export_zip
 
 
 class AgentOrchestrator(BaseAgent):
@@ -44,6 +46,30 @@ class AgentOrchestrator(BaseAgent):
         history = self.memory_store.recent(project_key, limit=5)
         hints = _build_memory_hints(history)
         _apply_memory_hints(working_task, hints)
+        _normalize_generation_target(working_task)
+        target = str(working_task.get("target", "")).strip().lower()
+
+        if target and target != "web":
+            self.publish_event(
+                working_task,
+                client,
+                "TASK_FAILED",
+                {
+                    "reason": "unsupported_target",
+                    "target": target,
+                    "supportedTargets": ["web"],
+                },
+            )
+            self.memory_store.append(
+                project_key,
+                {
+                    "intent": "code_change",
+                    "status": "failed",
+                    "reason": "unsupported_target",
+                    "target": target,
+                },
+            )
+            return
 
         if history:
             self.publish_event(
@@ -62,6 +88,13 @@ class AgentOrchestrator(BaseAgent):
 
         prompt = str(working_task.get("prompt", "")).strip()
         decision = self.intent_agent.infer(prompt)
+        if target == "web" and decision.intent != "code_change":
+            decision = IntentDecision(
+                backend=decision.backend,
+                intent="code_change",
+                confidence=max(decision.confidence, 0.75),
+                reason="target=web forces code_change pipeline",
+            )
         self.publish_event(
             working_task,
             client,
@@ -277,7 +310,30 @@ class AgentOrchestrator(BaseAgent):
                 "testCommand": test.command,
             }
 
-        self.publish_event(task, client, "TASK_DONE", _build_code_change_done_payload(plan.plan_name, review, test))
+        artifact: dict[str, Any] | None = None
+        if _is_web_generation_task(task):
+            try:
+                artifact = self._publish_web_artifact(task, client)
+            except Exception as exc:  # noqa: BLE001
+                self.publish_event(
+                    task,
+                    client,
+                    "TASK_FAILED",
+                    {
+                        "reason": "artifact_publish_failed",
+                        "detail": str(exc),
+                        "planName": plan.plan_name,
+                    },
+                )
+                return {
+                    "intent": "code_change",
+                    "planName": plan.plan_name,
+                    "status": "failed",
+                    "reason": "artifact_publish_failed",
+                    "detail": str(exc),
+                }
+
+        self.publish_event(task, client, "TASK_DONE", _build_code_change_done_payload(plan.plan_name, review, test, artifact))
         return {
             "intent": "code_change",
             "planName": plan.plan_name,
@@ -288,7 +344,33 @@ class AgentOrchestrator(BaseAgent):
             "testCommand": test.command,
             "traceId": test.trace_id,
             "runId": test.run_id,
+            "artifactId": artifact.get("artifactId") if artifact else None,
         }
+
+    def _publish_web_artifact(self, task: dict[str, Any], client: ControlPlaneClient) -> dict[str, Any]:
+        workspace = _resolve_workspace(task)
+        generated_files = _resolve_generated_files(task, workspace)
+        bundle = build_export_zip(workspace, generated_files, file_name="export.zip")
+        uploaded = self._try_upload_artifact(task, client, bundle)
+        payload = _build_artifact_ready_payload(bundle, uploaded)
+        self.publish_event(task, client, "ARTIFACT_READY", payload)
+        return payload["artifact"]
+
+    @staticmethod
+    def _try_upload_artifact(task: dict[str, Any], client: ControlPlaneClient, bundle: ArtifactBundle) -> dict[str, Any] | None:
+        upload = getattr(client, "upload_artifact", None)
+        if not callable(upload):
+            return None
+        task_id = str(task.get("taskId", "")).strip()
+        if not task_id:
+            return None
+        uploaded = upload(
+            task_id,
+            str(bundle.file_path),
+            name=bundle.file_name,
+            content_type=bundle.mime_type,
+        )
+        return uploaded if isinstance(uploaded, dict) else None
 
     def _execute_with_sandbox(
         self,
@@ -441,7 +523,12 @@ def _build_done_payload(result: ExecResult, plan_name: str, intent: str) -> dict
     return payload
 
 
-def _build_code_change_done_payload(plan_name: str, review: ReviewResult, test: TesterResult) -> dict[str, Any]:
+def _build_code_change_done_payload(
+    plan_name: str,
+    review: ReviewResult,
+    test: TesterResult,
+    artifact: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "result": "coded_reviewed_tested",
         "planName": plan_name,
@@ -451,6 +538,8 @@ def _build_code_change_done_payload(plan_name: str, review: ReviewResult, test: 
         "testAttempts": test.attempts,
         "testRetries": test.retries,
     }
+    if artifact:
+        payload["artifact"] = artifact
     if test.trace_id:
         payload["traceId"] = test.trace_id
     if test.run_id:
@@ -513,3 +602,69 @@ def _failure_reason(result: ExecResult) -> str:
     if result.reason and result.reason.strip():
         return result.reason.strip()
     return "sandbox_exec_failed"
+
+
+def _is_web_generation_task(task: dict[str, Any]) -> bool:
+    target = str(task.get("target", "")).strip().lower()
+    if target:
+        return target == "web"
+    assistant = str(task.get("assistant", "")).strip().lower()
+    if assistant == "web":
+        return True
+    prompt = str(task.get("prompt", "")).strip().lower()
+    web_markers = ("web", "website", "html", "page")
+    return any(marker in prompt for marker in web_markers)
+
+
+def _normalize_generation_target(task: dict[str, Any]) -> None:
+    target = str(task.get("target", "")).strip().lower()
+    if target:
+        return
+    assistant = str(task.get("assistant", "")).strip().lower()
+    if assistant == "web":
+        task["target"] = "web"
+
+
+def _resolve_workspace(task: dict[str, Any]) -> Path:
+    raw = str(task.get("workspacePath", "")).strip()
+    if not raw:
+        raw = "."
+    return Path(raw).resolve(strict=False)
+
+
+def _resolve_generated_files(task: dict[str, Any], workspace: Path) -> list[str]:
+    files = task.get("_generated_files")
+    if isinstance(files, list):
+        normalized = [str(item).strip().replace("\\", "/") for item in files if str(item).strip()]
+        if normalized:
+            return normalized
+    defaults = ["index.html", "styles.css", "app.js", "README.generated.md"]
+    existing = [name for name in defaults if (workspace / name).exists()]
+    if existing:
+        return existing
+    raise FileNotFoundError("no generated web files available for artifact packaging")
+
+
+def _build_artifact_ready_payload(bundle: ArtifactBundle, uploaded: dict[str, Any] | None) -> dict[str, Any]:
+    payload = bundle.to_event_payload()
+    artifact = payload["artifact"]
+    if not isinstance(artifact, dict):
+        return payload
+
+    if uploaded:
+        artifact_id = str(uploaded.get("artifactId", "")).strip()
+        if artifact_id:
+            artifact["artifactId"] = artifact_id
+        name = str(uploaded.get("name", "")).strip()
+        if name:
+            artifact["name"] = name
+        content_type = str(uploaded.get("contentType", "")).strip()
+        if content_type:
+            artifact["mime"] = content_type
+        sha = str(uploaded.get("sha256", "")).strip()
+        if sha:
+            artifact["hash"] = f"sha256:{sha}"
+        size = uploaded.get("sizeBytes")
+        if isinstance(size, int) and size >= 0:
+            artifact["size"] = size
+    return payload

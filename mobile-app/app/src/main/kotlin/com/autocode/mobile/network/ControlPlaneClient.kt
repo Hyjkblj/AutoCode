@@ -77,6 +77,7 @@ object ControlPlaneClient {
                         put("projectId", projectId.trim())
                         put("prompt", prompt.trim())
                         put("assistant", assistant.trim())
+                        put("agentProfile", "ai-agent")
                         put("inputMode", "voice_text")
                         put("riskPolicy", "strict_approval")
                     }.toString()

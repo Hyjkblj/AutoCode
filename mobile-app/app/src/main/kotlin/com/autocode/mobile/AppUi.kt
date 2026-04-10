@@ -18,17 +18,16 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.Button
@@ -98,7 +97,7 @@ private sealed class Tab(
     val icon: androidx.compose.ui.graphics.vector.ImageVector,
 ) {
     data object Home : Tab("home", "首页", Icons.Filled.Home)
-    data object Tasks : Tab("tasks", "任务", Icons.Filled.List)
+    data object Tasks : Tab("tasks", "任务", Icons.AutoMirrored.Filled.List)
     data object Projects : Tab("projects", "项目", Icons.Filled.Folder)
     data object Account : Tab("account", "我的", Icons.Filled.Person)
     data object Artifacts : Tab("artifacts", "产物", Icons.Filled.AttachFile)

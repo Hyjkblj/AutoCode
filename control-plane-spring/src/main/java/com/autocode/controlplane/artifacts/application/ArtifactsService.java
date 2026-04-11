@@ -6,6 +6,7 @@ import com.autocode.controlplane.artifacts.ports.ArtifactsPort;
 import com.autocode.controlplane.artifacts.ports.AuditPort;
 import com.autocode.controlplane.artifacts.ports.DownloadAuthzPort;
 import com.autocode.controlplane.artifacts.ports.TaskReadPort;
+import com.autocode.controlplane.security.ProjectAuthz;
 import com.autocode.controlplane.security.SecurityPrincipalUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -20,17 +21,20 @@ public class ArtifactsService {
     private final DownloadAuthzPort downloadAuthzPort;
     private final AuditPort auditPort;
     private final TaskReadPort taskReadPort;
+    private final ProjectAuthz projectAuthz;
 
     public ArtifactsService(
             ArtifactsPort artifactsPort,
             DownloadAuthzPort downloadAuthzPort,
             AuditPort auditPort,
-            TaskReadPort taskReadPort
+            TaskReadPort taskReadPort,
+            ProjectAuthz projectAuthz
     ) {
         this.artifactsPort = artifactsPort;
         this.downloadAuthzPort = downloadAuthzPort;
         this.auditPort = auditPort;
         this.taskReadPort = taskReadPort;
+        this.projectAuthz = projectAuthz;
     }
 
     /**
@@ -73,6 +77,21 @@ public class ArtifactsService {
         return openWithSharedToken(taskId, artifactId, token, "artifact.preview", "preview forbidden");
     }
 
+    /**
+     * Hosted-site reader.
+     *
+     * Authorization model:
+     * - Authenticated users must still pass task membership ACL.
+     * - Anonymous users may access only with a valid shared token.
+     *
+     * We intentionally surface unauthorized access as 404 to avoid artifact enumeration.
+     */
+    @Transactional(readOnly = true)
+    public ArtifactContent openHostedSite(String taskId, String artifactId, String token) {
+        assertHostedSiteAccess(taskId, artifactId, token);
+        return artifactsPort.open(taskId, artifactId);
+    }
+
     private ArtifactContent openWithSharedToken(
             String taskId,
             String artifactId,
@@ -97,6 +116,21 @@ public class ArtifactsService {
     private String actorOrSystem() {
         String u = SecurityPrincipalUtils.currentUsernameOrNull();
         return u == null ? "operator" : u;
+    }
+
+    @Transactional(readOnly = true)
+    public void assertHostedSiteAccess(String taskId, String artifactId, String token) {
+        requireTaskExists(taskId);
+        String username = SecurityPrincipalUtils.currentUsernameOrNull();
+        if (username != null) {
+            if (!projectAuthz.canAccessTask(taskId)) {
+                throw new ArtifactNotFoundException("artifact not found");
+            }
+            return;
+        }
+        if (!downloadAuthzPort.canDownload(taskId, artifactId, token)) {
+            throw new ArtifactNotFoundException("artifact not found");
+        }
     }
 
     private void requireTaskExists(String taskId) {

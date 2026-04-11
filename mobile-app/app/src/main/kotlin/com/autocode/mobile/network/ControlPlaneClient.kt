@@ -213,6 +213,29 @@ object ControlPlaneClient {
             }
         }
 
+    suspend fun resolveArtifactSiteUrl(
+        baseUrl: String,
+        bearerToken: String,
+        taskId: String,
+        artifactId: String,
+    ): Result<ArtifactSiteUrlData> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val req =
+                    Request.Builder()
+                        .url(buildUrl(baseUrl, "/api/v1/tasks/${taskId.trim()}/artifacts/${artifactId.trim()}/site-url"))
+                        .header("Authorization", "Bearer ${bearerToken.trim()}")
+                        .get()
+                        .build()
+                client.newCall(req).execute().use { resp ->
+                    val text = resp.body?.string().orEmpty()
+                    if (resp.code == 404) error("artifact not found (404)")
+                    if (!resp.isSuccessful) error("HTTP ${resp.code}: ${text.take(300)}")
+                    parseArtifactSiteUrlEnvelope(text)
+                }
+            }
+        }
+
     suspend fun downloadArtifact(
         baseUrl: String,
         bearerToken: String,
@@ -430,6 +453,20 @@ object ControlPlaneClient {
         }
     }
 
+    private fun parseArtifactSiteUrlEnvelope(body: String): ArtifactSiteUrlData {
+        val payload = parseEnvelopePayload(body).jsonObjectOrNull()
+            ?: error("site-url response payload is not an object")
+        val url = stringValue(payload, "shareUrl", "url")
+            ?: error("site-url response missing url")
+        return ArtifactSiteUrlData(
+            url = url,
+            canonicalUrl = stringValue(payload, "url"),
+            shareUrl = stringValue(payload, "shareUrl"),
+            entryPath = stringValue(payload, "entryPath"),
+            tokenized = booleanValue(payload, "tokenized", "shared") ?: false,
+        )
+    }
+
     private fun parseTaskEventsEnvelope(responseBody: String): List<TaskEventDto> {
         val payload = parseEnvelopePayload(responseBody)
         val array =
@@ -582,4 +619,12 @@ data class ArtifactDownloadData(
     val bytes: ByteArray,
     val contentType: String?,
     val fileName: String?,
+)
+
+data class ArtifactSiteUrlData(
+    val url: String,
+    val canonicalUrl: String?,
+    val shareUrl: String?,
+    val entryPath: String?,
+    val tokenized: Boolean,
 )

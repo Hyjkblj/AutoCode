@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.http.HttpHeaders;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
@@ -18,9 +19,17 @@ import com.autocode.controlplane.persistence.repo.AuditLogRepository;
 import com.autocode.controlplane.persistence.repo.ProjectMembershipEntityRepository;
 import com.autocode.controlplane.persistence.repo.UserEntityRepository;
 
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
@@ -29,8 +38,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @SpringBootTest(properties = {
+        "mvp.auth.mode=token",
         "artifacts.download.shared-token=test-download-token",
-        "artifacts.storage.base-dir=./build/test-artifacts"
+        "artifacts.download.allow-authenticated-without-shared-token=false",
+        "artifacts.storage.base-dir=./build/test-artifacts",
+        "artifacts.hosting.base-dir=./build/test-artifacts-hosted"
 })
 @AutoConfigureMockMvc
 class ArtifactsIntegrationTest {
@@ -448,5 +460,106 @@ class ArtifactsIntegrationTest {
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.ok").value(false))
                 .andExpect(jsonPath("$.error").value("not found"));
+    }
+
+    @Test
+    void hostedSiteShouldExposeUrlAndServeStaticFilesWithSharedToken() throws Exception {
+        String createPayload = """
+                {
+                  "projectId": "proj-1",
+                  "assistant": "ai-agent",
+                  "prompt": "build a landing page"
+                }
+                """;
+
+        String createResponse = mockMvc.perform(post("/api/v1/tasks")
+                        .header("Authorization", "Bearer operator-dev-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(createPayload))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        String taskId = objectMapper.readTree(createResponse).path("payload").path("taskId").asText();
+
+        Map<String, String> files = new LinkedHashMap<>();
+        files.put("index.html", """
+                <!doctype html>
+                <html>
+                <head><link rel="stylesheet" href="styles.css"></head>
+                <body><h1>Hello AutoCode</h1><script src="app.js"></script></body>
+                </html>
+                """);
+        files.put("styles.css", "body { font-family: sans-serif; }");
+        files.put("app.js", "window.__autocode = 'ok';");
+
+        byte[] zipBytes = buildZip(files);
+        MockMultipartFile file = new MockMultipartFile(
+                "file",
+                "export.zip",
+                "application/zip",
+                zipBytes
+        );
+
+        String uploadResponse = mockMvc.perform(multipart("/api/v1/tasks/{taskId}/artifacts", taskId)
+                        .file(file)
+                        .header("X-Agent-Token", "agent-dev-token"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.ok").value(true))
+                .andReturn().getResponse().getContentAsString();
+
+        String artifactId = objectMapper.readTree(uploadResponse).path("payload").path("artifactId").asText();
+
+        mockMvc.perform(get("/api/v1/tasks/{taskId}/artifacts/{artifactId}/site/index.html", taskId, artifactId))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.ok").value(false));
+
+        String urlResponse = mockMvc.perform(get("/api/v1/tasks/{taskId}/artifacts/{artifactId}/site-url", taskId, artifactId)
+                        .header("Authorization", "Bearer operator-dev-token"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.ok").value(true))
+                .andExpect(jsonPath("$.payload.entryPath").value("index.html"))
+                .andExpect(jsonPath("$.payload.url").exists())
+                .andExpect(jsonPath("$.payload.shareUrl").exists())
+                .andReturn().getResponse().getContentAsString();
+
+        JsonNode payload = objectMapper.readTree(urlResponse).path("payload");
+        String shareUrl = payload.path("shareUrl").asText();
+        assertTrue(shareUrl.contains("token=test-download-token"));
+        int idx = shareUrl.indexOf("/api/v1/tasks/");
+        assertTrue(idx >= 0, "shareUrl should contain API path");
+        String apiPathWithQuery = shareUrl.substring(idx);
+        String indexPath = apiPathWithQuery.substring(0, apiPathWithQuery.indexOf('?'));
+
+        MvcResult indexResult = mockMvc.perform(get(indexPath)
+                        .queryParam("token", "test-download-token"))
+                .andExpect(status().isOk())
+                .andReturn();
+        String html = indexResult.getResponse().getContentAsString();
+        assertTrue(html.contains("Hello AutoCode"));
+        String setCookie = indexResult.getResponse().getHeader(HttpHeaders.SET_COOKIE);
+        assertNotNull(setCookie, "site index should set shared-token cookie");
+
+        mockMvc.perform(get("/api/v1/tasks/{taskId}/artifacts/{artifactId}/site/app.js", taskId, artifactId)
+                        .queryParam("token", "test-download-token"))
+                .andExpect(status().isOk())
+                .andExpect(result -> {
+                    String js = result.getResponse().getContentAsString();
+                    if (!js.contains("window.__autocode")) {
+                        throw new AssertionError("expected hosted js content");
+                    }
+                });
+    }
+
+    private byte[] buildZip(Map<String, String> files) throws IOException {
+        try (ByteArrayOutputStream out = new ByteArrayOutputStream();
+             ZipOutputStream zip = new ZipOutputStream(out, StandardCharsets.UTF_8)) {
+            for (Map.Entry<String, String> entry : files.entrySet()) {
+                zip.putNextEntry(new ZipEntry(entry.getKey()));
+                zip.write(entry.getValue().getBytes(StandardCharsets.UTF_8));
+                zip.closeEntry();
+            }
+            zip.finish();
+            return out.toByteArray();
+        }
     }
 }

@@ -1443,6 +1443,9 @@ private fun ArtifactDetailScreen(
     var preview by remember { mutableStateOf<ArtifactPreview?>(null) }
     var previewErr by remember { mutableStateOf<String?>(null) }
     var previewLoading by remember { mutableStateOf(false) }
+    var accessUrl by remember { mutableStateOf<ArtifactAccessUrl?>(null) }
+    var accessUrlErr by remember { mutableStateOf<String?>(null) }
+    var accessUrlLoading by remember { mutableStateOf(false) }
     var versionLabel by rememberSaveable(taskId, artifactId) { mutableStateOf(defaultVersionLabel()) }
     var environment by rememberSaveable(taskId, artifactId) { mutableStateOf("staging") }
     var publishSubmitting by remember { mutableStateOf(false) }
@@ -1455,6 +1458,9 @@ private fun ArtifactDetailScreen(
         preview = null
         previewErr = null
         previewLoading = false
+        accessUrl = null
+        accessUrlErr = null
+        accessUrlLoading = false
         versionLabel = defaultVersionLabel()
         environment = "staging"
         publishSubmitting = false
@@ -1509,6 +1515,54 @@ private fun ArtifactDetailScreen(
             Text("sizeBytes：${a.sizeBytes ?: "—"}")
             Text("sha256：${a.sha256 ?: "—"}", fontFamily = FontFamily.Monospace)
             Spacer(Modifier.height(20.dp))
+            Text(
+                "在线访问入口：将产物托管到服务器并生成可访问 URL。",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Spacer(Modifier.height(8.dp))
+            Button(
+                onClick = {
+                    scope.launch {
+                        accessUrlLoading = true
+                        accessUrlErr = null
+                        accessUrl = null
+                        vm.resolveArtifactAccessUrl(taskId, a).fold(
+                            onSuccess = { accessUrl = it },
+                            onFailure = { accessUrlErr = it.message ?: "生成 URL 失败" },
+                        )
+                        accessUrlLoading = false
+                    }
+                },
+                enabled = !accessUrlLoading,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(if (accessUrlLoading) "生成中..." else "生成访问 URL")
+            }
+            accessUrlErr?.let {
+                Spacer(Modifier.height(8.dp))
+                Text(it, color = MaterialTheme.colorScheme.error)
+            }
+            accessUrl?.let { link ->
+                Spacer(Modifier.height(10.dp))
+                Text("访问 URL：", style = MaterialTheme.typography.bodySmall)
+                Text(
+                    link.url,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontFamily = FontFamily.Monospace,
+                )
+                link.shareUrl
+                    ?.takeIf { it.isNotBlank() && it != link.url }
+                    ?.let { share ->
+                        Spacer(Modifier.height(6.dp))
+                        Text("Share URL：", style = MaterialTheme.typography.bodySmall)
+                        Text(
+                            share,
+                            style = MaterialTheme.typography.bodySmall,
+                            fontFamily = FontFamily.Monospace,
+                        )
+                    }
+            }
+            Spacer(Modifier.height(12.dp))
             Text(
                 "产物预览入口：支持文本类产物在线加载。",
                 style = MaterialTheme.typography.bodySmall,

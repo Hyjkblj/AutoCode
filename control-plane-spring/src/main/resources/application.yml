@@ -79,6 +79,13 @@ mvp:
 artifacts:
   storage:
     base-dir: ${MVP_ARTIFACTS_BASE_DIR:./data/artifacts}
+  hosting:
+    # Extracted static site directory for hosted web artifacts.
+    base-dir: ${MVP_ARTIFACTS_HOSTING_BASE_DIR:./data/artifacts-hosted}
+    # Optional public origin override, e.g. https://autocode.example.com
+    public-base-url: ${MVP_ARTIFACTS_HOSTING_PUBLIC_BASE_URL:}
   download:
-    # B-stage: shared token (default deny when empty)
+    # Shared token for out-of-band links / strict mode.
     shared-token: ${MVP_ARTIFACTS_DOWNLOAD_SHARED_TOKEN:}
+    # When true, authenticated users who already passed task-level ACL can preview/download without shared token.
+    allow-authenticated-without-shared-token: ${MVP_ARTIFACTS_ALLOW_AUTHENTICATED_WITHOUT_SHARED_TOKEN:true}

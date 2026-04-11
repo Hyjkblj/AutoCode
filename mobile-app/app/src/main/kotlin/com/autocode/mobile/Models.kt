@@ -120,6 +120,14 @@ data class ArtifactPreview(
     val byteSize: Int,
 )
 
+data class ArtifactAccessUrl(
+    val url: String,
+    val canonicalUrl: String? = null,
+    val shareUrl: String? = null,
+    val entryPath: String? = null,
+    val tokenized: Boolean = false,
+)
+
 data class ApprovalRequest(
     val approvalId: String,
     val taskId: String,

@@ -48,6 +48,7 @@ public class JwtSecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/actuator/**", "/ws/**", "/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
                         .requestMatchers("/api/v1/auth/**").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/tasks/*/artifacts/*/site", "/api/v1/tasks/*/artifacts/*/site/**").permitAll()
                         .requestMatchers("/api/v1/agent/**").hasAnyAuthority("ROLE_AGENT", "ROLE_ADMIN")
                         .requestMatchers(HttpMethod.POST, "/api/v1/tasks/*/artifacts", "/api/v1/tasks/*/artifacts/").hasAnyAuthority("ROLE_AGENT", "ROLE_OPERATOR", "ROLE_ADMIN")
                         .anyRequest().hasAnyAuthority("ROLE_OPERATOR", "ROLE_ADMIN", "ROLE_VIEWER")

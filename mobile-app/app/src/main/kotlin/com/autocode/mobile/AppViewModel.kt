@@ -52,6 +52,9 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.longOrNull
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
+import java.util.zip.ZipInputStream
 import kotlin.random.Random
 
 private val Application.mobileDataStore by preferencesDataStore(name = "autocode_mobile")
@@ -374,6 +377,46 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.update { it.copy(errorMessage = null) }
     }
 
+    private fun isAuthFailure(error: Throwable?): Boolean = isAuthFailureMessage(error?.message)
+
+    private fun isAuthFailureMessage(message: String?): Boolean {
+        val normalized = message?.lowercase()?.trim().orEmpty()
+        if (normalized.isEmpty()) return false
+        return normalized.contains("invalid jwt") ||
+            normalized.contains("invalid token") ||
+            normalized.contains("unauthenticated") ||
+            normalized.contains("missing or invalid authorization") ||
+            normalized.contains("missing or invalid token") ||
+            normalized.contains("access denied") ||
+            normalized.contains("accessdeniedexception") ||
+            normalized.contains("expired") ||
+            normalized.contains("http 401") ||
+            normalized.contains("http 403")
+    }
+
+    private suspend fun handleAuthExpired(source: String, detail: String?) {
+        if (_uiState.value.session == null) return
+        unsubscribeTaskEvents()
+        _pendingApproval.value = null
+        val sourceLabel = source.trim().ifEmpty { "remote sync" }
+        val reasonSuffix =
+            detail
+                ?.trim()
+                ?.takeIf { it.isNotEmpty() }
+                ?.let { " ($sourceLabel)" }
+                .orEmpty()
+        _uiState.update {
+            it.copy(
+                session = null,
+                isRefreshingProjects = false,
+                isRefreshingAgentNodes = false,
+                isRefreshingPublishHistory = false,
+                errorMessage = "Login expired. Please sign in again$reasonSuffix.",
+            )
+        }
+        persistAll()
+    }
+
     fun saveConnectivitySettings(baseUrl: String, target: GenerationTarget, profile: AgentProfile) {
         viewModelScope.launch {
             _uiState.update {
@@ -518,6 +561,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 projectId = selectedProjectId,
                 assistant = "deployer",
             )
+        if (deployTaskResult.isFailure && isAuthFailure(deployTaskResult.exceptionOrNull())) {
+            handleAuthExpired("publish history", deployTaskResult.exceptionOrNull()?.message)
+            return
+        }
         var merged =
             if (deployTaskResult.isSuccess) {
                 mergePublishHistoryFromRemoteTasks(
@@ -531,7 +578,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         hydrationTargets.forEach { entry ->
             val taskId = entry.taskId.trim()
             if (taskId.isEmpty()) return@forEach
-            val summary = ControlPlaneClient.getTask(base, token, taskId).getOrNull()
+            val summaryResult = ControlPlaneClient.getTask(base, token, taskId)
+            if (summaryResult.isFailure && isAuthFailure(summaryResult.exceptionOrNull())) {
+                handleAuthExpired("publish history", summaryResult.exceptionOrNull()?.message)
+                return
+            }
+            val summary = summaryResult.getOrNull()
             if (summary != null) {
                 merged = updatePublishHistoryFromSummary(merged, summary)
             }
@@ -543,7 +595,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                         it.status in setOf("queued", "running", "waiting_approval", "deploy_planned", "unknown")
                 } ?: false
             if (shouldHydrateEvents) {
-                val events = ControlPlaneClient.listTaskEvents(base, token, taskId, 0L).getOrNull().orEmpty()
+                val eventsResult = ControlPlaneClient.listTaskEvents(base, token, taskId, 0L)
+                if (eventsResult.isFailure && isAuthFailure(eventsResult.exceptionOrNull())) {
+                    handleAuthExpired("publish history", eventsResult.exceptionOrNull()?.message)
+                    return
+                }
+                val events = eventsResult.getOrNull().orEmpty()
                 merged = updatePublishHistoryFromEvents(merged, taskId, events)
             }
         }
@@ -586,6 +643,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 )
             }
         } else {
+            if (isAuthFailure(result.exceptionOrNull())) {
+                handleAuthExpired("agent nodes", result.exceptionOrNull()?.message)
+                return
+            }
             _uiState.update {
                 it.copy(
                     isRefreshingAgentNodes = false,
@@ -624,6 +685,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     )
                 }
                 persistAll()
+                return
+            }
+            if (isAuthFailure(remote.exceptionOrNull())) {
+                handleAuthExpired("projects", remote.exceptionOrNull()?.message)
                 return
             }
             fallbackError =
@@ -861,23 +926,81 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             return Result.failure(IllegalStateException("请先登录后再加载产物预览"))
         }
 
-        if (!isTextPreviewable(artifact.contentType, artifact.name)) {
-            return Result.failure(IllegalStateException("该产物是二进制文件，当前仅支持文本预览"))
+        val textPreviewable = isTextPreviewable(artifact.contentType, artifact.name)
+        val zipPreviewable = isZipPreviewable(artifact.contentType, artifact.name)
+        if (!textPreviewable && !zipPreviewable) {
+            return Result.failure(IllegalStateException("该产物是二进制文件，当前仅支持文本和 zip 预览"))
         }
 
-        return ControlPlaneClient
-            .downloadArtifact(base, session.accessToken, taskId, artifact.artifactId)
+        val downloadResult = ControlPlaneClient.downloadArtifact(base, session.accessToken, taskId, artifact.artifactId)
+        if (downloadResult.isFailure) {
+            val message = downloadResult.exceptionOrNull()?.message.orEmpty()
+            if (isArtifactDownloadForbidden(message)) {
+                return Result.failure(
+                    IllegalStateException(
+                        "产物下载被服务端拒绝（403）。请重启控制面并开启 allow-authenticated-without-shared-token，或配置 shared-token。",
+                    ),
+                )
+            }
+            return Result.failure(downloadResult.exceptionOrNull() ?: IllegalStateException("产物下载失败"))
+        }
+
+        return downloadResult
             .mapCatching { d ->
+                val resolvedTitle = artifact.name ?: d.fileName ?: artifact.artifactId
+                val resolvedContentType = artifact.contentType ?: d.contentType
+                if (isZipPreviewable(resolvedContentType, resolvedTitle) || looksLikeZip(d.bytes)) {
+                    return@mapCatching buildZipPreview(
+                        title = resolvedTitle,
+                        contentType = resolvedContentType,
+                        zipBytes = d.bytes,
+                    )
+                }
                 val raw = d.bytes.toString(Charsets.UTF_8)
                 val truncated = raw.length > previewMaxChars
                 ArtifactPreview(
-                    title = artifact.name ?: d.fileName ?: artifact.artifactId,
-                    contentType = artifact.contentType ?: d.contentType,
+                    title = resolvedTitle,
+                    contentType = resolvedContentType,
                     content = if (truncated) raw.take(previewMaxChars) else raw,
                     truncated = truncated,
                     byteSize = d.bytes.size,
                 )
             }
+    }
+
+    suspend fun resolveArtifactAccessUrl(taskId: String, artifact: ArtifactListItem): Result<ArtifactAccessUrl> {
+        val base = _uiState.value.baseUrl.trim()
+        if (base.isEmpty()) {
+            return Result.failure(IllegalStateException("离线模式不支持在线生成 URL"))
+        }
+        val session = _uiState.value.session
+            ?: return Result.failure(IllegalStateException("请先登录后再生成 URL"))
+
+        val result =
+            ControlPlaneClient.resolveArtifactSiteUrl(
+                baseUrl = base,
+                bearerToken = session.accessToken,
+                taskId = taskId,
+                artifactId = artifact.artifactId,
+            )
+        if (result.isFailure && isAuthFailure(result.exceptionOrNull())) {
+            handleAuthExpired("artifact site url", result.exceptionOrNull()?.message)
+        }
+        return result.map { dto ->
+            ArtifactAccessUrl(
+                url = dto.url,
+                canonicalUrl = dto.canonicalUrl,
+                shareUrl = dto.shareUrl,
+                entryPath = dto.entryPath,
+                tokenized = dto.tokenized,
+            )
+        }
+    }
+
+    private fun isArtifactDownloadForbidden(message: String?): Boolean {
+        val normalized = message?.lowercase().orEmpty()
+        return normalized.contains("http 403") &&
+            (normalized.contains("download forbidden") || normalized.contains("preview forbidden"))
     }
 
     private fun isTextPreviewable(contentType: String?, fileName: String?): Boolean {
@@ -900,6 +1023,104 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 ".kt", ".kts", ".java", ".gradle", ".properties", ".sql",
             )
         return suffixes.any { s -> name.endsWith(s) }
+    }
+
+    private fun isZipPreviewable(contentType: String?, fileName: String?): Boolean {
+        val ct = contentType?.lowercase().orEmpty()
+        if (ct.contains("application/zip") || ct.contains("zip")) return true
+        val name = fileName?.lowercase().orEmpty()
+        return name.endsWith(".zip")
+    }
+
+    private fun looksLikeZip(bytes: ByteArray): Boolean {
+        if (bytes.size < 4) return false
+        val b0 = bytes[0]
+        val b1 = bytes[1]
+        val b2 = bytes[2]
+        val b3 = bytes[3]
+        if (b0 != 0x50.toByte() || b1 != 0x4B.toByte()) return false
+        return (b2 == 0x03.toByte() && b3 == 0x04.toByte()) ||
+            (b2 == 0x05.toByte() && b3 == 0x06.toByte()) ||
+            (b2 == 0x07.toByte() && b3 == 0x08.toByte())
+    }
+
+    private fun buildZipPreview(
+        title: String,
+        contentType: String?,
+        zipBytes: ByteArray,
+    ): ArtifactPreview {
+        val maxListedEntries = 200
+        val maxSnippetBytes = 8 * 1024
+        val maxSnippetChars = 4_000
+
+        val listedEntries = mutableListOf<String>()
+        var totalEntries = 0
+        var sampledTextName: String? = null
+        var sampledText: String? = null
+
+        ZipInputStream(ByteArrayInputStream(zipBytes)).use { zis ->
+            while (true) {
+                val entry = zis.nextEntry ?: break
+                if (!entry.isDirectory) {
+                    totalEntries += 1
+                    if (listedEntries.size < maxListedEntries) {
+                        val sizeLabel = if (entry.size >= 0L) " (${entry.size} bytes)" else ""
+                        listedEntries += "- ${entry.name}$sizeLabel"
+                    }
+                    if (sampledText == null && isTextPreviewable(null, entry.name)) {
+                        val snippetBytes = readZipEntrySnippet(zis, maxSnippetBytes)
+                        sampledTextName = entry.name
+                        sampledText = snippetBytes.toString(Charsets.UTF_8).take(maxSnippetChars)
+                    }
+                }
+                zis.closeEntry()
+            }
+        }
+
+        val rendered =
+            buildString {
+                appendLine("ZIP preview")
+                appendLine("entries: $totalEntries")
+                appendLine("archive size: ${zipBytes.size} bytes")
+                appendLine()
+                appendLine("Files:")
+                if (listedEntries.isEmpty()) {
+                    appendLine("- (empty zip)")
+                } else {
+                    listedEntries.forEach { appendLine(it) }
+                    if (totalEntries > listedEntries.size) {
+                        appendLine("- ... and ${totalEntries - listedEntries.size} more")
+                    }
+                }
+                if (!sampledText.isNullOrBlank()) {
+                    appendLine()
+                    appendLine("Text sample: $sampledTextName")
+                    appendLine(sampledText)
+                }
+            }
+
+        val truncated = rendered.length > previewMaxChars
+        return ArtifactPreview(
+            title = title,
+            contentType = contentType ?: "application/zip",
+            content = if (truncated) rendered.take(previewMaxChars) else rendered,
+            truncated = truncated,
+            byteSize = zipBytes.size,
+        )
+    }
+
+    private fun readZipEntrySnippet(input: ZipInputStream, maxBytes: Int): ByteArray {
+        val out = ByteArrayOutputStream(maxBytes.coerceAtLeast(256))
+        val buffer = ByteArray(1024)
+        var remaining = maxBytes.coerceAtLeast(0)
+        while (remaining > 0) {
+            val chunkSize = minOf(buffer.size, remaining)
+            val read = input.read(buffer, 0, chunkSize)
+            if (read <= 0) break
+            out.write(buffer, 0, read)
+            remaining -= read
+        }
+        return out.toByteArray()
     }
 
     suspend fun recordPublishEntry(
@@ -1010,9 +1231,21 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             hydrateTaskEventsFromCache(normalizedTaskId)
             backfillTaskEvents(normalizedTaskId, lastSeq(normalizedTaskId))
+            val latestState = _uiState.value
+            val latestBase = latestState.baseUrl.trim()
+            val latestToken = latestState.session?.accessToken?.trim().orEmpty()
+            if (
+                subscribedTaskId != normalizedTaskId ||
+                latestBase != base ||
+                latestToken.isEmpty()
+            ) {
+                return@launch
+            }
+            subscribedBaseUrl = latestBase
+            subscribedToken = latestToken
             wsClient.connect(
-                baseUrl = base,
-                bearerToken = token,
+                baseUrl = latestBase,
+                bearerToken = latestToken,
                 taskId = normalizedTaskId,
                 lastSeq = lastSeq(normalizedTaskId),
                 onEvent = { event ->
@@ -1022,10 +1255,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                         }
                     }
                 },
-                onDisconnect = {
+                onDisconnect = { reason ->
                     if (subscribedTaskId == normalizedTaskId) {
                         viewModelScope.launch {
-                            backfillTaskEvents(normalizedTaskId, lastSeq(normalizedTaskId))
+                            if (isAuthFailureMessage(reason)) {
+                                handleAuthExpired("websocket", reason)
+                            } else {
+                                backfillTaskEvents(normalizedTaskId, lastSeq(normalizedTaskId))
+                            }
                         }
                     }
                 },
@@ -1102,6 +1339,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun eventLine(event: TaskEventDto): String {
         val payload = event.payload
         return when (event.type?.uppercase()) {
+            "TASK_CREATED" -> "任务已创建"
             "TASK_STARTED" -> "任务已开始"
             "ASSISTANT_OUTPUT" ->
                 stringValue(payload, "message", "content", "text")
@@ -1151,12 +1389,43 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private fun lastSeq(taskId: String): Long =
         _uiState.value.taskEvents[taskId].orEmpty().maxOfOrNull { it.seq } ?: 0L
 
+    fun refreshRemoteTaskNow(taskId: String) {
+        val normalizedTaskId = taskId.trim()
+        if (normalizedTaskId.isEmpty()) return
+        viewModelScope.launch {
+            val state = _uiState.value
+            val base = state.baseUrl.trim()
+            val token = state.session?.accessToken?.trim().orEmpty()
+            if (base.isEmpty() || token.isEmpty()) return@launch
+
+            val summaryResult = ControlPlaneClient.getTask(base, token, normalizedTaskId)
+            if (summaryResult.isSuccess) {
+                mergeRemoteTask(summaryResult.getOrThrow())
+                backfillTaskEvents(normalizedTaskId, lastSeq(normalizedTaskId))
+                return@launch
+            }
+
+            val error = summaryResult.exceptionOrNull()
+            if (isAuthFailure(error)) {
+                handleAuthExpired("manual refresh", error?.message)
+            } else {
+                _uiState.update { it.copy(errorMessage = error?.message ?: "Failed to refresh task") }
+            }
+        }
+    }
+
     private suspend fun backfillTaskEvents(taskId: String, lastSeq: Long) {
         val state = _uiState.value
         val base = state.baseUrl.trim()
         val token = state.session?.accessToken?.trim().orEmpty()
         if (base.isEmpty() || token.isEmpty()) return
         val result = ControlPlaneClient.listTaskEvents(base, token, taskId, lastSeq)
+        if (result.isFailure) {
+            if (isAuthFailure(result.exceptionOrNull())) {
+                handleAuthExpired("event backfill", result.exceptionOrNull()?.message)
+            }
+            return
+        }
         val events = result.getOrNull().orEmpty()
         if (events.isNotEmpty()) {
             mergeTaskEvents(taskId, events, allowNotifications = lastSeq > 0L)
@@ -1599,18 +1868,25 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     .asSequence()
                     .filter { it.source == TaskSource.REMOTE }
                     .map { it.id.trim() }
-                    .filter { it.isNotEmpty() && it != activeSubscribedTask }
+                    .filter { it.isNotEmpty() }
                     .forEach { remoteTaskIds += it }
                 st.publishHistory
                     .asSequence()
                     .map { it.taskId.trim() }
-                    .filter { it.isNotEmpty() && it != activeSubscribedTask }
+                    .filter { it.isNotEmpty() }
                     .forEach { remoteTaskIds += it }
+                activeSubscribedTask
+                    ?.trim()
+                    ?.takeIf { it.isNotEmpty() }
+                    ?.let { remoteTaskIds += it }
                 if (remoteTaskIds.isEmpty()) continue
                 for (taskId in remoteTaskIds) {
                     val r = ControlPlaneClient.getTask(base, sess.accessToken, taskId)
                     if (r.isSuccess) {
                         mergeRemoteTask(r.getOrThrow())
+                    } else if (isAuthFailure(r.exceptionOrNull())) {
+                        handleAuthExpired("polling", r.exceptionOrNull()?.message)
+                        break
                     }
                 }
             }

@@ -36,6 +36,11 @@ public class TokenAuthFilter extends OncePerRequestFilter {
             return;
         }
 
+        if (isHostedArtifactSiteRequest(path, request.getMethod())) {
+            filterChain.doFilter(request, response);
+            return;
+        }
+
         if (path.startsWith("/api/v1/agent")) {
             String token = request.getHeader("X-Agent-Token");
             if (!isAllowedAgentToken(token)) {
@@ -118,5 +123,12 @@ public class TokenAuthFilter extends OncePerRequestFilter {
             return false;
         }
         return authProperties.operatorTokenList().contains(token);
+    }
+
+    private boolean isHostedArtifactSiteRequest(String path, String method) {
+        if (!"GET".equalsIgnoreCase(method)) {
+            return false;
+        }
+        return path.matches("^/api/v1/tasks/[^/]+/artifacts/[^/]+/site(?:/.*)?$");
     }
 }

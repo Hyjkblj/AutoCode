@@ -8,6 +8,7 @@ from urllib.error import HTTPError
 import pytest
 
 from tools.exec_tool import ExecTool
+from tools.exec_tool import _resolve_cwd
 
 
 class _StubResponse:
@@ -92,3 +93,15 @@ def test_exec_tool_raises_runtime_error_on_http_error(monkeypatch) -> None:
             prompt="deploy",
             intent="deploy",
         )
+
+
+def test_resolve_cwd_treats_none_like_workspace_text_as_missing(monkeypatch) -> None:
+    monkeypatch.setenv("MVP_ALLOWED_WORKSPACE_PREFIXES", "D:/Develop/Project/AutoCode")
+    assert _resolve_cwd({"workspacePath": "None"}) == "D:/Develop/Project/AutoCode"
+    assert _resolve_cwd({"workspacePath": " null "}) == "D:/Develop/Project/AutoCode"
+
+
+def test_resolve_cwd_falls_back_to_os_cwd_when_prefix_is_invalid(monkeypatch) -> None:
+    monkeypatch.setenv("MVP_ALLOWED_WORKSPACE_PREFIXES", "None, ,null")
+    monkeypatch.setattr("os.getcwd", lambda: "D:/fallback/cwd")
+    assert _resolve_cwd({"workspacePath": None}) == "D:/fallback/cwd"

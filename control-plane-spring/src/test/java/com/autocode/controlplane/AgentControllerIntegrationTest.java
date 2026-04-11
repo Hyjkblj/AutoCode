@@ -1,6 +1,8 @@
 package com.autocode.controlplane;
 
+import com.autocode.controlplane.persistence.entity.TaskEventEntity;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.autocode.protocol.model.EventType;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -13,12 +15,14 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import static org.hamcrest.Matchers.hasItem;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.time.Instant;
+import java.util.Map;
 
 @SpringBootTest
 @ActiveProfiles("test")
@@ -33,6 +37,9 @@ class AgentControllerIntegrationTest extends OperatorProj1MembershipFixture {
 
     @Autowired
     private com.autocode.controlplane.persistence.repo.TaskEntityRepository taskEntityRepository;
+
+    @Autowired
+    private com.autocode.controlplane.persistence.repo.TaskEventEntityRepository taskEventEntityRepository;
 
     @Autowired
     private PlatformTransactionManager transactionManager;
@@ -310,6 +317,39 @@ class AgentControllerIntegrationTest extends OperatorProj1MembershipFixture {
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.ok").value(false))
                 .andExpect(jsonPath("$.error").value("node not registered"));
+    }
+
+    @Test
+    void nextTaskShouldRecoverWhenTaskNextSeqIsStale() throws Exception {
+        String nodeId = "node_stale_seq_" + System.nanoTime();
+        registerNode(nodeId);
+        String taskId = createTaskAndGetId("stale next_seq task");
+
+        var task = taskEntityRepository.findById(taskId).orElseThrow();
+        TaskEventEntity staleSeqEvent = new TaskEventEntity();
+        staleSeqEvent.setEventId("evt_stale_" + System.nanoTime());
+        staleSeqEvent.setTaskId(taskId);
+        staleSeqEvent.setSessionId(task.getSessionId());
+        staleSeqEvent.setAssistant(task.getAssistant());
+        staleSeqEvent.setEventType(EventType.ASSISTANT_OUTPUT);
+        staleSeqEvent.setEventTimestamp(Instant.now());
+        staleSeqEvent.setPayloadJson(objectMapper.writeValueAsString(Map.of("stage", "test", "message", "stale seq marker")));
+        staleSeqEvent.setSeqNum(2L);
+        staleSeqEvent.setEventVersion(1);
+        taskEventEntityRepository.saveAndFlush(staleSeqEvent);
+
+        mockMvc.perform(get("/api/v1/agent/tasks/next")
+                        .header("X-Agent-Token", "ag-a")
+                        .param("nodeId", nodeId)
+                        .param("profile", "coder"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.ok").value(true))
+                .andExpect(jsonPath("$.payload.taskId").value(taskId));
+
+        TaskEventEntity latest = taskEventEntityRepository.findTopByTaskIdOrderBySeqNumDesc(taskId).orElse(null);
+        assertNotNull(latest);
+        assertEquals(EventType.TASK_STARTED, latest.getEventType());
+        assertEquals(3L, latest.getSeqNum());
     }
 
     @Test

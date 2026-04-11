@@ -1,6 +1,16 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
+
+# Load .env from the same directory as this file (does not override existing env vars)
+_env_file = Path(__file__).parent / ".env"
+if _env_file.exists():
+    for _line in _env_file.read_text(encoding="utf-8").splitlines():
+        _line = _line.strip()
+        if _line and not _line.startswith("#") and "=" in _line:
+            _k, _v = _line.split("=", 1)
+            os.environ.setdefault(_k.strip(), _v.strip())
 
 import argparse
 
@@ -32,7 +42,7 @@ def _build_config() -> RunnerConfig:
     profile = os.getenv("MVP_AGENT_PROFILE", "ai-agent").strip() or "ai-agent"
     profile = profile.lower()
     return RunnerConfig(
-        base_url=os.getenv("MVP_BASE_URL", "http://localhost:8048").strip() or "http://localhost:8048",
+        base_url=os.getenv("MVP_BASE_URL", "http://localhost:8058").strip() or "http://localhost:8058",
         node_id=os.getenv("MVP_NODE_ID", "ai-node-local-1").strip() or "ai-node-local-1",
         agent_token=os.getenv("MVP_AGENT_TOKEN", "agent-dev-token").strip() or "agent-dev-token",
         agent_profile=profile,

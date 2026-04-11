@@ -89,6 +89,7 @@ public class AgentRunner {
 
     private void startSandboxServerIfEnabled() throws IOException {
         if (!SandboxHttpServer.isEnabledFromEnv()) {
+            log.info("Sandbox HTTP server disabled (MVP_SANDBOX_SERVER_ENABLED not set)");
             return;
         }
         SandboxHttpServer sandbox = SandboxHttpServer.fromEnv(apiClient, config);

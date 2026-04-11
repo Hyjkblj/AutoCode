@@ -925,21 +925,58 @@ public class TaskService {
     }
 
     private void pushSystemEvent(TaskEntity task, EventType type, Map<String, Object> payload) {
-        TaskEvent event = new TaskEvent();
-        event.setEventId("evt_" + randomId());
-        event.setTaskId(task.getTaskId());
-        event.setSessionId(task.getSessionId());
-        event.setAssistant(task.getAssistant());
-        event.setType(type);
-        event.setTimestamp(Instant.now());
-        event.setPayload(new HashMap<>(payload));
-        event.setSeq(task.getNextSeq());
-        event.setEventVersion(1);
+        Map<String, Object> safePayload = new HashMap<>(payload);
+        // Guard against stale nextSeq values on the task row. This can happen after retries/crashes and
+        // previously caused continuous duplicate-key failures on uq_task_events_task_seq.
+        for (int attempt = 0; attempt < 2; attempt++) {
+            long nextSeq = alignNextSeq(task);
 
-        task.setNextSeq(task.getNextSeq() + 1);
-        taskRepository.save(task);
-        saveEvent(event);
-        taskEventPublisher.publishAfterCommit(task.getTaskId(), event);
+            TaskEvent event = new TaskEvent();
+            event.setEventId("evt_" + randomId());
+            event.setTaskId(task.getTaskId());
+            event.setSessionId(task.getSessionId());
+            event.setAssistant(task.getAssistant());
+            event.setType(type);
+            event.setTimestamp(Instant.now());
+            event.setPayload(new HashMap<>(safePayload));
+            event.setSeq(nextSeq);
+            event.setEventVersion(1);
+
+            task.setNextSeq(nextSeq + 1);
+            taskRepository.save(task);
+            try {
+                saveEvent(event);
+                taskEventPublisher.publishAfterCommit(task.getTaskId(), event);
+                return;
+            } catch (DataIntegrityViolationException ex) {
+                if (!isTaskSeqDuplicate(ex) || attempt == 1) {
+                    throw ex;
+                }
+                // Retry once with a refreshed sequence baseline from persisted events.
+                task.setNextSeq(nextSeq + 1);
+                taskRepository.save(task);
+            }
+        }
+    }
+
+    private long alignNextSeq(TaskEntity task) {
+        long fromTask = Math.max(1L, task.getNextSeq());
+        long fromEvents = taskEventRepository.findTopByTaskIdOrderBySeqNumDesc(task.getTaskId())
+                .map(TaskEventEntity::getSeqNum)
+                .orElse(0L) + 1L;
+        return Math.max(fromTask, fromEvents);
+    }
+
+    private boolean isTaskSeqDuplicate(DataIntegrityViolationException ex) {
+        Throwable current = ex;
+        while (current != null) {
+            String message = current.getMessage();
+            if (message != null && message.contains("uq_task_events_task_seq")) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
     }
 
     private void saveEvent(TaskEvent event) {

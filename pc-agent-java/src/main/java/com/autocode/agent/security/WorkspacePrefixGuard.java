@@ -86,12 +86,12 @@ public final class WorkspacePrefixGuard {
         if (normalizedPath == null || normalizedPath.isBlank()) {
             return false;
         }
-        String c = normalizePath(normalizedPath);
+        String c = normalizeForCompare(normalizePath(normalizedPath));
         for (String p : allowedPrefixes) {
             if (p == null) {
                 continue;
             }
-            String prefix = normalizePath(p);
+            String prefix = normalizeForCompare(normalizePath(p));
             if (prefix.isEmpty()) {
                 continue;
             }
@@ -115,6 +115,21 @@ public final class WorkspacePrefixGuard {
             }
         }
         return false;
+    }
+
+    /**
+     * Windows file systems are case-insensitive. For drive-letter paths we compare in lowercase to
+     * avoid false "cwd_not_allowed" denials caused by casing differences (e.g. Develop vs develop).
+     */
+    private static String normalizeForCompare(String path) {
+        if (path == null) {
+            return "";
+        }
+        // drive-letter paths: length >= 2, letter + ':', already lowercased by normalizePath
+        if (path.length() >= 2 && Character.isLetter(path.charAt(0)) && path.charAt(1) == ':') {
+            return path.toLowerCase(Locale.ROOT);
+        }
+        return path;
     }
 
     private static boolean isDriveRoot(String path) {

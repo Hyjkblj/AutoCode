@@ -37,7 +37,7 @@ class LLMClient:
 
         resolved_model = (model or os.getenv("LLM_MODEL", "gpt-4.1-mini")).strip() or "gpt-4.1-mini"
         resolved_temperature = _to_float(temperature if temperature is not None else os.getenv("LLM_TEMPERATURE"), 0.2)
-        resolved_timeout = _to_int(timeout_seconds if timeout_seconds is not None else os.getenv("LLM_TIMEOUT_SECONDS"), 30)
+        resolved_timeout = _to_int(timeout_seconds if timeout_seconds is not None else os.getenv("LLM_TIMEOUT_SECONDS"), 120)
 
         self.settings = LLMSettings(
             backend=resolved_backend,
@@ -45,6 +45,9 @@ class LLMClient:
             temperature=resolved_temperature,
             timeout_seconds=resolved_timeout,
         )
+        import logging as _logging
+        _logging.getLogger(__name__).info("LLMClient initialized: backend=%s model=%s base_url=%s",
+            resolved_backend, resolved_model, os.getenv("OPENAI_BASE_URL", "(default)"))
         self._response_provider = response_provider
 
     def is_configured(self) -> bool:
@@ -91,13 +94,17 @@ class LLMClient:
 
     def _chat_openai(self, messages: list[dict[str, str]]) -> str:
         api_key = os.getenv("OPENAI_API_KEY", "").strip()
+        base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com").strip().rstrip("/")
+        # Support full URL override via OPENAI_CHAT_URL env var
+        chat_url = os.getenv("OPENAI_CHAT_URL", "").strip() or f"{base_url}/v1/chat/completions"
         body = {
             "model": self.settings.model,
             "messages": messages,
             "temperature": self.settings.temperature,
+            "max_tokens": 4096,
         }
         req = request.Request(
-            url="https://api.openai.com/v1/chat/completions",
+            url=chat_url,
             data=json.dumps(body).encode("utf-8"),
             method="POST",
             headers={

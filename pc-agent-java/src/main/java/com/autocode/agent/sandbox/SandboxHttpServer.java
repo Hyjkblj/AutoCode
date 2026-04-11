@@ -52,6 +52,9 @@ public class SandboxHttpServer {
     public static boolean isEnabledFromEnv() {
         String raw = System.getenv(ENV_ENABLED);
         if (raw == null || raw.isBlank()) {
+            raw = System.getProperty(ENV_ENABLED);
+        }
+        if (raw == null || raw.isBlank()) {
             return false;
         }
         String normalized = raw.trim().toLowerCase();
@@ -151,6 +154,9 @@ public class SandboxHttpServer {
 
     private static String readEnv(String key, String fallback) {
         String value = System.getenv(key);
+        if (value == null || value.isBlank()) {
+            value = System.getProperty(key);
+        }
         if (value == null || value.isBlank()) {
             return fallback;
         }

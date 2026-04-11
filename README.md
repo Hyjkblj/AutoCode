@@ -41,7 +41,7 @@ This repository now contains a runnable MVP implementation based on the architec
   - `MVP_REDIS_HOST`, `MVP_REDIS_PORT`
   - `mvp.auth.operator-token`, `mvp.auth.agent-token` (in `application.yml`)
 - Agent:
-  - `MVP_BASE_URL` (default `http://localhost:8048`), `MVP_NODE_ID`, `MVP_AGENT_TOKEN`
+- `MVP_BASE_URL` (default `http://localhost:8058`), `MVP_NODE_ID`, `MVP_AGENT_TOKEN`
   - `MVP_APPROVAL_TIMEOUT_SECONDS`
   - `MVP_ALLOWED_COMMAND_PREFIXES`
 

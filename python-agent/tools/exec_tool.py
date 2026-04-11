@@ -97,7 +97,25 @@ class ExecTool:
 
 
 def _resolve_cwd(task: dict[str, Any]) -> str:
-    return str(task.get("workspacePath", "")).strip() or os.getcwd()
+    explicit = _sanitize_workspace_value(task.get("workspacePath"))
+    if explicit:
+        return explicit
+    # Fall back to first allowed workspace prefix so sandbox policy is satisfied
+    # when the task was created without a workspacePath (e.g. from mobile client).
+    allowed = os.getenv("MVP_ALLOWED_WORKSPACE_PREFIXES", "").strip()
+    first_prefix = next((_sanitize_workspace_value(p) for p in allowed.split(",") if _sanitize_workspace_value(p)), "")
+    return first_prefix or os.getcwd()
+
+
+def _sanitize_workspace_value(raw: Any) -> str:
+    if raw is None:
+        return ""
+    text = str(raw).strip().strip('"').strip("'")
+    if not text:
+        return ""
+    if text.lower() in {"none", "null", "undefined", "nil", "nan"}:
+        return ""
+    return text
 
 
 def _read_timeout_seconds() -> int:

@@ -17,5 +17,7 @@ public interface TaskEventEntityRepository extends JpaRepository<TaskEventEntity
 
     List<TaskEventEntity> findTop200ByTaskIdAndSeqNumGreaterThanOrderBySeqNumAsc(String taskId, long seqNum);
 
+    Optional<TaskEventEntity> findTopByTaskIdOrderBySeqNumDesc(String taskId);
+
     Optional<TaskEventEntity> findTopByTaskIdAndEventTypeOrderBySeqNumDesc(String taskId, EventType eventType);
 }

@@ -39,4 +39,10 @@ class WorkspacePrefixGuardTest {
         assertTrue(WorkspacePrefixGuard.isPathUnderAllowedPrefixes("D:/repo/sub/../out.txt", prefixes));
         assertFalse(WorkspacePrefixGuard.isPathUnderAllowedPrefixes("D:/repo/sub/../../outside.txt", prefixes));
     }
+
+    @Test
+    void windowsDrivePathsAreComparedCaseInsensitively() {
+        List<String> prefixes = List.of("D:/Develop/Project/AutoCode");
+        assertTrue(WorkspacePrefixGuard.isPathUnderAllowedPrefixes("D:/develop/project/autocode/python-agent", prefixes));
+    }
 }

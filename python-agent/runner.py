@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import logging
 import time
 from dataclasses import dataclass
 from typing import Optional
 
 from agents.base_agent import BaseAgent
 from client.control_plane_client import ControlPlaneClient
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -29,8 +33,15 @@ class AgentRunner:
         self._last_heartbeat_ms = 0
 
     def run_forever(self) -> None:
+        log.info("Agent runner started, polling %s every %dms", self.config.base_url, self.config.poll_interval_ms)
         while True:
-            handled = self.tick()
+            try:
+                handled = self.tick()
+            except Exception as exc:  # noqa: BLE001
+                log.warning("tick error (will retry): %s", exc)
+                self._registered = False
+                time.sleep(self.config.poll_interval_ms / 1000.0)
+                continue
             if not handled:
                 time.sleep(self.config.poll_interval_ms / 1000.0)
 
@@ -50,10 +61,12 @@ class AgentRunner:
         self.client.register(self.config.node_id, capabilities=self.config.capabilities)
         self._registered = True
         self._last_heartbeat_ms = now_ms
+        log.info("Registered node %s to %s", self.config.node_id, self.config.base_url)
 
     def _maybe_heartbeat(self, now_ms: int) -> None:
         if now_ms - self._last_heartbeat_ms < self.config.heartbeat_interval_ms:
             return
         self.client.heartbeat(self.config.node_id)
         self._last_heartbeat_ms = now_ms
+        log.info("Heartbeat sent")
 

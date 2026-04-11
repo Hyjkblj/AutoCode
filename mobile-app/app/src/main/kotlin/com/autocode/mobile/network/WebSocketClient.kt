@@ -53,6 +53,9 @@ class WebSocketClient {
     private var reconnectAttempt = 0
 
     @Volatile
+    private var stompConnected = false
+
+    @Volatile
     private var lastSeq = 0L
 
     fun connect(
@@ -74,6 +77,7 @@ class WebSocketClient {
         this.lastSeq = maxOf(0L, lastSeq)
         this.manualDisconnect = false
         this.reconnectAttempt = 0
+        this.stompConnected = false
         reconnectJob?.cancel()
         ws?.close(1000, "replace")
         openSocket()
@@ -85,6 +89,7 @@ class WebSocketClient {
         reconnectJob = null
         ws?.close(1000, "client_close")
         ws = null
+        stompConnected = false
         frameBuffer.clear()
     }
 
@@ -100,7 +105,7 @@ class WebSocketClient {
     private fun createListener(cfg: ConnectionConfig): WebSocketListener =
         object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
-                reconnectAttempt = 0
+                stompConnected = false
                 frameBuffer.clear()
                 webSocket.send(
                     buildFrame(
@@ -125,6 +130,7 @@ class WebSocketClient {
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                stompConnected = false
                 handleSocketDown(cfg, "closed: $code $reason")
             }
 
@@ -133,7 +139,19 @@ class WebSocketClient {
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                handleSocketDown(cfg, t.message ?: "socket failure")
+                val reason =
+                    buildString {
+                        append(t.message ?: "socket failure")
+                        response?.code?.let { code ->
+                            append(" (HTTP ").append(code).append(')')
+                        }
+                    }
+                if (isAuthError(reason)) {
+                    manualDisconnect = true
+                    cfg.onDisconnect(reason)
+                    return
+                }
+                handleSocketDown(cfg, reason)
             }
         }
 
@@ -146,6 +164,8 @@ class WebSocketClient {
             val parsed = parseFrame(raw) ?: continue
             when (parsed.command) {
                 "CONNECTED" -> {
+                    stompConnected = true
+                    reconnectAttempt = 0
                     webSocket.send(
                         buildFrame(
                             command = "SUBSCRIBE",
@@ -173,8 +193,19 @@ class WebSocketClient {
                 }
 
                 "ERROR" -> {
-                    cfg.onDisconnect(parsed.body.ifBlank { "stomp error" })
-                    scheduleReconnect()
+                    val headerReason = parsed.headers["message"]?.takeIf { it.isNotBlank() }
+                    val reason =
+                        when {
+                            !parsed.body.isBlank() && headerReason != null -> "$headerReason: ${parsed.body}"
+                            headerReason != null -> headerReason
+                            else -> parsed.body.ifBlank { "stomp error" }
+                        }
+                    cfg.onDisconnect(reason)
+                    if (isAuthError(reason)) {
+                        manualDisconnect = true
+                    } else {
+                        scheduleReconnect()
+                    }
                 }
             }
         }
@@ -183,7 +214,28 @@ class WebSocketClient {
     private fun handleSocketDown(cfg: ConnectionConfig, reason: String?) {
         if (manualDisconnect) return
         cfg.onDisconnect(reason)
+        if (isAuthError(reason)) {
+            manualDisconnect = true
+            return
+        }
         scheduleReconnect()
+    }
+
+    private fun isAuthError(reason: String?): Boolean {
+        val normalized = reason?.lowercase() ?: return false
+        return normalized.contains("invalid jwt") ||
+            normalized.contains("missing or invalid authorization") ||
+            normalized.contains("missing or invalid token") ||
+            normalized.contains("invalid token") ||
+            normalized.contains("missing deviceid") ||
+            normalized.contains("unauthenticated") ||
+            normalized.contains("access denied") ||
+            normalized.contains("accessdeniedexception") ||
+            normalized.contains("expired") ||
+            normalized.contains("failed to send message to messagechannel") ||
+            normalized.contains("clientinboundchannel") ||
+            normalized.contains("http 401") ||
+            normalized.contains("http 403")
     }
 
     private fun scheduleReconnect() {

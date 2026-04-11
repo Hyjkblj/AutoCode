@@ -489,7 +489,7 @@ public class AgentConfig {
     }
 
     public static AgentConfig fromEnv() {
-        String baseUrl = read("MVP_BASE_URL", "http://localhost:8048");
+        String baseUrl = read("MVP_BASE_URL", "http://localhost:8058");
         String nodeId = read("MVP_NODE_ID", "node-local-1");
         String agentToken = read("MVP_AGENT_TOKEN", "agent-dev-token");
         long pollInterval = Long.parseLong(read("MVP_POLL_INTERVAL_MS", "1500"));
@@ -596,6 +596,9 @@ public class AgentConfig {
 
     private static String read(String key, String fallback) {
         String value = System.getenv(key);
+        if (value == null || value.isBlank()) {
+            value = System.getProperty(key);
+        }
         if (value == null || value.isBlank()) {
             return fallback;
         }

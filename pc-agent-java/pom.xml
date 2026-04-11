@@ -47,6 +47,18 @@
                 <groupId>org.codehaus.mojo</groupId>
                 <artifactId>exec-maven-plugin</artifactId>
                 <version>3.4.1</version>
+                <configuration>
+                    <mainClass>com.autocode.agent.AgentApplication</mainClass>
+                    <environmentVariables>
+                        <MVP_SANDBOX_SERVER_ENABLED>${env.MVP_SANDBOX_SERVER_ENABLED}</MVP_SANDBOX_SERVER_ENABLED>
+                        <MVP_SANDBOX_PORT>${env.MVP_SANDBOX_PORT}</MVP_SANDBOX_PORT>
+                        <MVP_ALLOWED_WORKSPACE_PREFIXES>${env.MVP_ALLOWED_WORKSPACE_PREFIXES}</MVP_ALLOWED_WORKSPACE_PREFIXES>
+                        <MVP_BASE_URL>${env.MVP_BASE_URL}</MVP_BASE_URL>
+                        <MVP_AGENT_TOKEN>${env.MVP_AGENT_TOKEN}</MVP_AGENT_TOKEN>
+                        <MVP_NODE_ID>${env.MVP_NODE_ID}</MVP_NODE_ID>
+                        <MVP_AGENT_PROFILE>${env.MVP_AGENT_PROFILE}</MVP_AGENT_PROFILE>
+                    </environmentVariables>
+                </configuration>
             </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>

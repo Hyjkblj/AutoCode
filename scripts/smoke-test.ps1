@@ -1,15 +1,43 @@
 param(
-  [string]$BaseUrl = "http://localhost:8048",
+  [string]$BaseUrl = "http://localhost:8058",
   [string]$OperatorToken = "operator-dev-token",
+  [string]$Username = "admin",
+  [string]$Password = "admin123",
+  [string]$ProjectId = "proj-1",
   [string]$RiskPrompt = "Please exec echo push origin main"
 )
 
-$headers = @{ Authorization = "Bearer $OperatorToken" }
+function Resolve-AuthHeaders {
+  param(
+    [string]$BaseUrl,
+    [string]$Username,
+    [string]$Password,
+    [string]$OperatorToken
+  )
+  try {
+    $loginBody = @{
+      username = $Username
+      password = $Password
+    } | ConvertTo-Json
+    $loginResp = Invoke-RestMethod -Uri "$BaseUrl/api/v1/auth/login" -Method Post -ContentType "application/json" -Body $loginBody
+    if ($loginResp.ok -eq $true -and $loginResp.payload.accessToken) {
+      Write-Host "Auth mode: JWT login"
+      return @{ Authorization = "Bearer $($loginResp.payload.accessToken)" }
+    }
+  } catch {
+    Write-Host "JWT login unavailable, fallback to token mode."
+  }
+  Write-Host "Auth mode: token fallback"
+  return @{ Authorization = "Bearer $OperatorToken" }
+}
+
+$headers = Resolve-AuthHeaders -BaseUrl $BaseUrl -Username $Username -Password $Password -OperatorToken $OperatorToken
 
 Write-Host "Creating normal task..."
 $normalTaskBody = @{
-  projectId = "demo-project"
+  projectId = $ProjectId
   assistant = "codex"
+  agentProfile = "coder"
   prompt = "Refactor null handling in service layer"
 } | ConvertTo-Json
 
@@ -19,8 +47,9 @@ Write-Host "Normal task ID: $normalTaskId"
 
 Write-Host "Creating risky task that requires approval..."
 $riskyTaskBody = @{
-  projectId = "demo-project"
+  projectId = $ProjectId
   assistant = "codex"
+  agentProfile = "coder"
   prompt = $RiskPrompt
 } | ConvertTo-Json
 

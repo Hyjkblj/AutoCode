@@ -28,6 +28,10 @@ public class WorkspaceAllowlistPolicy implements ToolInvocationPolicy {
         }
         String cwd = context == null ? null : context.getCwd();
         if (cwd == null || cwd.isBlank()) {
+            // cwd not provided by caller; fall back to JVM working directory
+            cwd = System.getProperty("user.dir", "");
+        }
+        if (cwd.isBlank()) {
             return PolicyDecision.deny("cwd_missing");
         }
         String c = WorkspacePrefixGuard.normalizePath(cwd);

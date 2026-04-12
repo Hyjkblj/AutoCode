@@ -3,17 +3,19 @@ services:
     image: mysql:8.4
     container_name: mvp-mysql
     environment:
-      MYSQL_ROOT_PASSWORD: 000000
+      MYSQL_ROOT_PASSWORD: "000000"
       MYSQL_DATABASE: mvp_codeops
       MYSQL_USER: mvp
-      MYSQL_PASSWORD: 000000
+      MYSQL_PASSWORD: "000000"
     ports:
       - "3306:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -uroot -p000000 --silent"]
       interval: 10s
       timeout: 5s
-      retries: 10
+      retries: 20
 
   redis:
     image: redis:7.4
@@ -21,8 +23,100 @@ services:
     command: ["redis-server", "--requirepass", "000000"]
     ports:
       - "6379:6379"
+    volumes:
+      - redis-data:/data
     healthcheck:
       test: ["CMD", "redis-cli", "-a", "000000", "ping"]
       interval: 10s
       timeout: 5s
-      retries: 10
+      retries: 20
+
+  control-plane:
+    profiles: ["fullstack"]
+    build:
+      context: .
+      dockerfile: control-plane-spring/Dockerfile
+    container_name: mvp-control-plane
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      MVP_DB_URL: jdbc:mysql://mysql:3306/mvp_codeops?useUnicode=true&characterEncoding=utf8&serverTimezone=UTC
+      MVP_DB_USERNAME: root
+      MVP_DB_PASSWORD: "000000"
+      MVP_REDIS_HOST: redis
+      MVP_REDIS_PORT: "6379"
+      MVP_REDIS_PASSWORD: "000000"
+      MVP_AUTH_MODE: jwt
+      MVP_JWT_SECRET: autocode-dev-jwt-secret-which-is-at-least-32bytes
+      MVP_ELEVATED_AUTHORITIES: ROLE_ADMIN,ROLE_OPERATOR
+      MVP_MTLS_REQUIRED_FOR_AGENT: "false"
+      MVP_ARTIFACTS_BASE_DIR: /app/data/artifacts
+      MVP_ARTIFACTS_HOSTING_BASE_DIR: /app/data/artifacts-hosted
+      MVP_ARTIFACTS_HOSTING_PUBLIC_BASE_URL: ${MVP_ARTIFACTS_HOSTING_PUBLIC_BASE_URL:-}
+      MVP_ARTIFACTS_DOWNLOAD_SHARED_TOKEN: ${MVP_ARTIFACTS_DOWNLOAD_SHARED_TOKEN:-}
+    ports:
+      - "8058:8058"
+    volumes:
+      - control-plane-data:/app/data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8058/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+
+  pc-agent-java:
+    profiles: ["fullstack"]
+    build:
+      context: .
+      dockerfile: pc-agent-java/Dockerfile
+    container_name: mvp-pc-agent-java
+    depends_on:
+      control-plane:
+        condition: service_healthy
+    environment:
+      MVP_BASE_URL: http://control-plane:8058
+      MVP_AGENT_TOKEN: agent-dev-token
+      MVP_NODE_ID: java-sandbox-local
+      MVP_AGENT_PROFILE: coder
+      MVP_ALLOWED_WORKSPACE_PREFIXES: /workspace
+      MVP_SANDBOX_SERVER_ENABLED: "true"
+      MVP_SANDBOX_PORT: "18080"
+    volumes:
+      - ./:/workspace
+
+  python-agent:
+    profiles: ["fullstack"]
+    build:
+      context: .
+      dockerfile: python-agent/Dockerfile
+    container_name: mvp-python-agent
+    depends_on:
+      control-plane:
+        condition: service_healthy
+      pc-agent-java:
+        condition: service_started
+    network_mode: "service:pc-agent-java"
+    environment:
+      MVP_BASE_URL: http://control-plane:8058
+      MVP_AGENT_TOKEN: agent-dev-token
+      MVP_NODE_ID: py-ai-local
+      MVP_AGENT_PROFILE: ai-agent
+      MVP_ALLOWED_WORKSPACE_PREFIXES: /workspace
+      MVP_SANDBOX_BASE_URL: http://127.0.0.1:18080
+      MVP_MEMORY_BACKEND: redis
+      MVP_REDIS_URL: redis://:000000@redis:6379/0
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      OPENAI_CHAT_URL: ${OPENAI_CHAT_URL:-}
+      LLM_BACKEND: ${LLM_BACKEND:-openai}
+      LLM_MODEL: ${LLM_MODEL:-}
+    volumes:
+      - ./:/workspace
+
+volumes:
+  mysql-data:
+  redis-data:
+  control-plane-data:

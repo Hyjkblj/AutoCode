@@ -1,0 +1,17 @@
+.git
+.gitignore
+.idea
+.vscode
+.gradle-cache
+.runtime-logs
+.tmp
+**/target
+**/build
+**/__pycache__
+**/*.log
+**/hs_err_pid*
+**/replay_pid*
+**/data
+mobile-app
+None
+Task

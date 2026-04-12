@@ -31,6 +31,20 @@ This repository now contains a runnable MVP implementation based on the architec
 5. Run smoke test:
    `./scripts/smoke-test.ps1`
 
+## Docker Full Stack (Unified Port 8058)
+- Start all services (MySQL, Redis, control-plane, Java agent, Python agent):
+  `docker compose --profile fullstack up -d --build`
+- Control plane endpoint:
+  `http://localhost:8058`
+- Stop:
+  `docker compose --profile fullstack down`
+
+Notes:
+- `python-agent` runs in the network namespace of `pc-agent-java` so it can call sandbox at `127.0.0.1:18080`.
+- For hosted artifact public URL, optionally set:
+  - `MVP_ARTIFACTS_HOSTING_PUBLIC_BASE_URL`
+  - `MVP_ARTIFACTS_DOWNLOAD_SHARED_TOKEN`
+
 ## Auth defaults
 - Operator token: `operator-dev-token`
 - Agent token: `agent-dev-token`

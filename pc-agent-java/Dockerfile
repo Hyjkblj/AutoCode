@@ -4,6 +4,7 @@ WORKDIR /build
 COPY pom.xml .
 COPY shared-protocol/pom.xml shared-protocol/pom.xml
 COPY pc-agent-java/pom.xml pc-agent-java/pom.xml
+COPY control-plane-spring/pom.xml control-plane-spring/pom.xml
 COPY shared-protocol/src shared-protocol/src
 COPY pc-agent-java/src pc-agent-java/src
 

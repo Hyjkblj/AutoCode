@@ -3,6 +3,7 @@ package com.autocode.mobile
 import android.Manifest
 import android.app.Application
 import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import android.speech.RecognizerIntent
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -67,6 +68,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.autocode.mobile.network.ArtifactListItem
@@ -1472,6 +1474,7 @@ private fun ArtifactDetailScreen(
     onBack: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     var loading by remember { mutableStateOf(true) }
     var art by remember { mutableStateOf<ArtifactListItem?>(null) }
     var err by remember { mutableStateOf<String?>(null) }
@@ -1579,21 +1582,71 @@ private fun ArtifactDetailScreen(
             }
             accessUrl?.let { link ->
                 Spacer(Modifier.height(10.dp))
-                Text("访问 URL：", style = MaterialTheme.typography.bodySmall)
+                Text("访问 URL（点击后打开浏览器）：", style = MaterialTheme.typography.bodySmall)
                 Text(
-                    link.url,
+                    text = link.url,
                     style = MaterialTheme.typography.bodySmall,
                     fontFamily = FontFamily.Monospace,
+                    color = MaterialTheme.colorScheme.primary,
+                    textDecoration = TextDecoration.Underline,
+                    modifier = Modifier.clickable {
+                        runCatching {
+                            val browserIntent =
+                                Intent(Intent.ACTION_VIEW, Uri.parse(link.url)).apply {
+                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                }
+                            context.startActivity(browserIntent)
+                        }.onFailure { e ->
+                            accessUrlErr = e.message ?: "无法打开浏览器"
+                        }
+                    },
                 )
-                link.shareUrl
+                link.shortUrl
                     ?.takeIf { it.isNotBlank() && it != link.url }
-                    ?.let { share ->
+                    ?.let { short ->
                         Spacer(Modifier.height(6.dp))
-                        Text("Share URL：", style = MaterialTheme.typography.bodySmall)
+                        Text("短链 URL（点击后打开浏览器）：", style = MaterialTheme.typography.bodySmall)
                         Text(
-                            share,
+                            text = short,
                             style = MaterialTheme.typography.bodySmall,
                             fontFamily = FontFamily.Monospace,
+                            color = MaterialTheme.colorScheme.primary,
+                            textDecoration = TextDecoration.Underline,
+                            modifier = Modifier.clickable {
+                                runCatching {
+                                    val browserIntent =
+                                        Intent(Intent.ACTION_VIEW, Uri.parse(short)).apply {
+                                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                        }
+                                    context.startActivity(browserIntent)
+                                }.onFailure { e ->
+                                    accessUrlErr = e.message ?: "无法打开浏览器"
+                                }
+                            },
+                        )
+                    }
+                link.shareUrl
+                    ?.takeIf { it.isNotBlank() && it != link.url && it != link.shortUrl }
+                    ?.let { share ->
+                        Spacer(Modifier.height(6.dp))
+                        Text("备用 Share URL：", style = MaterialTheme.typography.bodySmall)
+                        Text(
+                            text = share,
+                            style = MaterialTheme.typography.bodySmall,
+                            fontFamily = FontFamily.Monospace,
+                            color = MaterialTheme.colorScheme.primary,
+                            textDecoration = TextDecoration.Underline,
+                            modifier = Modifier.clickable {
+                                runCatching {
+                                    val browserIntent =
+                                        Intent(Intent.ACTION_VIEW, Uri.parse(share)).apply {
+                                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                        }
+                                    context.startActivity(browserIntent)
+                                }.onFailure { e ->
+                                    accessUrlErr = e.message ?: "无法打开浏览器"
+                                }
+                            },
                         )
                     }
             }

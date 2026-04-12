@@ -1064,6 +1064,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 url = dto.url,
                 canonicalUrl = dto.canonicalUrl,
                 shareUrl = dto.shareUrl,
+                shortUrl = dto.shortUrl,
                 entryPath = dto.entryPath,
                 tokenized = dto.tokenized,
             )

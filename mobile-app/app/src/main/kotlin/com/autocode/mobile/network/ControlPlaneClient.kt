@@ -456,12 +456,14 @@ object ControlPlaneClient {
     private fun parseArtifactSiteUrlEnvelope(body: String): ArtifactSiteUrlData {
         val payload = parseEnvelopePayload(body).jsonObjectOrNull()
             ?: error("site-url response payload is not an object")
-        val url = stringValue(payload, "shareUrl", "url")
+        val shortUrl = stringValue(payload, "shortUrl")
+        val url = shortUrl ?: stringValue(payload, "shareUrl", "url")
             ?: error("site-url response missing url")
         return ArtifactSiteUrlData(
             url = url,
             canonicalUrl = stringValue(payload, "url"),
             shareUrl = stringValue(payload, "shareUrl"),
+            shortUrl = shortUrl,
             entryPath = stringValue(payload, "entryPath"),
             tokenized = booleanValue(payload, "tokenized", "shared") ?: false,
         )
@@ -625,6 +627,7 @@ data class ArtifactSiteUrlData(
     val url: String,
     val canonicalUrl: String?,
     val shareUrl: String?,
+    val shortUrl: String?,
     val entryPath: String?,
     val tokenized: Boolean,
 )

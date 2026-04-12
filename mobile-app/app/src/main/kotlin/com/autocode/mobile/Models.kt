@@ -124,6 +124,7 @@ data class ArtifactAccessUrl(
     val url: String,
     val canonicalUrl: String? = null,
     val shareUrl: String? = null,
+    val shortUrl: String? = null,
     val entryPath: String? = null,
     val tokenized: Boolean = false,
 )

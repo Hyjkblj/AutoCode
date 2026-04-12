@@ -114,15 +114,19 @@ public class ArtifactsController {
         HostedArtifactSiteService.HostedSiteInfo siteInfo =
                 hostedArtifactSiteService.ensureHostedSite(taskId, artifactId, null);
         String url = buildSiteUrl(request, taskId, artifactId, siteInfo.entryPath(), null);
-        String shareUrl = sharedDownloadToken.isBlank()
+        String directShareUrl = sharedDownloadToken.isBlank()
                 ? null
                 : buildSiteUrl(request, taskId, artifactId, siteInfo.entryPath(), sharedDownloadToken);
+        String shortUrl = sharedDownloadToken.isBlank() ? null : buildShortUrl(request, artifactId);
+        String shareUrl = shortUrl == null ? directShareUrl : shortUrl;
         Map<String, Object> payload = new HashMap<>();
         payload.put("taskId", taskId);
         payload.put("artifactId", artifactId);
         payload.put("entryPath", siteInfo.entryPath());
         payload.put("url", url);
         payload.put("shareUrl", shareUrl);
+        payload.put("directShareUrl", directShareUrl);
+        payload.put("shortUrl", shortUrl);
         payload.put("tokenized", shareUrl != null);
         return ResponseEntity.ok(GatewayResponses.ok(payload));
     }
@@ -251,6 +255,12 @@ public class ArtifactsController {
             sb.append("?token=").append(UriUtils.encodeQueryParam(token, StandardCharsets.UTF_8));
         }
         return sb.toString();
+    }
+
+    private String buildShortUrl(HttpServletRequest request, String artifactId) {
+        String base = resolvePublicBaseUrl(request);
+        String encodedArtifact = UriUtils.encodePathSegment(artifactId, StandardCharsets.UTF_8);
+        return base + "/s/" + encodedArtifact;
     }
 
     private String resolvePublicBaseUrl(HttpServletRequest request) {

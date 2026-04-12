@@ -400,7 +400,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         if (_uiState.value.session == null) return
         unsubscribeTaskEvents()
         _pendingApproval.value = null
-        val sourceLabel = source.trim().ifEmpty { "remote sync" }
+        val sourceLabel = source.trim().ifEmpty { "远程同步" }
         val reasonSuffix =
             detail
                 ?.trim()
@@ -414,7 +414,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 isRefreshingAgentNodes = false,
                 isRefreshingTasks = false,
                 isRefreshingPublishHistory = false,
-                errorMessage = "Login expired. Please sign in again$reasonSuffix.",
+                errorMessage = "登录已过期，请重新登录$reasonSuffix。",
             )
         }
         persistAll()
@@ -588,7 +588,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             _uiState.update {
                 it.copy(
                     isRefreshingTasks = false,
-                    errorMessage = remote.exceptionOrNull()?.message ?: "Failed to load tasks",
+                    errorMessage = remote.exceptionOrNull()?.message ?: "加载任务列表失败",
                 )
             }
             return
@@ -597,7 +597,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val remoteTasks =
             remote.getOrNull().orEmpty().map { dto ->
                 val fallbackPrompt =
-                    dto.prompt?.trim()?.takeIf { it.isNotEmpty() } ?: "Remote task ${dto.taskId}"
+                    dto.prompt?.trim()?.takeIf { it.isNotEmpty() } ?: "远程任务 ${dto.taskId}"
                 mapServerToTaskItem(dto, projectId, fallbackPrompt)
             }
         _uiState.update { state ->
@@ -721,7 +721,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             _uiState.update {
                 it.copy(
                     isRefreshingAgentNodes = false,
-                    errorMessage = result.exceptionOrNull()?.message ?: "Failed to load agent nodes",
+                    errorMessage = result.exceptionOrNull()?.message ?: "加载代理节点失败",
                 )
             }
         }
@@ -764,7 +764,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             }
             fallbackError =
                 remote.exceptionOrNull()?.message
-                    ?: "Failed to load projects from control-plane; using local fallback"
+                    ?: "从控制面加载项目失败，已使用本地兜底数据"
         }
 
         val selected =
@@ -1044,10 +1044,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     suspend fun resolveArtifactAccessUrl(taskId: String, artifact: ArtifactListItem): Result<ArtifactAccessUrl> {
         val base = _uiState.value.baseUrl.trim()
         if (base.isEmpty()) {
-            return Result.failure(IllegalStateException("离线模式不支持在线生成 URL"))
+            return Result.failure(IllegalStateException("离线模式不支持在线生成访问链接"))
         }
         val session = _uiState.value.session
-            ?: return Result.failure(IllegalStateException("请先登录后再生成 URL"))
+            ?: return Result.failure(IllegalStateException("请先登录后再生成访问链接"))
 
         val result =
             ControlPlaneClient.resolveArtifactSiteUrl(
@@ -1483,7 +1483,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             if (isAuthFailure(error)) {
                 handleAuthExpired("manual refresh", error?.message)
             } else {
-                _uiState.update { it.copy(errorMessage = error?.message ?: "Failed to refresh task") }
+                _uiState.update { it.copy(errorMessage = error?.message ?: "刷新任务状态失败") }
             }
         }
     }
@@ -1575,7 +1575,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 "APPROVAL_REQUIRED" -> {
                     val summary =
                         stringValue(event.payload, "reason", "message", "action")
-                            ?: "Task $taskId is waiting for your approval."
+                            ?: "任务 $taskId 正在等待你的审批。"
                     if (rememberNotificationKey("approval:$eventKey")) {
                         taskNotificationCenter.notifyApprovalRequired(taskId = taskId, message = summary)
                     }
@@ -1584,7 +1584,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     if (rememberNotificationKey("done:$eventKey")) {
                         taskNotificationCenter.notifyTaskDone(
                             taskId = taskId,
-                            message = "Task $taskId completed successfully.",
+                            message = "任务 $taskId 已成功完成。",
                         )
                     }
                     lastRemoteStatusByTaskId[taskId] = "success"
@@ -1592,7 +1592,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 "TASK_FAILED" -> {
                     val reason =
                         stringValue(event.payload, "reason", "message", "error")
-                            ?: "Task $taskId failed."
+                            ?: "任务 $taskId 执行失败。"
                     if (rememberNotificationKey("failed:$eventKey")) {
                         taskNotificationCenter.notifyTaskFailed(taskId = taskId, message = reason)
                     }
@@ -1978,7 +1978,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 if (taskExists) {
                     state.tasks.map { t ->
                         if (t.id != dto.taskId) return@map t
-                        val statusLine = "Control-plane status: ${dto.status}"
+                        val statusLine = "控制面状态：${dto.status}"
                         val newLogs =
                             if (t.logs.lastOrNull() == statusLine) {
                                 t.logs
@@ -1999,7 +1999,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                             ?: state.selectedProjectId
                             ?: state.dynamicProjects.firstOrNull()?.id
                             ?: mockProjects.first().id
-                    val fallbackPrompt = dto.prompt?.trim()?.takeIf { it.isNotEmpty() } ?: "Remote task ${dto.taskId}"
+                    val fallbackPrompt = dto.prompt?.trim()?.takeIf { it.isNotEmpty() } ?: "远程任务 ${dto.taskId}"
                     listOf(mapServerToTaskItem(dto, fallbackProjectId, fallbackPrompt)) + state.tasks
                 }
             val incomingProjectId = dto.projectId?.trim().orEmpty()
@@ -2023,14 +2023,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         lastRemoteStatusByTaskId[dto.taskId] = normalizedIncomingStatus
         val notificationsEnabled = _uiState.value.notificationsEnabled
         if (notificationsEnabled && previousRemoteStatus != null && previousRemoteStatus != normalizedIncomingStatus) {
-            val promptLabel = dto.prompt?.trim()?.takeIf { it.isNotEmpty() } ?: "Task ${dto.taskId}"
+            val promptLabel = dto.prompt?.trim()?.takeIf { it.isNotEmpty() } ?: "任务 ${dto.taskId}"
             when {
                 normalizedIncomingStatus == "waiting_approval" -> {
                     val key = "approval:remote:${dto.taskId}:$normalizedIncomingStatus"
                     if (rememberNotificationKey(key)) {
                         taskNotificationCenter.notifyApprovalRequired(
                             taskId = dto.taskId,
-                            message = "$promptLabel is waiting for approval.",
+                            message = "$promptLabel 正在等待审批。",
                         )
                     }
                 }
@@ -2039,7 +2039,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     if (rememberNotificationKey(key)) {
                         taskNotificationCenter.notifyTaskDone(
                             taskId = dto.taskId,
-                            message = "$promptLabel completed.",
+                            message = "$promptLabel 已完成。",
                         )
                     }
                 }
@@ -2048,7 +2048,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     if (rememberNotificationKey(key)) {
                         taskNotificationCenter.notifyTaskFailed(
                             taskId = dto.taskId,
-                            message = "$promptLabel failed with status $normalizedIncomingStatus.",
+                            message = "$promptLabel 失败，状态：$normalizedIncomingStatus。",
                         )
                     }
                 }
@@ -2174,8 +2174,8 @@ private class TaskNotificationCenter(
         showNotification(
             channelId = CHANNEL_APPROVALS,
             notificationId = "approval:$taskId:$message".hashCode(),
-            title = "Approval Required",
-            message = message.ifBlank { "Task $taskId is waiting for approval." },
+            title = "需要审批",
+            message = message.ifBlank { "任务 $taskId 正在等待审批。" },
             priority = NotificationCompat.PRIORITY_HIGH,
             category = NotificationCompat.CATEGORY_RECOMMENDATION,
         )
@@ -2185,8 +2185,8 @@ private class TaskNotificationCenter(
         showNotification(
             channelId = CHANNEL_TASK_UPDATES,
             notificationId = "done:$taskId:$message".hashCode(),
-            title = "Task Completed",
-            message = message.ifBlank { "Task $taskId completed successfully." },
+            title = "任务已完成",
+            message = message.ifBlank { "任务 $taskId 已成功完成。" },
             priority = NotificationCompat.PRIORITY_DEFAULT,
             category = NotificationCompat.CATEGORY_STATUS,
         )
@@ -2196,8 +2196,8 @@ private class TaskNotificationCenter(
         showNotification(
             channelId = CHANNEL_TASK_UPDATES,
             notificationId = "failed:$taskId:$message".hashCode(),
-            title = "Task Failed",
-            message = message.ifBlank { "Task $taskId failed. Open the app for details." },
+            title = "任务失败",
+            message = message.ifBlank { "任务 $taskId 执行失败，请打开应用查看详情。" },
             priority = NotificationCompat.PRIORITY_HIGH,
             category = NotificationCompat.CATEGORY_ERROR,
         )
@@ -2247,18 +2247,18 @@ private class TaskNotificationCenter(
         val approvalsChannel =
             NotificationChannel(
                 CHANNEL_APPROVALS,
-                "Task Approvals",
+                "任务审批",
                 NotificationManager.IMPORTANCE_HIGH,
             ).apply {
-                description = "Approval required notifications for agent tasks"
+                description = "代理任务需要审批时的通知"
             }
         val taskUpdatesChannel =
             NotificationChannel(
                 CHANNEL_TASK_UPDATES,
-                "Task Updates",
+                "任务更新",
                 NotificationManager.IMPORTANCE_DEFAULT,
             ).apply {
-                description = "Task completion and failure notifications"
+                description = "任务完成与失败通知"
             }
         manager.createNotificationChannel(approvalsChannel)
         manager.createNotificationChannel(taskUpdatesChannel)

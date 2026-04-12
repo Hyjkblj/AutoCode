@@ -59,7 +59,7 @@ object ControlPlaneClient {
                         .build()
                 client.newCall(req).execute().use { resp ->
                     val text = resp.body?.string().orEmpty()
-                    if (!resp.isSuccessful) error("HTTP ${resp.code}: ${text.take(200)}")
+                    if (!resp.isSuccessful) error("请求失败（HTTP ${resp.code}）：${text.take(200)}")
                     parseAccessToken(text)
                 }
             }
@@ -92,7 +92,7 @@ object ControlPlaneClient {
                         .build()
                 client.newCall(req).execute().use { resp ->
                     val text = resp.body?.string().orEmpty()
-                    if (!resp.isSuccessful) error("HTTP ${resp.code}: ${text.take(300)}")
+                    if (!resp.isSuccessful) error("请求失败（HTTP ${resp.code}）：${text.take(300)}")
                     parseTaskSummaryEnvelope(text)
                 }
             }
@@ -146,7 +146,7 @@ object ControlPlaneClient {
                     val text = resp.body?.string().orEmpty()
                     // Older control-plane versions do not have list endpoint yet.
                     if (resp.code == 404 || resp.code == 405) return@runCatching emptyList()
-                    if (!resp.isSuccessful) error("HTTP ${resp.code}: ${text.take(300)}")
+                    if (!resp.isSuccessful) error("请求失败（HTTP ${resp.code}）：${text.take(300)}")
                     parseTaskSummaryListEnvelope(text)
                 }
             }
@@ -166,7 +166,7 @@ object ControlPlaneClient {
                         .build()
                 client.newCall(req).execute().use { resp ->
                     val text = resp.body?.string().orEmpty()
-                    if (!resp.isSuccessful) error("HTTP ${resp.code}: ${text.take(300)}")
+                    if (!resp.isSuccessful) error("请求失败（HTTP ${resp.code}）：${text.take(300)}")
                     parseProjectSummaryListEnvelope(text)
                 }
             }
@@ -186,7 +186,7 @@ object ControlPlaneClient {
                         .build()
                 client.newCall(req).execute().use { resp ->
                     val text = resp.body?.string().orEmpty()
-                    if (!resp.isSuccessful) error("HTTP ${resp.code}: ${text.take(300)}")
+                    if (!resp.isSuccessful) error("请求失败（HTTP ${resp.code}）：${text.take(300)}")
                     parseAgentNodeListEnvelope(text)
                 }
             }
@@ -207,7 +207,7 @@ object ControlPlaneClient {
                         .build()
                 client.newCall(req).execute().use { resp ->
                     val text = resp.body?.string().orEmpty()
-                    if (!resp.isSuccessful) error("HTTP ${resp.code}: ${text.take(300)}")
+                    if (!resp.isSuccessful) error("请求失败（HTTP ${resp.code}）：${text.take(300)}")
                     parseGatewayArtifactList(text, taskId.trim())
                 }
             }
@@ -229,8 +229,8 @@ object ControlPlaneClient {
                         .build()
                 client.newCall(req).execute().use { resp ->
                     val text = resp.body?.string().orEmpty()
-                    if (resp.code == 404) error("artifact not found (404)")
-                    if (!resp.isSuccessful) error("HTTP ${resp.code}: ${text.take(300)}")
+                    if (resp.code == 404) error("产物不存在（404）")
+                    if (!resp.isSuccessful) error("请求失败（HTTP ${resp.code}）：${text.take(300)}")
                     parseArtifactSiteUrlEnvelope(text)
                 }
             }
@@ -252,10 +252,10 @@ object ControlPlaneClient {
                         .build()
                 client.newCall(req).execute().use { resp ->
                     val bytes = resp.body?.bytes() ?: ByteArray(0)
-                    if (resp.code == 404) error("artifact not found (404)")
+                    if (resp.code == 404) error("产物不存在（404）")
                     if (!resp.isSuccessful) {
                         val txt = bytes.toString(Charsets.UTF_8).take(300)
-                        error("HTTP ${resp.code}: $txt")
+                        error("请求失败（HTTP ${resp.code}）：$txt")
                     }
                     ArtifactDownloadData(
                         bytes = bytes,
@@ -281,8 +281,8 @@ object ControlPlaneClient {
                         .build()
                 client.newCall(req).execute().use { resp ->
                     val text = resp.body?.string().orEmpty()
-                    if (resp.code == 404) error("task not found (404)")
-                    if (!resp.isSuccessful) error("HTTP ${resp.code}: ${text.take(300)}")
+                    if (resp.code == 404) error("任务不存在（404）")
+                    if (!resp.isSuccessful) error("请求失败（HTTP ${resp.code}）：${text.take(300)}")
                     parseTaskSummaryEnvelope(text)
                 }
             }
@@ -310,8 +310,8 @@ object ControlPlaneClient {
                         .build()
                 client.newCall(req).execute().use { resp ->
                     val text = resp.body?.string().orEmpty()
-                    if (resp.code == 404) error("task not found (404)")
-                    if (!resp.isSuccessful) error("HTTP ${resp.code}: ${text.take(300)}")
+                    if (resp.code == 404) error("任务不存在（404）")
+                    if (!resp.isSuccessful) error("请求失败（HTTP ${resp.code}）：${text.take(300)}")
                     parseTaskEventsEnvelope(text)
                 }
             }
@@ -341,8 +341,8 @@ object ControlPlaneClient {
                         .build()
                 client.newCall(req).execute().use { resp ->
                     val text = resp.body?.string().orEmpty()
-                    if (resp.code == 404) error("approval or task not found (404)")
-                    if (!resp.isSuccessful) error("HTTP ${resp.code}: ${text.take(300)}")
+                    if (resp.code == 404) error("审批单或任务不存在（404）")
+                    if (!resp.isSuccessful) error("请求失败（HTTP ${resp.code}）：${text.take(300)}")
                     parseTaskSummaryEnvelope(text)
                 }
             }
@@ -350,7 +350,7 @@ object ControlPlaneClient {
 
     private fun buildUrl(baseUrl: String, path: String, query: Map<String, String?> = emptyMap()): String {
         val raw = "${normalizeBaseUrl(baseUrl)}$path"
-        val base = raw.toHttpUrlOrNull() ?: error("invalid URL: $raw")
+        val base = raw.toHttpUrlOrNull() ?: error("无效地址：$raw")
         val builder = base.newBuilder()
         query.forEach { (k, v) ->
             v?.trim()?.takeIf { it.isNotEmpty() }?.let { builder.addQueryParameter(k, it) }
@@ -377,15 +377,15 @@ object ControlPlaneClient {
 
     private fun parseAccessToken(responseBody: String): String {
         val payload = parseEnvelopePayload(responseBody).jsonObjectOrNull()
-            ?: error("login response missing payload")
+            ?: error("登录响应缺少数据体")
         val token = stringValue(payload, "accessToken")
-        if (token.isNullOrBlank()) error("login response missing accessToken")
+        if (token.isNullOrBlank()) error("登录响应缺少访问令牌（accessToken）")
         return token
     }
 
     private fun parseTaskSummaryEnvelope(responseBody: String): TaskSummaryDto {
         val payload = parseEnvelopePayload(responseBody).jsonObjectOrNull()
-            ?: error("response payload is not an object")
+            ?: error("响应数据体不是对象")
         return parseTaskSummary(payload)
     }
 
@@ -423,7 +423,7 @@ object ControlPlaneClient {
             }
 
     private fun parseTaskSummary(o: JsonObject): TaskSummaryDto {
-        val taskId = stringValue(o, "taskId", "id") ?: error("task summary missing taskId")
+        val taskId = stringValue(o, "taskId", "id") ?: error("任务摘要缺少任务编号（taskId）")
         return TaskSummaryDto(
             taskId = taskId,
             projectId = stringValue(o, "projectId"),
@@ -455,10 +455,10 @@ object ControlPlaneClient {
 
     private fun parseArtifactSiteUrlEnvelope(body: String): ArtifactSiteUrlData {
         val payload = parseEnvelopePayload(body).jsonObjectOrNull()
-            ?: error("site-url response payload is not an object")
+            ?: error("访问链接响应数据体不是对象")
         val shortUrl = stringValue(payload, "shortUrl")
         val url = shortUrl ?: stringValue(payload, "shareUrl", "url")
-            ?: error("site-url response missing url")
+            ?: error("访问链接响应缺少链接地址")
         return ArtifactSiteUrlData(
             url = url,
             canonicalUrl = stringValue(payload, "url"),
@@ -489,7 +489,7 @@ object ControlPlaneClient {
     private fun parseEnvelopePayload(responseBody: String): JsonElement {
         val obj = json.parseToJsonElement(responseBody).jsonObject
         if (obj["ok"]?.jsonPrimitive?.booleanOrNull != true) {
-            val err = obj["error"]?.jsonPrimitive?.contentOrNull ?: "request failed"
+            val err = obj["error"]?.jsonPrimitive?.contentOrNull ?: "请求失败"
             error(err)
         }
         return obj["payload"] ?: JsonNull

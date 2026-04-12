@@ -188,7 +188,7 @@ private fun LoginRoute(vm: AppViewModel) {
         Text(text = "AutoCode")
         Spacer(Modifier.height(8.dp))
         Text(
-            text = "在「我的」填写控制面 Base URL 后，将使用 JWT 登录与创建任务；" +
+            text = "在「我的」填写控制面地址后，将使用账号登录并创建任务；" +
                 "留空则离线模拟。",
             style = MaterialTheme.typography.bodyMedium,
         )
@@ -196,8 +196,8 @@ private fun LoginRoute(vm: AppViewModel) {
         OutlinedTextField(
             value = baseUrlDraft,
             onValueChange = { baseUrlDraft = it },
-            label = { Text("Control Plane Base URL") },
-            placeholder = { Text("e.g. http://10.92.85.245:8058") },
+            label = { Text("控制面地址") },
+            placeholder = { Text("例如：http://10.92.85.245:8058") },
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
         )
@@ -352,7 +352,7 @@ private fun HomeTab(vm: AppViewModel) {
     val project = state.dynamicProjects.find { it.id == state.selectedProjectId }
     val mode =
         if (state.baseUrl.isBlank()) {
-            "离线模拟（未配置控制面 URL）"
+            "离线模拟（未配置控制面地址）"
         } else {
             "已配置控制面：${state.baseUrl}"
         }
@@ -365,16 +365,16 @@ private fun HomeTab(vm: AppViewModel) {
         Spacer(Modifier.height(8.dp))
         Text("生成目标：${state.generationTarget.displayLabel()}")
         Spacer(Modifier.height(8.dp))
-        Text("Agent 身份：${state.agentProfile.displayLabel()}")
+        Text("代理身份：${state.agentProfile.displayLabel()}")
         Spacer(Modifier.height(8.dp))
         Text(mode, style = MaterialTheme.typography.bodySmall)
         Spacer(Modifier.height(20.dp))
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp)) {
                 Text(
-                    "PR-1：登录、会话、项目、生成目标。\n" +
-                        "PR-2：自然语言任务 + 控制面轮询或本地模拟。\n" +
-                        "PR-3：「产物」Tab 列表/详情、预览与发布入口（占位）、发布历史。",
+                    "支持：登录鉴权、项目选择与生成配置。\n" +
+                        "支持：自然语言任务创建、状态同步与审批提醒。\n" +
+                        "支持：产物查看、在线预览、访问链接与发布历史。",
                 )
             }
         }
@@ -524,7 +524,7 @@ private fun TaskListTab(vm: AppViewModel, nav: NavHostController) {
                     Column(Modifier.padding(14.dp)) {
                         Text(t.prompt, maxLines = 2)
                         Spacer(Modifier.height(6.dp))
-                        Text("${t.source.name} · ${t.status.name} · ${t.progress}%")
+                        Text("${taskSourceLabel(t.source)} · ${taskStatusLabel(t.status)} · ${t.progress}%")
                     }
                 }
             }
@@ -618,8 +618,8 @@ private fun TaskDetailTab(
         ) {
             Text(task.prompt, style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(12.dp))
-            Text("来源：${task.source.name}（LOCAL=本地模拟，REMOTE=控制面轮询）")
-            Text("状态：${task.status.name}")
+            Text("来源：${taskSourceLabel(task.source)}（本地模拟/控制面）")
+            Text("状态：${taskStatusLabel(task.status)}")
             Text("进度：${task.progress}%")
             Spacer(Modifier.height(12.dp))
             LinearProgressIndicator(
@@ -673,7 +673,7 @@ private fun TaskDetailTab(
                     onClick = { innerNav.navigate("artifacts/task/${task.id}") },
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Text("查看产物（PR-3）")
+                    Text("查看产物")
                 }
             }
         }
@@ -712,11 +712,11 @@ private fun TaskDetailTab(
 internal fun AgentEventItem(event: TaskEventDto, fallbackLine: String) {
     val type = event.type?.uppercase().orEmpty()
     val payload = event.payload
-    val header = "Seq ${event.seq} · ${event.type ?: "EVENT"}"
+    val header = "序号 ${event.seq} · ${eventTypeLabel(event.type)}"
 
     when (type) {
         "ASSISTANT_OUTPUT" -> {
-            val agent = payloadText(payload, "agent", "assistant", "assistantName") ?: "assistant"
+            val agent = payloadText(payload, "agent", "assistant", "assistantName") ?: "助手"
             val message = payloadText(payload, "message", "content", "text", "output") ?: fallbackLine
             Card(
                 colors =
@@ -754,7 +754,7 @@ internal fun AgentEventItem(event: TaskEventDto, fallbackLine: String) {
             }
         }
         "TOOL_START" -> {
-            val tool = payloadText(payload, "tool", "toolName") ?: "unknown"
+            val tool = payloadText(payload, "tool", "toolName") ?: "未知工具"
             val command = payloadText(payload, "command", "cmd")
             val cwd = payloadText(payload, "cwd", "workdir")
             var expanded by rememberSaveable(eventStableKey(event)) { mutableStateOf(false) }
@@ -765,7 +765,7 @@ internal fun AgentEventItem(event: TaskEventDto, fallbackLine: String) {
                     ),
             ) {
                 Column(Modifier.padding(12.dp)) {
-                    Text("工具调用: $tool", style = MaterialTheme.typography.titleSmall)
+                    Text("工具调用：$tool", style = MaterialTheme.typography.titleSmall)
                     Text(header, style = MaterialTheme.typography.labelSmall)
                     if (!command.isNullOrBlank()) {
                         Spacer(Modifier.height(8.dp))
@@ -778,7 +778,7 @@ internal fun AgentEventItem(event: TaskEventDto, fallbackLine: String) {
                     }
                     if (expanded && !cwd.isNullOrBlank()) {
                         Spacer(Modifier.height(6.dp))
-                        Text("cwd: $cwd", fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
+                        Text("工作目录：$cwd", fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
                     }
                     if (!command.isNullOrBlank() || !cwd.isNullOrBlank()) {
                         Spacer(Modifier.height(4.dp))
@@ -790,7 +790,7 @@ internal fun AgentEventItem(event: TaskEventDto, fallbackLine: String) {
             }
         }
         "TOOL_END" -> {
-            val status = payloadText(payload, "status", "result") ?: "unknown"
+            val status = payloadText(payload, "status", "result")?.trim().orEmpty().ifBlank { "unknown" }
             val execMs = payloadLongValue(payload, "execMs", "elapsedMs", "durationMs")
             val success =
                 status.equals("success", ignoreCase = true) ||
@@ -810,9 +810,9 @@ internal fun AgentEventItem(event: TaskEventDto, fallbackLine: String) {
                         style = MaterialTheme.typography.titleSmall,
                     )
                     Spacer(Modifier.height(6.dp))
-                    Text("状态: $status", fontFamily = FontFamily.Monospace)
+                    Text("状态：${genericStatusLabel(status)}")
                     execMs?.let {
-                        Text("耗时: ${it}ms", fontFamily = FontFamily.Monospace)
+                        Text("耗时：${it} 毫秒", fontFamily = FontFamily.Monospace)
                     }
                     Spacer(Modifier.height(6.dp))
                     Text(header, style = MaterialTheme.typography.labelSmall)
@@ -882,21 +882,21 @@ internal fun AgentEventItem(event: TaskEventDto, fallbackLine: String) {
                     Text(header, style = MaterialTheme.typography.labelSmall)
                     action?.let {
                         Spacer(Modifier.height(6.dp))
-                        Text("动作: $it")
+                        Text("动作：$it")
                     }
                     command?.let {
                         Spacer(Modifier.height(6.dp))
-                        Text("命令: $it", fontFamily = FontFamily.Monospace)
+                        Text("命令：$it", fontFamily = FontFamily.Monospace)
                     }
                     reason?.let {
                         Spacer(Modifier.height(6.dp))
-                        Text("原因: $it")
+                        Text("原因：$it")
                     }
                 }
             }
         }
         "DEPLOY_PLAN" -> {
-            val environment = payloadText(payload, "environment", "env") ?: "staging"
+            val environment = payloadText(payload, "environment", "env") ?: "测试环境"
             val artifactId = payloadText(payload, "artifactId")
             val version = payloadText(payload, "version", "versionLabel")
             val requestId = payloadText(payload, "requestId", "deployRequestId", "request_id")
@@ -907,21 +907,21 @@ internal fun AgentEventItem(event: TaskEventDto, fallbackLine: String) {
                     ),
             ) {
                 Column(Modifier.padding(12.dp)) {
-                    Text("Deploy Plan", style = MaterialTheme.typography.titleSmall)
+                    Text("发布计划", style = MaterialTheme.typography.titleSmall)
                     Text(header, style = MaterialTheme.typography.labelSmall)
                     Spacer(Modifier.height(6.dp))
-                    Text("Environment: $environment")
+                    Text("环境：${environmentDisplayLabel(environment)}")
                     artifactId?.let {
                         Spacer(Modifier.height(4.dp))
-                        Text("Artifact: $it", fontFamily = FontFamily.Monospace)
+                        Text("产物：$it", fontFamily = FontFamily.Monospace)
                     }
                     version?.let {
                         Spacer(Modifier.height(4.dp))
-                        Text("Version: $it")
+                        Text("版本：$it")
                     }
                     requestId?.let {
                         Spacer(Modifier.height(4.dp))
-                        Text("Request ID: $it", fontFamily = FontFamily.Monospace)
+                        Text("请求编号：$it", fontFamily = FontFamily.Monospace)
                     }
                 }
             }
@@ -946,21 +946,21 @@ internal fun AgentEventItem(event: TaskEventDto, fallbackLine: String) {
                     ),
             ) {
                 Column(Modifier.padding(12.dp)) {
-                    Text("Deploy Result", style = MaterialTheme.typography.titleSmall)
+                    Text("发布结果", style = MaterialTheme.typography.titleSmall)
                     Text(header, style = MaterialTheme.typography.labelSmall)
                     Spacer(Modifier.height(6.dp))
-                    Text("Status: $status", fontFamily = FontFamily.Monospace)
+                    Text("状态：${genericStatusLabel(status)}")
                     endpoint?.let {
                         Spacer(Modifier.height(4.dp))
-                        Text("Endpoint: $it", fontFamily = FontFamily.Monospace)
+                        Text("访问地址：$it", fontFamily = FontFamily.Monospace)
                     }
                     requestId?.let {
                         Spacer(Modifier.height(4.dp))
-                        Text("Request ID: $it", fontFamily = FontFamily.Monospace)
+                        Text("请求编号：$it", fontFamily = FontFamily.Monospace)
                     }
                     reason?.let {
                         Spacer(Modifier.height(4.dp))
-                        Text("Reason: $it")
+                        Text("原因：$it")
                     }
                 }
             }
@@ -990,27 +990,27 @@ internal fun AgentEventItem(event: TaskEventDto, fallbackLine: String) {
                         val issues = payloadTextList(payload, "issues")
                         errorCode?.let {
                             Spacer(Modifier.height(6.dp))
-                            Text("errorCode: $it", fontFamily = FontFamily.Monospace)
+                            Text("错误码：$it", fontFamily = FontFamily.Monospace)
                         }
                         riskLevel?.let {
                             Spacer(Modifier.height(4.dp))
-                            Text("riskLevel: $it")
+                            Text("风险等级：$it")
                         }
                         if (attempt != null || maxAttempts != null) {
                             Spacer(Modifier.height(4.dp))
                             val progressLabel =
                                 if (attempt != null && maxAttempts != null) "$attempt/$maxAttempts"
                                 else "${attempt ?: "?"}/${maxAttempts ?: "?"}"
-                            Text("fixLoop: $progressLabel", fontFamily = FontFamily.Monospace)
+                            Text("修复轮次：$progressLabel", fontFamily = FontFamily.Monospace)
                         }
                         if (issues.isNotEmpty()) {
                             Spacer(Modifier.height(4.dp))
-                            Text("issues:")
+                            Text("问题列表：")
                             issues.take(5).forEach { issue ->
                                 Text("- $issue", style = MaterialTheme.typography.bodySmall)
                             }
                             if (issues.size > 5) {
-                                Text("- ...(${issues.size - 5} more)", style = MaterialTheme.typography.bodySmall)
+                                Text("- ...（还有 ${issues.size - 5} 条）", style = MaterialTheme.typography.bodySmall)
                             }
                         }
                     }
@@ -1119,7 +1119,7 @@ private fun buildFixLoopTimeline(events: List<TaskEventDto>): List<FixLoopPoint>
                 "TASK_FAILED" -> "执行失败"
                 "TASK_DONE" -> "执行完成"
                 "APPROVAL_REQUIRED" -> "等待审批"
-                else -> event.type ?: "EVENT"
+                else -> event.type ?: "事件"
             }
         timeline +=
             FixLoopPoint(
@@ -1215,34 +1215,34 @@ internal fun ApprovalBottomSheet(
         ) {
             Text("审批请求", style = MaterialTheme.typography.titleLarge)
             Spacer(Modifier.height(8.dp))
-            Text("approvalId: ${approval.approvalId}", fontFamily = FontFamily.Monospace)
+            Text("审批编号：${approval.approvalId}", fontFamily = FontFamily.Monospace)
             approval.action?.let {
                 Spacer(Modifier.height(6.dp))
-                Text("action: $it")
+                Text("动作：$it")
             }
             approval.tool?.let {
                 Spacer(Modifier.height(6.dp))
-                Text("tool: $it")
+                Text("工具：$it")
             }
             approval.command?.let {
                 Spacer(Modifier.height(6.dp))
-                Text("command: $it", fontFamily = FontFamily.Monospace)
+                Text("命令：$it", fontFamily = FontFamily.Monospace)
             }
             approval.cwd?.let {
                 Spacer(Modifier.height(6.dp))
-                Text("cwd: $it", fontFamily = FontFamily.Monospace)
+                Text("工作目录：$it", fontFamily = FontFamily.Monospace)
             }
             approval.riskScore?.let {
                 Spacer(Modifier.height(6.dp))
-                Text("riskScore: ${String.format(Locale.getDefault(), "%.2f", it)}")
+                Text("风险分：${String.format(Locale.getDefault(), "%.2f", it)}")
             }
             approval.reason?.let {
                 Spacer(Modifier.height(6.dp))
-                Text("reason: $it")
+                Text("原因：$it")
             }
 
             Spacer(Modifier.height(14.dp))
-            Text("剩余 ${secondsLeft}s", style = MaterialTheme.typography.labelLarge)
+            Text("剩余 ${secondsLeft} 秒", style = MaterialTheme.typography.labelLarge)
             Spacer(Modifier.height(6.dp))
             LinearProgressIndicator(
                 progress = { secondsLeft.toFloat() / totalSeconds.toFloat() },
@@ -1425,7 +1425,7 @@ private fun ArtifactsForTaskScreen(
                 .padding(16.dp)
                 .fillMaxSize(),
         ) {
-            Text("任务 ID：$taskId", style = MaterialTheme.typography.bodySmall)
+            Text("任务编号：$taskId", style = MaterialTheme.typography.bodySmall)
             Spacer(Modifier.height(12.dp))
             if (loading) {
                 CircularProgressIndicator()
@@ -1485,7 +1485,7 @@ private fun ArtifactDetailScreen(
     var accessUrlErr by remember { mutableStateOf<String?>(null) }
     var accessUrlLoading by remember { mutableStateOf(false) }
     var versionLabel by rememberSaveable(taskId, artifactId) { mutableStateOf(defaultVersionLabel()) }
-    var environment by rememberSaveable(taskId, artifactId) { mutableStateOf("staging") }
+    var environment by rememberSaveable(taskId, artifactId) { mutableStateOf("测试环境") }
     var publishSubmitting by remember { mutableStateOf(false) }
     var publishError by remember { mutableStateOf<String?>(null) }
     var publishHint by remember { mutableStateOf<String?>(null) }
@@ -1500,7 +1500,7 @@ private fun ArtifactDetailScreen(
         accessUrlErr = null
         accessUrlLoading = false
         versionLabel = defaultVersionLabel()
-        environment = "staging"
+        environment = "测试环境"
         publishSubmitting = false
         publishError = null
         publishHint = null
@@ -1548,13 +1548,13 @@ private fun ArtifactDetailScreen(
             val a = art ?: return@Column
             Text(a.name ?: a.artifactId, style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(12.dp))
-            Text("artifactId：${a.artifactId}")
-            Text("contentType：${a.contentType ?: "—"}")
-            Text("sizeBytes：${a.sizeBytes ?: "—"}")
-            Text("sha256：${a.sha256 ?: "—"}", fontFamily = FontFamily.Monospace)
+            Text("产物编号：${a.artifactId}")
+            Text("内容类型：${a.contentType ?: "—"}")
+            Text("文件大小：${a.sizeBytes ?: "—"} 字节")
+            Text("摘要 SHA-256：${a.sha256 ?: "—"}", fontFamily = FontFamily.Monospace)
             Spacer(Modifier.height(20.dp))
             Text(
-                "在线访问入口：将产物托管到服务器并生成可访问 URL。",
+                "在线访问入口：将产物托管到服务器并生成可访问链接。",
                 style = MaterialTheme.typography.bodySmall,
             )
             Spacer(Modifier.height(8.dp))
@@ -1566,7 +1566,7 @@ private fun ArtifactDetailScreen(
                         accessUrl = null
                         vm.resolveArtifactAccessUrl(taskId, a).fold(
                             onSuccess = { accessUrl = it },
-                            onFailure = { accessUrlErr = it.message ?: "生成 URL 失败" },
+                            onFailure = { accessUrlErr = it.message ?: "生成访问链接失败" },
                         )
                         accessUrlLoading = false
                     }
@@ -1574,7 +1574,7 @@ private fun ArtifactDetailScreen(
                 enabled = !accessUrlLoading,
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                Text(if (accessUrlLoading) "生成中..." else "生成访问 URL")
+                Text(if (accessUrlLoading) "生成中..." else "生成访问链接")
             }
             accessUrlErr?.let {
                 Spacer(Modifier.height(8.dp))
@@ -1582,7 +1582,7 @@ private fun ArtifactDetailScreen(
             }
             accessUrl?.let { link ->
                 Spacer(Modifier.height(10.dp))
-                Text("访问 URL（点击后打开浏览器）：", style = MaterialTheme.typography.bodySmall)
+                Text("访问链接（点击后打开浏览器）：", style = MaterialTheme.typography.bodySmall)
                 Text(
                     text = link.url,
                     style = MaterialTheme.typography.bodySmall,
@@ -1605,7 +1605,7 @@ private fun ArtifactDetailScreen(
                     ?.takeIf { it.isNotBlank() && it != link.url }
                     ?.let { short ->
                         Spacer(Modifier.height(6.dp))
-                        Text("短链 URL（点击后打开浏览器）：", style = MaterialTheme.typography.bodySmall)
+                        Text("短链地址（点击后打开浏览器）：", style = MaterialTheme.typography.bodySmall)
                         Text(
                             text = short,
                             style = MaterialTheme.typography.bodySmall,
@@ -1629,7 +1629,7 @@ private fun ArtifactDetailScreen(
                     ?.takeIf { it.isNotBlank() && it != link.url && it != link.shortUrl }
                     ?.let { share ->
                         Spacer(Modifier.height(6.dp))
-                        Text("备用 Share URL：", style = MaterialTheme.typography.bodySmall)
+                        Text("备用分享链接：", style = MaterialTheme.typography.bodySmall)
                         Text(
                             text = share,
                             style = MaterialTheme.typography.bodySmall,
@@ -1702,7 +1702,7 @@ private fun ArtifactDetailScreen(
             OutlinedTextField(
                 value = environment,
                 onValueChange = { environment = it },
-                label = { Text("Environment (default staging)") },
+                label = { Text("发布环境（默认测试环境）") },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
@@ -1720,15 +1720,15 @@ private fun ArtifactDetailScreen(
                             artifactId = a.artifactId,
                             artifactName = a.name,
                             versionLabel = version,
-                            environment = environment,
+                            environment = normalizeEnvironmentForApi(environment),
                         ).fold(
                             onSuccess = { entry ->
-                                publishHint = "Publish task submitted: ${entry.taskId} (${entry.status})"
+                                publishHint = "发布任务已提交：${entry.taskId}（${entry.status}）"
                                 versionLabel = defaultVersionLabel()
                                 vm.subscribeTaskEvents(entry.taskId)
                             },
                             onFailure = { ex ->
-                                publishError = ex.message ?: "Failed to submit publish request"
+                                publishError = ex.message ?: "提交发布请求失败"
                             },
                         )
                         publishSubmitting = false
@@ -1737,7 +1737,7 @@ private fun ArtifactDetailScreen(
                 enabled = versionLabel.trim().isNotEmpty() && !publishSubmitting,
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                Text(if (publishSubmitting) "Submitting..." else "Submit Publish Request")
+                Text(if (publishSubmitting) "提交中..." else "提交发布请求")
             }
             publishError?.let {
                 Spacer(Modifier.height(8.dp))
@@ -1762,7 +1762,7 @@ internal fun ArtifactPreviewCard(preview: ArtifactPreview) {
         Column(Modifier.padding(12.dp)) {
             Text(preview.title, style = MaterialTheme.typography.titleSmall)
             Text(
-                "${preview.contentType ?: "text/plain"} · ${preview.byteSize} bytes",
+                "${preview.contentType ?: "text/plain"} · ${preview.byteSize} 字节",
                 style = MaterialTheme.typography.bodySmall,
             )
             Spacer(Modifier.height(8.dp))
@@ -1787,10 +1787,10 @@ private fun PublishHistoryScreen(vm: AppViewModel, onBack: () -> Unit) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Publish History") },
+                title = { Text("发布历史") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
                     }
                 },
                 actions = {
@@ -1798,7 +1798,7 @@ private fun PublishHistoryScreen(vm: AppViewModel, onBack: () -> Unit) {
                         onClick = { vm.refreshPublishHistory() },
                         enabled = !state.isRefreshingPublishHistory,
                     ) {
-                        Icon(Icons.Filled.Refresh, contentDescription = "Refresh")
+                        Icon(Icons.Filled.Refresh, contentDescription = "刷新")
                     }
                 },
             )
@@ -1820,7 +1820,7 @@ private fun PublishHistoryScreen(vm: AppViewModel, onBack: () -> Unit) {
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 if (sorted.isEmpty()) {
-                    item { Text("No publish records yet. Submit one from Artifact Detail.") }
+                    item { Text("暂无发布记录，可在产物详情页发起发布。") }
                 } else {
                     items(sorted, key = { it.id }) { entry ->
                         DeployStatusCard(entry)
@@ -1835,27 +1835,27 @@ private fun PublishHistoryScreen(vm: AppViewModel, onBack: () -> Unit) {
 private fun DeployStatusCard(entry: PublishHistoryEntry) {
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(14.dp)) {
-            Text("Version ${entry.versionLabel}", style = MaterialTheme.typography.titleSmall)
-            Text("Deploy Task ${entry.taskId}", style = MaterialTheme.typography.bodySmall)
+            Text("版本 ${entry.versionLabel}", style = MaterialTheme.typography.titleSmall)
+            Text("发布任务 ${entry.taskId}", style = MaterialTheme.typography.bodySmall)
             entry.sourceTaskId?.takeIf { it.isNotBlank() }?.let {
-                Text("Source Task $it", style = MaterialTheme.typography.bodySmall)
+                Text("来源任务 $it", style = MaterialTheme.typography.bodySmall)
             }
-            Text("Artifact ${entry.artifactName ?: entry.artifactId ?: "-"}")
+            Text("产物 ${entry.artifactName ?: entry.artifactId ?: "-"}")
             entry.environment?.takeIf { it.isNotBlank() }?.let {
-                Text("Environment $it", style = MaterialTheme.typography.bodySmall)
+                Text("环境 ${environmentDisplayLabel(it)}", style = MaterialTheme.typography.bodySmall)
             }
-            Text("Status: ${entry.status}", style = MaterialTheme.typography.bodySmall)
+            Text("状态：${publishStatusLabel(entry.status)}", style = MaterialTheme.typography.bodySmall)
             entry.endpointUrl?.takeIf { it.isNotBlank() }?.let {
                 Text(
-                    text = "Endpoint $it",
+                    text = "访问地址 $it",
                     style = MaterialTheme.typography.bodySmall,
                     fontFamily = FontFamily.Monospace,
                 )
             }
             entry.deployRequestId?.takeIf { it.isNotBlank() }?.let {
-                Text("Request ID $it", style = MaterialTheme.typography.bodySmall)
+                Text("请求编号 $it", style = MaterialTheme.typography.bodySmall)
             }
-            Text("Time ${formatTimestamp(entry.createdAt)}", style = MaterialTheme.typography.bodySmall)
+            Text("时间 ${formatTimestamp(entry.createdAt)}", style = MaterialTheme.typography.bodySmall)
         }
     }
 }
@@ -1866,6 +1866,90 @@ private fun formatTimestamp(millis: Long): String =
     runCatching {
         SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date(millis))
     }.getOrElse { millis.toString() }
+
+private fun taskSourceLabel(source: TaskSource): String =
+    when (source) {
+        TaskSource.LOCAL -> "本地"
+        TaskSource.REMOTE -> "远程"
+    }
+
+private fun taskStatusLabel(status: TaskStatus): String =
+    when (status) {
+        TaskStatus.QUEUED -> "排队中"
+        TaskStatus.RUNNING -> "执行中"
+        TaskStatus.SUCCEEDED -> "已完成"
+        TaskStatus.FAILED -> "失败"
+    }
+
+private fun publishStatusLabel(status: String): String {
+    val normalized = status.trim().lowercase()
+    return when (normalized) {
+        "success", "succeeded", "done" -> "成功"
+        "failed", "error" -> "失败"
+        "queued" -> "排队中"
+        "running" -> "执行中"
+        "waiting_approval" -> "待审批"
+        "deploy_planned" -> "已规划"
+        "canceled", "cancelled" -> "已取消"
+        "rejected" -> "已拒绝"
+        else -> status
+    }
+}
+
+private fun genericStatusLabel(status: String): String {
+    val normalized = status.trim().lowercase()
+    return when (normalized) {
+        "success", "succeeded", "done", "ok" -> "成功"
+        "failed", "error" -> "失败"
+        "queued" -> "排队中"
+        "running" -> "执行中"
+        "waiting_approval" -> "待审批"
+        "deploy_planned" -> "已规划"
+        "canceled", "cancelled" -> "已取消"
+        "rejected" -> "已拒绝"
+        "unknown" -> "未知"
+        else -> status
+    }
+}
+
+private fun eventTypeLabel(type: String?): String {
+    val normalized = type?.trim()?.uppercase().orEmpty()
+    return when (normalized) {
+        "ASSISTANT_OUTPUT" -> "助手输出"
+        "TOOL_START" -> "工具调用开始"
+        "TOOL_END" -> "工具调用结束"
+        "FILE_PATCH_PREVIEW" -> "代码差异预览"
+        "APPROVAL_REQUIRED" -> "等待审批"
+        "DEPLOY_PLAN" -> "发布计划"
+        "DEPLOY_RESULT" -> "发布结果"
+        "TASK_RUNNING", "TASK_PROGRESS" -> "任务执行中"
+        "TASK_DONE" -> "任务完成"
+        "TASK_FAILED" -> "任务失败"
+        "" -> "事件"
+        else -> type ?: "事件"
+    }
+}
+
+private fun environmentDisplayLabel(environment: String): String {
+    val normalized = environment.trim().lowercase()
+    return when (normalized) {
+        "staging", "test", "testing" -> "测试环境"
+        "prod", "production" -> "生产环境"
+        "dev", "development" -> "开发环境"
+        else -> environment
+    }
+}
+
+private fun normalizeEnvironmentForApi(environment: String): String {
+    val trimmed = environment.trim()
+    if (trimmed.isEmpty()) return "staging"
+    return when (trimmed) {
+        "测试环境" -> "staging"
+        "生产环境" -> "production"
+        "开发环境" -> "development"
+        else -> trimmed
+    }
+}
 
 private fun asDiffMarkdown(patch: String): String {
     val normalized = localizeDiffTextForDisplay(patch)
@@ -1969,13 +2053,13 @@ private fun ProjectsTab(vm: AppViewModel) {
             Text("选择项目", style = MaterialTheme.typography.headlineSmall)
             Spacer(Modifier.height(8.dp))
             Text(
-                "projectId 须与控制面一致（默认 proj-1 与后端测试数据对齐）。",
+                "项目编号需与控制面保持一致（默认 proj-1 与后端测试数据对齐）。",
                 style = MaterialTheme.typography.bodySmall,
             )
             Spacer(Modifier.height(16.dp))
             if (projects.isEmpty()) {
                 Text(
-                    "No projects available. Pull down to refresh from control-plane.",
+                    "暂无可用项目，下拉可从控制面刷新。",
                     style = MaterialTheme.typography.bodySmall,
                 )
                 Spacer(Modifier.height(10.dp))
@@ -2071,25 +2155,25 @@ private fun AccountTab(vm: AppViewModel) {
     ) {
         Text("我的", style = MaterialTheme.typography.headlineSmall)
         Spacer(Modifier.height(16.dp))
-        Text("连接与生成目标（PR-1）", style = MaterialTheme.typography.titleMedium)
+        Text("连接与生成设置", style = MaterialTheme.typography.titleMedium)
         Spacer(Modifier.height(8.dp))
         OutlinedTextField(
             value = baseUrlDraft,
             onValueChange = { baseUrlDraft = it },
-            label = { Text("控制面 Base URL") },
+            label = { Text("控制面地址") },
             placeholder = { Text("留空=离线；模拟器访问本机可用 http://10.0.2.2:8058") },
             modifier = Modifier.fillMaxWidth(),
             minLines = 2,
         )
         Spacer(Modifier.height(12.dp))
-        Text("生成目标（写入创建任务 assistant）", style = MaterialTheme.typography.labelLarge)
+        Text("生成目标", style = MaterialTheme.typography.labelLarge)
         Spacer(Modifier.height(8.dp))
         RowOfTargetChips(
             selected = targetDraft,
             onSelect = { targetDraft = it },
         )
         Spacer(Modifier.height(12.dp))
-        Text("Agent 身份（写入创建任务 agentProfile）", style = MaterialTheme.typography.labelLarge)
+        Text("代理身份", style = MaterialTheme.typography.labelLarge)
         Spacer(Modifier.height(8.dp))
         RowOfAgentProfileChips(
             selected = profileDraft,
@@ -2165,7 +2249,7 @@ private fun AccountTab(vm: AppViewModel) {
                 Text("显示名", style = MaterialTheme.typography.labelMedium)
                 Text(state.session?.displayName ?: "—")
                 Spacer(Modifier.height(12.dp))
-                Text("Token（占位）", style = MaterialTheme.typography.labelMedium)
+                Text("访问令牌（仅展示）", style = MaterialTheme.typography.labelMedium)
                 Text(
                     state.session?.accessToken ?: "—",
                     fontFamily = FontFamily.Monospace,
@@ -2179,17 +2263,17 @@ private fun AccountTab(vm: AppViewModel) {
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("Agent Nodes", style = MaterialTheme.typography.titleMedium)
+            Text("代理节点", style = MaterialTheme.typography.titleMedium)
             TextButton(
                 onClick = { vm.refreshAgentNodes() },
                 enabled = !state.isRefreshingAgentNodes,
             ) {
-                Text(if (state.isRefreshingAgentNodes) "Refreshing..." else "Refresh")
+                Text(if (state.isRefreshingAgentNodes) "刷新中..." else "刷新")
             }
         }
         if (state.baseUrl.isBlank() || state.session == null) {
             Text(
-                "Configure base URL and login to view node capabilities.",
+                "请先配置控制面地址并登录后查看节点能力。",
                 style = MaterialTheme.typography.bodySmall,
             )
         } else if (state.agentNodes.isEmpty() && state.isRefreshingAgentNodes) {
@@ -2197,7 +2281,7 @@ private fun AccountTab(vm: AppViewModel) {
             CircularProgressIndicator()
         } else if (state.agentNodes.isEmpty()) {
             Text(
-                "No agent nodes reported yet.",
+                "暂无代理节点上报。",
                 style = MaterialTheme.typography.bodySmall,
             )
         } else {
@@ -2217,7 +2301,7 @@ private fun AccountTab(vm: AppViewModel) {
                         ) {
                             Text(node.nodeId, style = MaterialTheme.typography.titleSmall)
                             Text(
-                                if (node.online) "online" else "offline",
+                                if (node.online) "在线" else "离线",
                                 color =
                                     if (node.online) Color(0xFF2E7D32)
                                     else MaterialTheme.colorScheme.error,
@@ -2226,16 +2310,16 @@ private fun AccountTab(vm: AppViewModel) {
                         }
                         node.version?.takeIf { it.isNotBlank() }?.let {
                             Spacer(Modifier.height(4.dp))
-                            Text("Version: $it", style = MaterialTheme.typography.bodySmall)
+                            Text("版本：$it", style = MaterialTheme.typography.bodySmall)
                         }
                         node.lastHeartbeatAt?.takeIf { it.isNotBlank() }?.let {
                             Spacer(Modifier.height(4.dp))
-                            Text("Heartbeat: $it", style = MaterialTheme.typography.bodySmall)
+                            Text("心跳时间：$it", style = MaterialTheme.typography.bodySmall)
                         }
                         val capabilities = node.capabilities?.trim().orEmpty()
                         if (capabilities.isNotEmpty()) {
                             Spacer(Modifier.height(6.dp))
-                            Text("Capabilities", style = MaterialTheme.typography.labelMedium)
+                            Text("能力说明", style = MaterialTheme.typography.labelMedium)
                             Text(
                                 text = capabilities,
                                 fontFamily = FontFamily.Monospace,

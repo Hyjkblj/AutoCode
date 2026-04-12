@@ -27,7 +27,7 @@ fun GenerationTarget.assistantForApi(): String =
 
 fun GenerationTarget.displayLabel(): String =
     when (this) {
-        GenerationTarget.WEB -> "Web 应用"
+        GenerationTarget.WEB -> "网页应用"
         GenerationTarget.WECHAT_MINI_PROGRAM -> "微信小程序"
     }
 
@@ -49,8 +49,8 @@ fun AgentProfile.apiValue(): String =
 
 fun AgentProfile.displayLabel(): String =
     when (this) {
-        AgentProfile.CODER -> "Coder"
-        AgentProfile.AI_AGENT -> "AI Agent"
+        AgentProfile.CODER -> "代码助手"
+        AgentProfile.AI_AGENT -> "智能代理"
     }
 
 @Serializable

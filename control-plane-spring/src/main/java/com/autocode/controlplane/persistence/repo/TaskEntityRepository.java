@@ -10,6 +10,7 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.domain.Pageable;
 
 import java.time.Instant;
 import java.util.List;
@@ -113,4 +114,17 @@ public interface TaskEntityRepository extends JpaRepository<TaskEntity, String> 
             LIMIT 1
             """, nativeQuery = true)
     TaskEntity findNextEligibleQueuedTaskAt(@Param("profile") String profile, @Param("now") Instant now);
+
+    @Query("""
+            select t
+            from TaskEntity t
+            where t.projectId = :projectId
+              and (:assistant is null or :assistant = '' or t.assistant = :assistant)
+            order by t.createdAt desc
+            """)
+    List<TaskEntity> findRecentByProjectAndAssistant(
+            @Param("projectId") String projectId,
+            @Param("assistant") String assistant,
+            Pageable pageable
+    );
 }

@@ -36,6 +36,7 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.annotation.Propagation;
+import org.springframework.data.domain.PageRequest;
 
 import java.time.Instant;
 import java.util.HashMap;
@@ -221,6 +222,26 @@ public class TaskService {
             String failureErrorCode = asNonBlankString(latestFailurePayload.get("errorCode"), null);
             return modelMapper.toSummary(task, failureReason, failureErrorCode);
         });
+    }
+
+    /**
+     * Lists recent task summaries under a project (optionally filtered by assistant).
+     */
+    @Transactional(readOnly = true)
+    public List<TaskSummary> listTaskSummaries(String projectId, String assistant) {
+        String normalizedProjectId = projectId == null ? "" : projectId.trim();
+        if (normalizedProjectId.isEmpty()) {
+            return List.of();
+        }
+        String normalizedAssistant = assistant == null ? null : assistant.trim().toLowerCase(Locale.ROOT);
+        if (normalizedAssistant != null && normalizedAssistant.isEmpty()) {
+            normalizedAssistant = null;
+        }
+        return taskRepository
+                .findRecentByProjectAndAssistant(normalizedProjectId, normalizedAssistant, PageRequest.of(0, 200))
+                .stream()
+                .map(modelMapper::toSummary)
+                .toList();
     }
 
     @Transactional(readOnly = true)

@@ -80,6 +80,7 @@ data class UiState(
     val agentNodes: List<AgentNodeDto> = emptyList(),
     val isRefreshingAgentNodes: Boolean = false,
     val tasks: List<TaskItem> = emptyList(),
+    val isRefreshingTasks: Boolean = false,
     val taskEvents: Map<String, List<TaskEventDto>> = emptyMap(),
     val errorMessage: String? = null,
     /** 控制面根 URL，空表示离线模拟（PR-1/PR-2） */
@@ -144,6 +145,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             loadFromStore()
             refreshProjectsInternal()
+            refreshTasksInternal()
             refreshAgentNodesInternal()
             refreshPublishHistoryInternal()
             _uiState.update { it.copy(isLoading = false) }
@@ -410,6 +412,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 session = null,
                 isRefreshingProjects = false,
                 isRefreshingAgentNodes = false,
+                isRefreshingTasks = false,
                 isRefreshingPublishHistory = false,
                 errorMessage = "Login expired. Please sign in again$reasonSuffix.",
             )
@@ -429,6 +432,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             }
             persistAll()
             refreshProjectsInternal()
+            refreshTasksInternal()
             refreshAgentNodesInternal()
         }
     }
@@ -468,7 +472,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     }
                     persistAll()
                     refreshProjectsInternal()
+                    refreshTasksInternal()
                     refreshAgentNodesInternal()
+                    refreshPublishHistoryInternal()
                 } else {
                     val msg = r.exceptionOrNull()?.message ?: "登录失败"
                     _uiState.update { it.copy(errorMessage = msg) }
@@ -481,7 +487,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 persistAll()
                 refreshProjectsInternal()
+                refreshTasksInternal()
                 refreshAgentNodesInternal()
+                refreshPublishHistoryInternal()
             }
         }
     }
@@ -525,6 +533,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             _uiState.update { it.copy(selectedProjectId = projectId) }
             persistAll()
+            refreshTasksInternal()
+            refreshPublishHistoryInternal()
         }
     }
 
@@ -540,10 +550,71 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun refreshTasks() {
+        viewModelScope.launch {
+            refreshTasksInternal()
+        }
+    }
+
     fun refreshPublishHistory() {
         viewModelScope.launch {
             refreshPublishHistoryInternal()
         }
+    }
+
+    private suspend fun refreshTasksInternal() {
+        val before = _uiState.value
+        val base = before.baseUrl.trim()
+        val token = before.session?.accessToken?.trim().orEmpty()
+        val projectId = before.selectedProjectId?.trim().orEmpty()
+        if (base.isEmpty() || token.isEmpty() || projectId.isEmpty()) {
+            _uiState.update { it.copy(isRefreshingTasks = false) }
+            return
+        }
+
+        _uiState.update { it.copy(isRefreshingTasks = true) }
+        val remote =
+            ControlPlaneClient.listTasks(
+                baseUrl = base,
+                bearerToken = token,
+                projectId = projectId,
+                assistant = null,
+            )
+        if (remote.isFailure && isAuthFailure(remote.exceptionOrNull())) {
+            handleAuthExpired("tasks", remote.exceptionOrNull()?.message)
+            return
+        }
+        if (remote.isFailure) {
+            _uiState.update {
+                it.copy(
+                    isRefreshingTasks = false,
+                    errorMessage = remote.exceptionOrNull()?.message ?: "Failed to load tasks",
+                )
+            }
+            return
+        }
+
+        val remoteTasks =
+            remote.getOrNull().orEmpty().map { dto ->
+                val fallbackPrompt =
+                    dto.prompt?.trim()?.takeIf { it.isNotEmpty() } ?: "Remote task ${dto.taskId}"
+                mapServerToTaskItem(dto, projectId, fallbackPrompt)
+            }
+        _uiState.update { state ->
+            val retained = state.tasks.filterNot { it.projectId == projectId && it.source == TaskSource.REMOTE }
+            val merged = (remoteTasks + retained).distinctBy { it.id }
+            val projectExists = state.dynamicProjects.any { it.id == projectId }
+            state.copy(
+                tasks = merged,
+                dynamicProjects = if (projectExists) state.dynamicProjects else state.dynamicProjects + projectFromId(projectId),
+                isRefreshingTasks = false,
+                errorMessage = null,
+            )
+        }
+        remoteTasks.forEach { task ->
+            lastRemoteStatusByTaskId[task.id] = statusFromTask(task.status)
+        }
+        persistAll()
     }
 
     private suspend fun refreshPublishHistoryInternal() {
@@ -838,6 +909,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private fun mapServerToTaskItem(dto: TaskSummaryDto, projectId: String, fallbackPrompt: String): TaskItem {
         val now = System.currentTimeMillis()
         val (st, prog) = mapServerStatus(dto.status)
+        val createdAt = dto.createdAtMillis?.takeIf { it > 0L } ?: now
+        val updatedAt = dto.updatedAtMillis?.takeIf { it > 0L } ?: createdAt
         return TaskItem(
             id = dto.taskId,
             projectId = dto.projectId ?: projectId,
@@ -845,8 +918,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             status = st,
             progress = prog,
             logs = listOf("已在控制面创建任务", "状态: ${dto.status}"),
-            createdAt = now,
-            updatedAt = now,
+            createdAt = createdAt,
+            updatedAt = updatedAt,
             source = TaskSource.REMOTE,
         )
     }

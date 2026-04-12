@@ -407,6 +407,10 @@ private fun TaskListTab(vm: AppViewModel, nav: NavHostController) {
             }
         }
 
+    LaunchedEffect(state.selectedProjectId, state.baseUrl, state.session?.accessToken) {
+        vm.refreshTasks()
+    }
+
     fun startVoiceInput() {
         val intent = buildSpeechRecognizerIntent()
         if (intent.resolveActivity(context.packageManager) == null) {
@@ -425,7 +429,21 @@ private fun TaskListTab(vm: AppViewModel, nav: NavHostController) {
     }
 
     Column(Modifier.padding(16.dp)) {
-        TopAppBar(title = { Text("任务") })
+        TopAppBar(
+            title = { Text("任务") },
+            actions = {
+                IconButton(
+                    onClick = { vm.refreshTasks() },
+                    enabled = !state.isRefreshingTasks,
+                ) {
+                    Icon(Icons.Filled.Refresh, contentDescription = "刷新任务")
+                }
+            },
+        )
+        if (state.isRefreshingTasks) {
+            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            Spacer(Modifier.height(8.dp))
+        }
         Text(
             "当前项目：${project?.name ?: state.selectedProjectId}",
             modifier = Modifier.padding(bottom = 12.dp),
@@ -1287,8 +1305,25 @@ internal fun ApprovalBottomSheet(
 private fun ArtifactsHubTab(vm: AppViewModel, nav: NavHostController) {
     val state by vm.uiState.collectAsStateWithLifecycle()
     val done = vm.succeededTasksForCurrentProject()
+    LaunchedEffect(state.selectedProjectId, state.baseUrl, state.session?.accessToken) {
+        vm.refreshTasks()
+    }
     Column(Modifier.padding(16.dp)) {
-        TopAppBar(title = { Text("产物") })
+        TopAppBar(
+            title = { Text("产物") },
+            actions = {
+                IconButton(
+                    onClick = { vm.refreshTasks() },
+                    enabled = !state.isRefreshingTasks,
+                ) {
+                    Icon(Icons.Filled.Refresh, contentDescription = "刷新任务")
+                }
+            },
+        )
+        if (state.isRefreshingTasks) {
+            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            Spacer(Modifier.height(8.dp))
+        }
         Text(
             "选择已完成的任务查看上传产物；离线已完成任务显示占位文件。",
             style = MaterialTheme.typography.bodySmall,

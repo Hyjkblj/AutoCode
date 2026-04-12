@@ -25,6 +25,19 @@ public class TaskController {
         this.artifactQueryService = artifactQueryService;
     }
 
+    @GetMapping
+    @PreAuthorize("#p0 == null || #p0.isBlank() || @projectAuthz.canAccessProject(#p0)")
+    public ResponseEntity<ApiResponse<List<TaskSummary>>> listTasks(
+            @RequestParam(value = "projectId", required = false) String projectId,
+            @RequestParam(value = "assistant", required = false) String assistant
+    ) {
+        if (projectId == null || projectId.isBlank()) {
+            return ResponseEntity.ok(ApiResponse.ok(List.of()));
+        }
+        List<TaskSummary> tasks = taskService.listTaskSummaries(projectId, assistant);
+        return ResponseEntity.ok(ApiResponse.ok(tasks));
+    }
+
     @PostMapping
     // Use #p1 instead of named params to avoid requiring Java -parameters for SpEL.
     @PreAuthorize("@projectAuthz.canAccessProject(#p1.projectId)")

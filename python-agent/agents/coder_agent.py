@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import difflib
+import os
 from pathlib import Path
 from typing import Any
 
@@ -204,10 +205,28 @@ class CoderAgent:
 
     @staticmethod
     def _resolve_workspace(task: dict[str, Any]) -> Path:
-        workspace = str(task.get("workspacePath", "")).strip()
+        workspace = CoderAgent._sanitize_workspace_value(task.get("workspacePath"))
+        if not workspace:
+            allowed = os.getenv("MVP_ALLOWED_WORKSPACE_PREFIXES", "").strip()
+            for raw_prefix in allowed.split(","):
+                sanitized = CoderAgent._sanitize_workspace_value(raw_prefix)
+                if sanitized:
+                    workspace = sanitized
+                    break
         if not workspace:
             workspace = "."
         return Path(workspace).resolve(strict=False)
+
+    @staticmethod
+    def _sanitize_workspace_value(raw: Any) -> str:
+        if raw is None:
+            return ""
+        text = str(raw).strip().strip('"').strip("'")
+        if not text:
+            return ""
+        if text.lower() in {"none", "null", "undefined", "nil", "nan"}:
+            return ""
+        return text
 
     @staticmethod
     def _relative_path(target: Path, workspace: Path) -> str:

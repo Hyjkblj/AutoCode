@@ -117,3 +117,26 @@ def test_coder_agent_web_generation_falls_back_when_llm_errors(tmp_path, monkeyp
     assert task["_llm_fallback"] is True
     assert str(task["_llm_generation_reason"]).startswith("llm_fallback:")
     assert any(item[0] == "FILE_PATCH_PREVIEW" for item in events)
+
+
+def test_coder_agent_falls_back_to_allowed_workspace_prefix_when_missing(tmp_path, monkeypatch) -> None:
+    allowed = tmp_path / "allowed"
+    allowed.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("MVP_ALLOWED_WORKSPACE_PREFIXES", str(allowed))
+
+    events: list[tuple[str, dict[str, Any]]] = []
+
+    def publish(payload: dict[str, Any], event_type: str = "ASSISTANT_OUTPUT") -> None:
+        events.append((event_type, payload))
+
+    coder = CoderAgent(file_tool=FileTool([str(allowed)]))
+    ok = coder.execute(
+        task={"workspacePath": "None", "prompt": "add note"},
+        client=_FakeClient(),
+        plan=PlanResult(plan_name="code_change_pipeline", steps=["read", "patch"]),
+        publish_event=publish,
+    )
+
+    assert ok is True
+    assert [item[0] for item in events] == ["ASSISTANT_OUTPUT", "FILE_PATCH_PREVIEW"]
+    assert (allowed / "AGENT_PATCH_PREVIEW.md").exists()

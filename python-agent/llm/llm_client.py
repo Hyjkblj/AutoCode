@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Callable
 from urllib import request
 
@@ -22,6 +24,24 @@ class LLMSettings:
     timeout_seconds: int
 
 
+@dataclass(frozen=True)
+class LLMProfile:
+    backend: str | None
+    model: str | None
+    temperature: float | None
+    timeout_seconds: int | None
+    openai_base_url: str | None
+    openai_chat_url: str | None
+    openai_auth_header: str | None
+    openai_key_env: str | None
+    openai_max_tokens: int | None
+    openai_extra_request: dict[str, object]
+
+
+_DEFAULT_PROFILE_NAME = "doubao-seed-2.0-code-high-perf.json"
+_DEFAULT_OPENAI_BASE_URL = "https://api.openai.com"
+
+
 class LLMClient:
     def __init__(
         self,
@@ -30,14 +50,25 @@ class LLMClient:
         temperature: float | None = None,
         timeout_seconds: int | None = None,
         response_provider: ResponseProvider | None = None,
+        config_path: str | None = None,
     ) -> None:
-        resolved_backend = (backend or os.getenv("LLM_BACKEND", "openai")).strip().lower()
+        profile = _load_profile(config_path)
+
+        resolved_backend = _pick_text(backend, os.getenv("LLM_BACKEND"), profile.backend, "openai").lower()
         if resolved_backend not in {"openai", "claude"}:
             resolved_backend = "openai"
 
-        resolved_model = (model or os.getenv("LLM_MODEL", "gpt-4.1-mini")).strip() or "gpt-4.1-mini"
-        resolved_temperature = _to_float(temperature if temperature is not None else os.getenv("LLM_TEMPERATURE"), 0.2)
-        resolved_timeout = _to_int(timeout_seconds if timeout_seconds is not None else os.getenv("LLM_TIMEOUT_SECONDS"), 120)
+        resolved_model = _pick_text(model, os.getenv("LLM_MODEL"), profile.model, "gpt-4.1-mini")
+        temperature_raw: object = temperature if temperature is not None else _pick_object(
+            os.getenv("LLM_TEMPERATURE"),
+            profile.temperature,
+        )
+        timeout_raw: object = timeout_seconds if timeout_seconds is not None else _pick_object(
+            os.getenv("LLM_TIMEOUT_SECONDS"),
+            profile.timeout_seconds,
+        )
+        resolved_temperature = _to_float(temperature_raw, 0.2)
+        resolved_timeout = _to_int(timeout_raw, 120)
 
         self.settings = LLMSettings(
             backend=resolved_backend,
@@ -45,9 +76,36 @@ class LLMClient:
             temperature=resolved_temperature,
             timeout_seconds=resolved_timeout,
         )
+
+        self._openai_base_url = _pick_text(
+            os.getenv("OPENAI_BASE_URL"),
+            profile.openai_base_url,
+            _DEFAULT_OPENAI_BASE_URL,
+        ).rstrip("/")
+        self._openai_chat_url = _pick_text(
+            os.getenv("OPENAI_CHAT_URL"),
+            profile.openai_chat_url,
+            f"{self._openai_base_url}/v1/chat/completions",
+        )
+        self._openai_auth_header = _pick_text(profile.openai_auth_header, "Bearer ${OPENAI_API_KEY}")
+        self._openai_key_candidates = _dedupe_non_empty(
+            [
+                _pick_text(profile.openai_key_env, _extract_env_var_name(self._openai_auth_header)),
+                "OPENAI_API_KEY",
+            ]
+        )
+        configured_openai_max = _to_int(profile.openai_max_tokens, 4096)
+        self._openai_max_tokens = configured_openai_max if configured_openai_max >= 4096 else 4096
+        self._openai_extra_request = dict(profile.openai_extra_request)
+
         import logging as _logging
-        _logging.getLogger(__name__).info("LLMClient initialized: backend=%s model=%s base_url=%s",
-            resolved_backend, resolved_model, os.getenv("OPENAI_BASE_URL", "(default)"))
+        _logging.getLogger(__name__).info(
+            "LLMClient initialized: backend=%s model=%s profile=%s base_url=%s",
+            resolved_backend,
+            resolved_model,
+            _profile_marker(config_path),
+            self._openai_base_url,
+        )
         self._response_provider = response_provider
 
     def is_configured(self) -> bool:
@@ -55,7 +113,12 @@ class LLMClient:
 
     def required_key_name(self) -> str | None:
         if self.settings.backend == "openai":
-            return None if os.getenv("OPENAI_API_KEY", "").strip() else "OPENAI_API_KEY"
+            if _has_embedded_openai_auth(self._openai_auth_header):
+                return None
+            for key_name in self._openai_key_candidates:
+                if os.getenv(key_name, "").strip():
+                    return None
+            return self._openai_key_candidates[0] if self._openai_key_candidates else "OPENAI_API_KEY"
         return None if os.getenv("ANTHROPIC_API_KEY", "").strip() else "ANTHROPIC_API_KEY"
 
     def generate(self, prompt: str, system_prompt: str = "") -> str:
@@ -93,22 +156,24 @@ class LLMClient:
         return text
 
     def _chat_openai(self, messages: list[dict[str, str]]) -> str:
-        api_key = os.getenv("OPENAI_API_KEY", "").strip()
-        base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com").strip().rstrip("/")
-        # Support full URL override via OPENAI_CHAT_URL env var
-        chat_url = os.getenv("OPENAI_CHAT_URL", "").strip() or f"{base_url}/v1/chat/completions"
+        api_key = self._resolve_openai_api_key()
+        auth_header = self._build_openai_auth_header(api_key)
         body = {
             "model": self.settings.model,
             "messages": messages,
             "temperature": self.settings.temperature,
-            "max_tokens": 4096,
+            "max_tokens": self._openai_max_tokens,
         }
+        for key, value in self._openai_extra_request.items():
+            if key in {"model", "messages", "temperature", "max_tokens"}:
+                continue
+            body[key] = value
         req = request.Request(
-            url=chat_url,
+            url=self._openai_chat_url,
             data=json.dumps(body).encode("utf-8"),
             method="POST",
             headers={
-                "Authorization": f"Bearer {api_key}",
+                "Authorization": auth_header,
                 "Content-Type": "application/json",
                 "Accept": "application/json",
             },
@@ -149,7 +214,7 @@ class LLMClient:
             "model": self.settings.model,
             "temperature": self.settings.temperature,
             "messages": converted,
-            "max_tokens": 1200,
+            "max_tokens": 8192,
         }
         if system.strip():
             body["system"] = system
@@ -177,6 +242,235 @@ class LLMClient:
         if not merged.strip():
             raise LLMClientError("invalid claude response: text missing")
         return merged
+
+    def _resolve_openai_api_key(self) -> str:
+        for key_name in self._openai_key_candidates:
+            value = os.getenv(key_name, "").strip()
+            if value:
+                return value
+        return ""
+
+    def _build_openai_auth_header(self, api_key: str) -> str:
+        template = (self._openai_auth_header or "").strip()
+        if not template:
+            return f"Bearer {api_key}"
+        if "${" in template:
+            return re.sub(r"\$\{[A-Za-z_][A-Za-z0-9_]*\}", api_key, template)
+        if "{key}" in template:
+            return template.replace("{key}", api_key)
+        if api_key and api_key not in template:
+            return f"{template} {api_key}".strip()
+        return template
+
+
+def _load_profile(config_path: str | None) -> LLMProfile:
+    path = _resolve_profile_path(config_path)
+    if path is None:
+        return LLMProfile(
+            backend=None,
+            model=None,
+            temperature=None,
+            timeout_seconds=None,
+            openai_base_url=None,
+            openai_chat_url=None,
+            openai_auth_header=None,
+            openai_key_env=None,
+            openai_max_tokens=None,
+            openai_extra_request={},
+        )
+
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        return LLMProfile(
+            backend=None,
+            model=None,
+            temperature=None,
+            timeout_seconds=None,
+            openai_base_url=None,
+            openai_chat_url=None,
+            openai_auth_header=None,
+            openai_key_env=None,
+            openai_max_tokens=None,
+            openai_extra_request={},
+        )
+
+    if not isinstance(payload, dict):
+        return LLMProfile(
+            backend=None,
+            model=None,
+            temperature=None,
+            timeout_seconds=None,
+            openai_base_url=None,
+            openai_chat_url=None,
+            openai_auth_header=None,
+            openai_key_env=None,
+            openai_max_tokens=None,
+            openai_extra_request={},
+        )
+
+    api = payload.get("api") if isinstance(payload.get("api"), dict) else {}
+    request_cfg = payload.get("request") if isinstance(payload.get("request"), dict) else {}
+    compat_env = payload.get("compat_env") if isinstance(payload.get("compat_env"), dict) else {}
+
+    backend = _as_text(compat_env.get("LLM_BACKEND"))
+    if not backend:
+        provider = _as_text(payload.get("provider")).lower()
+        if "claude" in provider:
+            backend = "claude"
+        elif provider:
+            backend = "openai"
+
+    auth_header = _as_text(api.get("auth_header"))
+    auth_env_name = _extract_env_var_name(auth_header)
+
+    return LLMProfile(
+        backend=backend or None,
+        model=_pick_text(request_cfg.get("model"), compat_env.get("LLM_MODEL")) or None,
+        temperature=_to_float_or_none(_pick_object(request_cfg.get("temperature"), compat_env.get("LLM_TEMPERATURE"))),
+        timeout_seconds=_to_int_or_none(_pick_object(request_cfg.get("timeout_seconds"), compat_env.get("LLM_TIMEOUT_SECONDS"))),
+        openai_base_url=_pick_text(api.get("base_url"), compat_env.get("OPENAI_BASE_URL")) or None,
+        openai_chat_url=_pick_text(api.get("chat_url"), compat_env.get("OPENAI_CHAT_URL")) or None,
+        openai_auth_header=auth_header or None,
+        openai_key_env=auth_env_name or None,
+        openai_max_tokens=_to_int_or_none(request_cfg.get("max_tokens")),
+        openai_extra_request=_extract_openai_extra_request(request_cfg),
+    )
+
+
+def _resolve_profile_path(config_path: str | None) -> Path | None:
+    base_dir = Path(__file__).resolve().parents[1]
+
+    for raw in (
+        config_path,
+        os.getenv("LLM_CONFIG_PATH", ""),
+        os.getenv("LLM_PROFILE", ""),
+    ):
+        candidate = _normalize_profile_candidate(raw, base_dir)
+        if candidate is not None and candidate.exists():
+            return candidate
+
+    default_path = base_dir / "configs" / _DEFAULT_PROFILE_NAME
+    if default_path.exists():
+        return default_path
+    return None
+
+
+def _normalize_profile_candidate(raw: object, base_dir: Path) -> Path | None:
+    text = _as_text(raw)
+    if not text:
+        return None
+    candidate = Path(text)
+    if not candidate.suffix:
+        candidate = Path(f"{candidate}.json")
+    if not candidate.is_absolute():
+        direct = (base_dir / candidate).resolve()
+        configs_path = (base_dir / "configs" / candidate.name).resolve()
+        if direct.exists():
+            return direct
+        return configs_path
+    return candidate
+
+
+def _profile_marker(config_path: str | None) -> str:
+    path = _resolve_profile_path(config_path)
+    if path is None:
+        return "(none)"
+    return str(path)
+
+
+def _extract_env_var_name(text: str) -> str:
+    match = re.search(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}", text or "")
+    if not match:
+        return ""
+    return match.group(1).strip()
+
+
+def _has_embedded_openai_auth(auth_header: str) -> bool:
+    text = (auth_header or "").strip()
+    if not text:
+        return False
+    if "${" in text or "{key}" in text:
+        return False
+    lowered = text.lower()
+    if lowered == "bearer":
+        return False
+    if lowered.startswith("bearer "):
+        token = text.split(" ", 1)[1].strip()
+        return bool(token)
+    return True
+
+
+def _extract_openai_extra_request(request_cfg: dict[str, object]) -> dict[str, object]:
+    allowed_keys = (
+        "stream",
+        "service_tier",
+        "reasoning_effort",
+        "top_p",
+        "frequency_penalty",
+        "presence_penalty",
+        "response_format",
+        "parallel_tool_calls",
+    )
+    output: dict[str, object] = {}
+    for key in allowed_keys:
+        if key in request_cfg:
+            output[key] = request_cfg[key]
+    return output
+
+
+def _dedupe_non_empty(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    output: list[str] = []
+    for item in values:
+        normalized = (item or "").strip()
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        output.append(normalized)
+    return output
+
+
+def _as_text(raw: object) -> str:
+    if raw is None:
+        return ""
+    return str(raw).strip()
+
+
+def _pick_object(*values: object) -> object | None:
+    for item in values:
+        if item is None:
+            continue
+        if isinstance(item, str) and not item.strip():
+            continue
+        return item
+    return None
+
+
+def _pick_text(*values: object) -> str:
+    picked = _pick_object(*values)
+    if picked is None:
+        return ""
+    return str(picked).strip()
+
+
+def _to_float_or_none(raw: object) -> float | None:
+    if raw is None:
+        return None
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return None
+
+
+def _to_int_or_none(raw: object) -> int | None:
+    if raw is None:
+        return None
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return None
+    return value if value > 0 else None
 
 
 def _to_float(raw: object, default: float) -> float:

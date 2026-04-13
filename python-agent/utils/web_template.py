@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from dataclasses import dataclass
@@ -46,6 +47,27 @@ class WebTemplateGenerator:
                     theme=llm_theme,
                 )
             except Exception as exc:  # noqa: BLE001
+                if _should_retry_llm_generation(exc):
+                    try:
+                        llm_files, llm_theme = self._generate_via_llm(
+                            _build_retry_prompt(prompt_text),
+                            is_retry=True,
+                        )
+                        return WebTemplateResult(
+                            files=llm_files,
+                            used_fallback=False,
+                            reason="llm_generated_retry",
+                            theme=llm_theme,
+                        )
+                    except Exception as retry_exc:  # noqa: BLE001
+                        fallback, fallback_theme = _fallback_files(prompt_text)
+                        return WebTemplateResult(
+                            files=fallback,
+                            used_fallback=True,
+                            reason=f"llm_fallback:retry_failed:{retry_exc}",
+                            theme=fallback_theme,
+                        )
+
                 fallback, fallback_theme = _fallback_files(prompt_text)
                 return WebTemplateResult(
                     files=fallback,
@@ -62,8 +84,14 @@ class WebTemplateGenerator:
             theme=fallback_theme,
         )
 
-    def _generate_via_llm(self, prompt: str) -> tuple[dict[str, str], str]:
+    def _generate_via_llm(self, prompt: str, *, is_retry: bool = False) -> tuple[dict[str, str], str]:
         system_prompt = _build_system_prompt(_prompt_mode())
+        if is_retry:
+            system_prompt = (
+                f"{system_prompt}\n\n"
+                "RETRY MODE:\n"
+                "Return pure JSON only; no markdown fences, comments, or explanation text."
+            )
         raw = self.llm_client.generate(prompt, system_prompt=system_prompt)
         parsed = _parse_llm_response(raw)
         source = parsed.get("files") if isinstance(parsed, dict) and isinstance(parsed.get("files"), dict) else parsed
@@ -107,13 +135,28 @@ def _normalize_files(data: Any) -> dict[str, str]:
     return files
 
 
-def _fallback_files(prompt: str) -> dict[str, str]:
+def _fallback_files(prompt: str) -> tuple[dict[str, str], str]:
     safe_prompt = prompt if prompt else "build a simple interactive web page"
     theme = _normalize_theme(None, safe_prompt)
     palette = _theme_palette(theme)
+
+    seed = _prompt_seed(safe_prompt)
+    accent = _accent_color(seed)
+    layout = _select_fallback_layout(safe_prompt, seed)
+    cards = _fallback_cards(layout)
+    cards_html = "\n".join(
+        f'        <article class="panel-card"><h3>{escape(title)}</h3><p>{escape(desc)}</p></article>'
+        for title, desc in cards
+    )
+    cta_text = _fallback_cta_text(layout)
+    layout_label = layout.replace("-", " ").title()
+
     title = "Generated Web App"
     subtitle = escape(safe_prompt)
     prompt_json = json.dumps(safe_prompt, ensure_ascii=False)
+    theme_json = json.dumps(theme, ensure_ascii=False)
+    layout_json = json.dumps(layout, ensure_ascii=False)
+    accent_json = json.dumps(accent, ensure_ascii=False)
 
     index_html = f"""<!doctype html>
 <html lang="en">
@@ -124,10 +167,14 @@ def _fallback_files(prompt: str) -> dict[str, str]:
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <main class="app">
+    <main class="app layout-{layout}">
       <h1>{title}</h1>
       <p id="subtitle">{subtitle}</p>
-      <button id="action">Run Demo Action</button>
+      <p class="meta">Fallback mode - {layout_label} layout - {theme} theme</p>
+      <section class="panels">
+{cards_html}
+      </section>
+      <button id="action">{cta_text}</button>
       <pre id="output"></pre>
     </main>
     <script src="app.js"></script>
@@ -139,6 +186,10 @@ def _fallback_files(prompt: str) -> dict[str, str]:
   box-sizing: border-box;
 }}
 
+:root {{
+  --accent: {accent};
+}}
+
 body {{
   margin: 0;
   min-height: 100vh;
@@ -148,16 +199,59 @@ body {{
 }}
 
 .app {{
-  max-width: 720px;
+  max-width: 880px;
   margin: 48px auto;
   padding: 24px;
   background: {palette["panel"]};
   border-radius: 16px;
   box-shadow: {palette["shadow"]};
+  border-top: 6px solid var(--accent);
 }}
 
 h1 {{
   margin-top: 0;
+}}
+
+.meta {{
+  margin: 8px 0 16px;
+  color: {palette["text"]};
+  opacity: 0.78;
+}}
+
+.panels {{
+  display: grid;
+  gap: 12px;
+  margin: 12px 0 16px;
+}}
+
+.layout-dashboard .panels {{
+  grid-template-columns: 1.4fr 1fr;
+}}
+
+.layout-showcase .panels {{
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}}
+
+.layout-workspace .panels {{
+  grid-template-columns: 1fr;
+}}
+
+.panel-card {{
+  padding: 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  background: linear-gradient(170deg, #ffffff 0%, rgba(255, 255, 255, 0.82) 100%);
+}}
+
+.panel-card h3 {{
+  margin: 0 0 8px;
+  font-size: 1rem;
+}}
+
+.panel-card p {{
+  margin: 0;
+  line-height: 1.5;
+  opacity: 0.86;
 }}
 
 button {{
@@ -165,7 +259,7 @@ button {{
   padding: 10px 16px;
   border: 0;
   border-radius: 10px;
-  background: {palette["button_bg"]};
+  background: var(--accent);
   color: {palette["button_text"]};
   cursor: pointer;
 }}
@@ -178,10 +272,18 @@ pre {{
   color: {palette["code_text"]};
   min-height: 72px;
 }}
+
+@media (max-width: 720px) {{
+  .layout-dashboard .panels {{
+    grid-template-columns: 1fr;
+  }}
+}}
 """
 
     app_js = f"""const promptText = {prompt_json};
-const theme = {json.dumps(theme, ensure_ascii=False)};
+const theme = {theme_json};
+const layout = {layout_json};
+const accent = {accent_json};
 const actionBtn = document.getElementById("action");
 const output = document.getElementById("output");
 
@@ -189,6 +291,12 @@ actionBtn.addEventListener("click", () => {{
   output.textContent = [
     "Theme:",
     theme,
+    "",
+    "Layout:",
+    layout,
+    "",
+    "Accent:",
+    accent,
     "",
     "Prompt:",
     promptText,
@@ -206,6 +314,7 @@ This project was generated from natural language prompt:
 > {safe_prompt}
 
 Theme: `{theme}`
+Layout: `{layout}`
 
 ## Files
 
@@ -271,15 +380,84 @@ def _normalize_theme(raw_theme: object, prompt: str) -> str:
     if normalized in {"clean", "modern", "dark", "playful", "enterprise"}:
         return normalized
     text = (prompt or "").strip().lower()
-    if any(k in text for k in ("enterprise", "dashboard", "管理系统", "企业")):
+    if any(k in text for k in ("enterprise", "dashboard", "admin", "管理系统", "企业")):
         return "enterprise"
-    if any(k in text for k in ("dark", "neon", "科技", "酷", "高级")):
+    if any(k in text for k in ("dark", "neon", "tech", "科技", "高级")):
         return "dark"
-    if any(k in text for k in ("playful", "cute", "可爱", "有趣")):
+    if any(k in text for k in ("playful", "cute", "fun", "可爱", "有趣")):
         return "playful"
-    if any(k in text for k in ("modern", "gradient", "modern ui")):
+    if any(k in text for k in ("modern", "gradient", "modern ui", "简洁", "简约", "clean")):
         return "modern"
     return "clean"
+
+
+def _prompt_seed(prompt: str) -> int:
+    digest = hashlib.sha256((prompt or "").encode("utf-8")).digest()
+    return int.from_bytes(digest[:2], byteorder="big", signed=False)
+
+
+def _accent_color(seed: int) -> str:
+    hue = seed % 360
+    sat = 72 + (seed % 14)
+    light = 46 + (seed % 8)
+    return f"hsl({hue} {sat}% {light}%)"
+
+
+def _select_fallback_layout(prompt: str, seed: int) -> str:
+    text = (prompt or "").strip().lower()
+    if any(k in text for k in ("dashboard", "admin", "analytics", "report", "报表", "管理", "仪表盘")):
+        return "dashboard"
+    if any(k in text for k in ("gallery", "portfolio", "showcase", "photography", "展示", "作品", "相册")):
+        return "showcase"
+    if any(k in text for k in ("todo", "task", "workspace", "editor", "planner", "任务", "待办", "工作台")):
+        return "workspace"
+    return ("dashboard", "showcase", "workspace")[seed % 3]
+
+
+def _fallback_cards(layout: str) -> list[tuple[str, str]]:
+    if layout == "dashboard":
+        return [
+            ("Status Overview", "Track key metrics and recent activity in a compact control view."),
+            ("Daily Highlights", "Pin updates and trends that matter right now."),
+            ("Action Queue", "Prioritize next actions with clear visual grouping."),
+        ]
+    if layout == "showcase":
+        return [
+            ("Hero Section", "Use strong visuals and headline copy to frame the story."),
+            ("Feature Tiles", "Present core modules as scan-friendly cards."),
+            ("Call To Action", "Guide visitors to the primary conversion path."),
+        ]
+    return [
+        ("Workspace", "Focus on actionable items and short feedback loops."),
+        ("Task Board", "Keep progress visible with lightweight structure."),
+        ("Quick Notes", "Capture context near the work area for fast iteration."),
+    ]
+
+
+def _fallback_cta_text(layout: str) -> str:
+    if layout == "dashboard":
+        return "Refresh Insights"
+    if layout == "showcase":
+        return "Preview Experience"
+    return "Run Workspace Check"
+
+
+def _build_retry_prompt(prompt: str) -> str:
+    requirement = (prompt or "").strip() or "build a simple interactive web page"
+    return (
+        "Return one compact JSON object only with keys:\n"
+        "theme, index.html, styles.css, app.js, README.generated.md\n"
+        "Do not wrap in markdown or code fences.\n"
+        "Requirement:\n"
+        f"{requirement}"
+    )
+
+
+def _should_retry_llm_generation(exc: Exception) -> bool:
+    text = str(exc).strip().lower()
+    if not text:
+        return False
+    return "json" in text or "missing required files" in text
 
 
 def _theme_palette(theme: str) -> dict[str, str]:
@@ -339,7 +517,7 @@ def _theme_palette(theme: str) -> dict[str, str]:
 
 
 def _prompt_mode() -> str:
-    mode = os.getenv("WEB_TEMPLATE_PROMPT_MODE", "contract").strip().lower()
+    mode = os.getenv("WEB_TEMPLATE_PROMPT_MODE", "direct").strip().lower()
     if mode in {"direct", "passthrough", "raw"}:
         return "direct"
     return "contract"
@@ -371,11 +549,7 @@ def _build_system_prompt(mode: str) -> str:
         "2) functionality must follow user requirements.\n"
         "3) theme only changes visual design (css/layout/colors).\n"
         "4) do not change business logic because of theme.\n"
-        "5) if user does not specify theme, infer from tone:\n"
-        '   - "酷/高级/科技" -> dark or modern\n'
-        '   - "简单/干净" -> clean\n'
-        '   - "企业/管理系统" -> enterprise\n'
-        '   - "可爱/有趣" -> playful\n\n'
+        "5) if user does not specify theme, infer from tone.\n\n"
         "OUTPUT FORMAT:\n"
         "Return JSON only with keys:\n"
         "theme, index.html, styles.css, app.js, README.generated.md\n"

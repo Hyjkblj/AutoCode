@@ -691,6 +691,7 @@ def test_orchestrator_flask_health_task_enters_fix_loop_when_test_fails(monkeypa
 def test_orchestrator_publishes_artifact_ready_for_web_target(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("LLM_BACKEND", "openai")
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("ARK_API_KEY", raising=False)
     workspace = tmp_path / "workspace"
     workspace.mkdir(parents=True, exist_ok=True)
     monkeypatch.setenv("MVP_ALLOWED_WORKSPACE_PREFIXES", str(workspace))
@@ -739,6 +740,7 @@ def test_orchestrator_publishes_artifact_ready_for_web_target(monkeypatch, tmp_p
 def test_orchestrator_publishes_artifact_when_assistant_web_without_target(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("LLM_BACKEND", "openai")
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("ARK_API_KEY", raising=False)
     workspace = tmp_path / "workspace"
     workspace.mkdir(parents=True, exist_ok=True)
     monkeypatch.setenv("MVP_ALLOWED_WORKSPACE_PREFIXES", str(workspace))
@@ -936,6 +938,7 @@ def test_orchestrator_reuses_memory_context_for_second_code_change(monkeypatch, 
 def test_orchestrator_publishes_artifact_ready_for_web_target(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("LLM_BACKEND", "openai")
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("ARK_API_KEY", raising=False)
     workspace = tmp_path / "workspace"
     workspace.mkdir(parents=True, exist_ok=True)
     monkeypatch.setenv("MVP_ALLOWED_WORKSPACE_PREFIXES", str(workspace))

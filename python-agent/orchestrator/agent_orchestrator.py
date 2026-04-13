@@ -6,7 +6,7 @@ from typing import Any
 
 from agents.base_agent import BaseAgent
 from agents.coder_agent import CoderAgent
-from agents.intent_agent import IntentAgent, IntentDecision
+from agents.intent_agent import IntentAgent
 from agents.planner_agent import PlanResult, PlannerAgent
 from agents.reviewer_agent import ReviewResult, ReviewerAgent
 from agents.tester_agent import TesterAgent, TesterResult
@@ -47,29 +47,6 @@ class AgentOrchestrator(BaseAgent):
         hints = _build_memory_hints(history)
         _apply_memory_hints(working_task, hints)
         _normalize_generation_target(working_task)
-        target = str(working_task.get("target", "")).strip().lower()
-
-        if target and target != "web":
-            self.publish_event(
-                working_task,
-                client,
-                "TASK_FAILED",
-                {
-                    "reason": "unsupported_target",
-                    "target": target,
-                    "supportedTargets": ["web"],
-                },
-            )
-            self.memory_store.append(
-                project_key,
-                {
-                    "intent": "code_change",
-                    "status": "failed",
-                    "reason": "unsupported_target",
-                    "target": target,
-                },
-            )
-            return
 
         if history:
             self.publish_event(
@@ -88,13 +65,6 @@ class AgentOrchestrator(BaseAgent):
 
         prompt = str(working_task.get("prompt", "")).strip()
         decision = self.intent_agent.infer(prompt)
-        if target == "web" and decision.intent != "code_change":
-            decision = IntentDecision(
-                backend=decision.backend,
-                intent="code_change",
-                confidence=max(decision.confidence, 0.75),
-                reason="target=web forces code_change pipeline",
-            )
         self.publish_event(
             working_task,
             client,
@@ -605,24 +575,21 @@ def _failure_reason(result: ExecResult) -> str:
 
 
 def _is_web_generation_task(task: dict[str, Any]) -> bool:
-    target = str(task.get("target", "")).strip().lower()
-    if target:
-        return target == "web"
-    assistant = str(task.get("assistant", "")).strip().lower()
-    if assistant == "web":
-        return True
-    prompt = str(task.get("prompt", "")).strip().lower()
-    web_markers = ("web", "website", "html", "page")
-    return any(marker in prompt for marker in web_markers)
+    files = task.get("_generated_files")
+    if isinstance(files, list):
+        normalized = [str(item).strip() for item in files if str(item).strip()]
+        return len(normalized) > 0
+    return False
 
 
 def _normalize_generation_target(task: dict[str, Any]) -> None:
     target = str(task.get("target", "")).strip().lower()
     if target:
+        task["target"] = target
         return
-    assistant = str(task.get("assistant", "")).strip().lower()
-    if assistant == "web":
-        task["target"] = "web"
+    # Intentionally do not infer target from assistant.
+    # assistant=web is commonly used by mobile default settings; forcing target here
+    # would hard-lock all tasks into a single generation branch.
 
 
 def _resolve_workspace(task: dict[str, Any]) -> Path:

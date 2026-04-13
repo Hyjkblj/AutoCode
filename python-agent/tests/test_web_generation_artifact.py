@@ -49,3 +49,71 @@ def test_build_export_zip_packages_generated_files(tmp_path) -> None:
     with zipfile.ZipFile(bundle.file_path, "r") as zipf:
         names = sorted(zipf.namelist())
     assert names == ["README.generated.md", "app.js", "index.html", "styles.css"]
+
+
+def test_web_template_fallback_uses_prompt_specific_layouts(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("LLM_BACKEND", "openai")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("ARK_API_KEY", raising=False)
+    profile = {
+        "provider": "openai",
+        "api": {"auth_header": "Bearer ${OPENAI_API_KEY}"},
+        "request": {"model": "gpt-4.1-mini"},
+        "compat_env": {"LLM_BACKEND": "openai"},
+    }
+    profile_path = tmp_path / "llm-profile.json"
+    profile_path.write_text(json.dumps(profile), encoding="utf-8")
+    monkeypatch.setenv("LLM_CONFIG_PATH", str(profile_path))
+
+    generator = WebTemplateGenerator()
+    dashboard = generator.generate("build analytics dashboard", target="web")
+    showcase = generator.generate("build portfolio showcase", target="web")
+
+    assert dashboard.used_fallback is True
+    assert showcase.used_fallback is True
+    assert 'class="app layout-dashboard"' in dashboard.files["index.html"]
+    assert 'class="app layout-showcase"' in showcase.files["index.html"]
+
+
+def test_web_template_retries_once_when_llm_returns_invalid_json(monkeypatch) -> None:
+    monkeypatch.setenv("LLM_BACKEND", "openai")
+    monkeypatch.setenv("OPENAI_API_KEY", "dummy")
+
+    files = {
+        "index.html": "<html>retry</html>",
+        "styles.css": "body{background:#fff;}",
+        "app.js": "console.log('retry');",
+        "README.generated.md": "# retry",
+    }
+    responses = iter(
+        [
+            "not json",
+            json.dumps({"files": files}),
+        ]
+    )
+
+    def provider(backend, messages, model, temperature):  # noqa: ANN001
+        return next(responses)
+
+    generator = WebTemplateGenerator(llm_client=LLMClient(response_provider=provider))
+    result = generator.generate("build a page", target="web")
+
+    assert result.used_fallback is False
+    assert result.reason == "llm_generated_retry"
+    assert result.files == files
+
+
+def test_web_template_fallback_after_retry_failure(monkeypatch) -> None:
+    monkeypatch.setenv("LLM_BACKEND", "openai")
+    monkeypatch.setenv("OPENAI_API_KEY", "dummy")
+
+    responses = iter(["not json", "still not json"])
+
+    def provider(backend, messages, model, temperature):  # noqa: ANN001
+        return next(responses)
+
+    generator = WebTemplateGenerator(llm_client=LLMClient(response_provider=provider))
+    result = generator.generate("build analytics dashboard", target="web")
+
+    assert result.used_fallback is True
+    assert result.reason.startswith("llm_fallback:retry_failed:")

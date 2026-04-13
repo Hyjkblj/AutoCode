@@ -140,3 +140,21 @@ def test_coder_agent_falls_back_to_allowed_workspace_prefix_when_missing(tmp_pat
     assert ok is True
     assert [item[0] for item in events] == ["ASSISTANT_OUTPUT", "FILE_PATCH_PREVIEW"]
     assert (allowed / "AGENT_PATCH_PREVIEW.md").exists()
+
+
+def test_coder_agent_generate_gate_is_not_triggered_by_generic_prompt() -> None:
+    should_generate = CoderAgent._should_generate_project(
+        target="",
+        assistant="ai-agent",
+        prompt="implement login validation and update tests",
+    )
+    assert should_generate is False
+
+
+def test_coder_agent_generate_gate_prefers_explicit_web_target() -> None:
+    should_generate = CoderAgent._should_generate_project(
+        target="web",
+        assistant="ai-agent",
+        prompt="refactor docs and config",
+    )
+    assert should_generate is True

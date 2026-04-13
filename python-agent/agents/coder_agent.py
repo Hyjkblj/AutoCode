@@ -33,8 +33,9 @@ class CoderAgent:
         workspace = self._resolve_workspace(task)
         prompt = str(task.get("prompt", "")).strip()
         target = str(task.get("target", "")).strip().lower()
+        assistant = str(task.get("assistant", "")).strip().lower()
 
-        if target == "web":
+        if self._should_generate_project(target=target, assistant=assistant, prompt=prompt):
             return self._generate_web_project(task, plan, publish_event, workspace, prompt)
 
         try:
@@ -90,6 +91,61 @@ class CoderAgent:
             event_type="FILE_PATCH_PREVIEW",
         )
         return True
+
+    @staticmethod
+    def _should_generate_project(*, target: str, assistant: str, prompt: str) -> bool:
+        normalized_target = (target or "").strip().lower()
+        if normalized_target:
+            return normalized_target == "web"
+
+        normalized_assistant = (assistant or "").strip().lower()
+        if normalized_assistant in {"web", "website"}:
+            return True
+
+        text = (prompt or "").strip().lower()
+        if not text:
+            return False
+
+        strong_web_markers = (
+            "website",
+            "web page",
+            "webapp",
+            "landing page",
+            "dashboard",
+            "calculator",
+            "todo",
+            "weather",
+            "portfolio",
+            "gallery",
+            "form",
+            "html",
+            "css",
+            "javascript",
+            "\u7f51\u9875",
+            "\u9875\u9762",
+            "\u4eea\u8868\u76d8",
+            "\u8ba1\u7b97\u5668",
+            "\u5f85\u529e",
+            "\u5929\u6c14",
+            "\u5c55\u793a",
+            "\u8868\u5355",
+            "\u7ba1\u7406\u7cfb\u7edf",
+        )
+        if any(marker in text for marker in strong_web_markers):
+            return True
+
+        action_markers = (
+            "generate",
+            "build",
+            "create",
+            "make",
+            "\u751f\u6210",
+            "\u642d\u5efa",
+            "\u505a\u4e00\u4e2a",
+            "\u505a\u4e2a",
+        )
+        weak_web_markers = ("web", "\u7f51\u7ad9", "\u5e94\u7528")
+        return any(action in text for action in action_markers) and any(marker in text for marker in weak_web_markers)
 
     def _generate_web_project(
         self,

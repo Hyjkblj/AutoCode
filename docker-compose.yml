@@ -108,11 +108,10 @@ services:
       MVP_SANDBOX_BASE_URL: http://127.0.0.1:18080
       MVP_MEMORY_BACKEND: redis
       MVP_REDIS_URL: redis://:000000@redis:6379/0
+      ARK_API_KEY: ${ARK_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
-      OPENAI_CHAT_URL: ${OPENAI_CHAT_URL:-}
-      LLM_BACKEND: ${LLM_BACKEND:-openai}
-      LLM_MODEL: ${LLM_MODEL:-}
+      LLM_CONFIG_PATH: ${LLM_CONFIG_PATH:-configs/doubao-seed-2.0-code-high-perf.json}
+      WEB_TEMPLATE_PROMPT_MODE: ${WEB_TEMPLATE_PROMPT_MODE:-direct}
     volumes:
       - ./:/workspace
 

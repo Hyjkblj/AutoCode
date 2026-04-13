@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass
 from html import escape
 from typing import Any
@@ -62,29 +63,7 @@ class WebTemplateGenerator:
         )
 
     def _generate_via_llm(self, prompt: str) -> tuple[dict[str, str], str]:
-        system_prompt = (
-            "You generate a minimal static web app based on a predefined system architecture.\n\n"
-            "ARCHITECTURE_CONTRACT:\n"
-            "- system_type: static_web_app_v1 (fixed)\n"
-            "- modules: ui_shell, interaction_logic, docs (fixed)\n"
-            "- required_files: index.html, styles.css, app.js, README.generated.md (fixed)\n\n"
-            "UI THEME LAYER:\n"
-            "You MUST apply one theme: clean, modern, dark, playful, enterprise.\n\n"
-            "STRICT RULES:\n"
-            "1) system_type and modules are fixed and must not be changed.\n"
-            "2) functionality must follow user requirements.\n"
-            "3) theme only changes visual design (css/layout/colors).\n"
-            "4) do not change business logic because of theme.\n"
-            "5) if user does not specify theme, infer from tone:\n"
-            '   - "酷/高级/科技" -> dark or modern\n'
-            '   - "简单/干净" -> clean\n'
-            '   - "企业/管理系统" -> enterprise\n'
-            '   - "可爱/有趣" -> playful\n\n'
-            "OUTPUT FORMAT:\n"
-            "Return JSON only with keys:\n"
-            "theme, index.html, styles.css, app.js, README.generated.md\n"
-            "Each file key value must be full file content as a string."
-        )
+        system_prompt = _build_system_prompt(_prompt_mode())
         raw = self.llm_client.generate(prompt, system_prompt=system_prompt)
         parsed = _parse_llm_response(raw)
         source = parsed.get("files") if isinstance(parsed, dict) and isinstance(parsed.get("files"), dict) else parsed
@@ -101,8 +80,6 @@ def _parse_llm_response(raw: str) -> Any:
     if not text:
         raise ValueError("empty llm response")
     data = _loads_json_relaxed(text)
-    if isinstance(data, dict) and isinstance(data.get("files"), dict):
-        return data["files"]
     return data
 
 
@@ -359,3 +336,48 @@ def _theme_palette(theme: str) -> dict[str, str]:
         },
     }
     return palettes.get(theme, palettes["clean"])
+
+
+def _prompt_mode() -> str:
+    mode = os.getenv("WEB_TEMPLATE_PROMPT_MODE", "contract").strip().lower()
+    if mode in {"direct", "passthrough", "raw"}:
+        return "direct"
+    return "contract"
+
+
+def _build_system_prompt(mode: str) -> str:
+    if mode == "direct":
+        return (
+            "You are an expert frontend engineer and product designer.\n"
+            "Treat the user's prompt as the primary requirement source.\n"
+            "Build a concrete, non-generic static web app that matches requested features.\n"
+            "Avoid placeholder boilerplate.\n\n"
+            "Return JSON only with keys:\n"
+            "theme, index.html, styles.css, app.js, README.generated.md\n"
+            "theme must be one of: clean, modern, dark, playful, enterprise.\n"
+            "Each file value must be full file content as a string."
+        )
+
+    return (
+        "You generate a minimal static web app based on a predefined system architecture.\n\n"
+        "ARCHITECTURE_CONTRACT:\n"
+        "- system_type: static_web_app_v1 (fixed)\n"
+        "- modules: ui_shell, interaction_logic, docs (fixed)\n"
+        "- required_files: index.html, styles.css, app.js, README.generated.md (fixed)\n\n"
+        "UI THEME LAYER:\n"
+        "You MUST apply one theme: clean, modern, dark, playful, enterprise.\n\n"
+        "STRICT RULES:\n"
+        "1) system_type and modules are fixed and must not be changed.\n"
+        "2) functionality must follow user requirements.\n"
+        "3) theme only changes visual design (css/layout/colors).\n"
+        "4) do not change business logic because of theme.\n"
+        "5) if user does not specify theme, infer from tone:\n"
+        '   - "酷/高级/科技" -> dark or modern\n'
+        '   - "简单/干净" -> clean\n'
+        '   - "企业/管理系统" -> enterprise\n'
+        '   - "可爱/有趣" -> playful\n\n'
+        "OUTPUT FORMAT:\n"
+        "Return JSON only with keys:\n"
+        "theme, index.html, styles.css, app.js, README.generated.md\n"
+        "Each file key value must be full file content as a string."
+    )

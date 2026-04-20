@@ -11,7 +11,7 @@ spring:
   datasource:
     url: ${MVP_DB_URL:jdbc:mysql://localhost:3306/mvp_codeops?useUnicode=true&characterEncoding=utf8&serverTimezone=UTC}
     username: ${MVP_DB_USERNAME:root}
-    password: ${MVP_DB_PASSWORD:000000}
+    password: ${MVP_DB_PASSWORD:changeme}
   jpa:
     open-in-view: false
     hibernate:
@@ -23,9 +23,9 @@ spring:
     enabled: true
   data:
     redis:
-      host: ${MVP_REDIS_HOST:192.168.88.130}
+      host: ${MVP_REDIS_HOST:localhost}
       port: ${MVP_REDIS_PORT:6379}
-      password: ${MVP_REDIS_PASSWORD:000000}
+      password: ${MVP_REDIS_PASSWORD:changeme}
       repositories:
         enabled: false
 

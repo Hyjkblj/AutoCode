@@ -6,8 +6,8 @@
 **/.idea/
 **/*.iml
 **/.vscode/
-**/.classpath
-**/.project
+**/.classpath/
+**/.project/
 **/.settings/
 **/*.log
 
@@ -15,5 +15,28 @@
 **/application-local.yml
 **/application-local.yaml
 .env
+**/.env
 
+# IDE and editor
 .gradle-local/
+**/__pycache__/
+**/*.pyc
+.pytest_cache/
+
+# Runtime and temp files
+.runtime-logs/
+.tmp/
+.ssh/
+
+# Kiro and Claude
+.kiro/
+.claude/
+
+# Deployment artifacts
+deploy-package.zip
+deploy-patch.zip
+export.zip
+
+# Error logs
+hs_err_pid*.log
+replay_pid*.log

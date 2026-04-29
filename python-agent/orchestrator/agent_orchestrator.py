@@ -16,8 +16,10 @@ from generators.validation_gate import ValidationGate
 from memory.redis_memory import RedisMemory
 from orchestrator.dag_scheduler import DagNode, DagScheduler
 from orchestrator.distributed_lock import DistributedTaskLock
+from orchestrator.langgraph_runtime import LangGraphExecutionResult, LangGraphRuntime
 from tools.exec_tool import ExecResult, ExecTool
 from utils.artifact_utils import ArtifactBundle, build_export_zip
+from utils.observability import attach_terminal_observability, ensure_task_observability, observe_task_span
 
 
 class AgentOrchestrator(BaseAgent):
@@ -33,6 +35,7 @@ class AgentOrchestrator(BaseAgent):
         dag_scheduler: DagScheduler | None = None,
         validation_gate: ValidationGate | None = None,
         distributed_lock: DistributedTaskLock | None = None,
+        langgraph_runtime: LangGraphRuntime | None = None,
         engine: str | None = None,
     ) -> None:
         super().__init__()
@@ -47,19 +50,35 @@ class AgentOrchestrator(BaseAgent):
         self.dag_scheduler = dag_scheduler or DagScheduler(max_workers=4)
         self.validation_gate = validation_gate or ValidationGate()
         self.distributed_lock = distributed_lock or DistributedTaskLock()
+        self.langgraph_runtime = langgraph_runtime or LangGraphRuntime()
         self.engine = _resolve_agent_engine(engine)
 
     def handle_task(self, task: dict[str, Any], client: ControlPlaneClient) -> None:
         working_task = dict(task)
+        working_task["_agentEngine"] = self.engine
+        working_task["_executionPath"] = "legacy"
         _normalize_generation_target(working_task)
-        validation_error = _validate_generation_request(working_task)
-        if validation_error is not None:
-            self.publish_event(working_task, client, "TASK_FAILED", validation_error)
-            return
 
         task_id = str(working_task.get("taskId", "")).strip()
         if not task_id:
             raise ValueError("task.taskId is required")
+        ensure_task_observability(working_task, engine=self.engine)
+
+        validation_error = _validate_generation_request(working_task)
+        if validation_error is not None:
+            self.publish_event(
+                working_task,
+                client,
+                "TASK_FAILED",
+                self._terminal_payload(
+                    working_task,
+                    validation_error,
+                    task_status="failed",
+                    intent="validation",
+                    reason=str(validation_error.get("reason", "")).strip(),
+                ),
+            )
+            return
 
         lease = self.distributed_lock.acquire(task_id)
         if not lease.acquired:
@@ -71,11 +90,11 @@ class AgentOrchestrator(BaseAgent):
             lease.release()
 
     def _handle_task_locked(self, task: dict[str, Any], client: ControlPlaneClient) -> None:
-        project_key = self.memory_store.project_key_for_task(task)
-        history = self.memory_store.recent(project_key, limit=5)
-        hints = _build_memory_hints(history)
-        _apply_memory_hints(task, hints)
-        task["_agentEngine"] = self.engine
+        with observe_task_span(task, "memory_context", stage="Memory"):
+            project_key = self.memory_store.project_key_for_task(task)
+            history = self.memory_store.recent(project_key, limit=5)
+            hints = _build_memory_hints(history)
+            _apply_memory_hints(task, hints)
 
         if history:
             self.publish_event(
@@ -93,7 +112,8 @@ class AgentOrchestrator(BaseAgent):
             )
 
         prompt = str(task.get("prompt", "")).strip()
-        decision = self.intent_agent.infer(prompt)
+        with observe_task_span(task, "intent_inference", stage="IntentAgent"):
+            decision = self.intent_agent.infer(prompt)
         self.publish_event(
             task,
             client,
@@ -109,7 +129,8 @@ class AgentOrchestrator(BaseAgent):
             },
         )
 
-        plan = self.planner_agent.build_plan(prompt=prompt, intent=decision)
+        with observe_task_span(task, "plan_build", stage="PlannerAgent", attributes={"intent": decision.intent}):
+            plan = self.planner_agent.build_plan(prompt=prompt, intent=decision)
         self.publish_event(
             task,
             client,
@@ -126,10 +147,17 @@ class AgentOrchestrator(BaseAgent):
         memory_record: dict[str, Any]
         try:
             if decision.intent == "llm_key_missing":
-                payload = _failure_payload(
+                base_payload = _failure_payload(
                     "llm_key_missing",
                     plan_name=plan.plan_name,
                     detail=decision.reason,
+                )
+                payload = self._terminal_payload(
+                    task,
+                    base_payload,
+                    task_status="failed",
+                    intent=decision.intent,
+                    reason=str(base_payload.get("reason", "")).strip(),
                 )
                 self.publish_event(task, client, "TASK_FAILED", payload)
                 memory_record = {
@@ -141,6 +169,19 @@ class AgentOrchestrator(BaseAgent):
                     "detail": payload["detail"],
                 }
                 self.memory_store.append(project_key, memory_record)
+                return
+
+            langgraph_result = self._maybe_execute_langgraph(task, client, decision.intent, plan)
+            if langgraph_result is not None:
+                terminal_payload = self._terminal_payload(
+                    task,
+                    langgraph_result.terminal_payload,
+                    task_status=langgraph_result.task_status,
+                    intent=decision.intent,
+                    reason=langgraph_result.reason,
+                )
+                self.publish_event(task, client, langgraph_result.terminal_event_type, terminal_payload)
+                self.memory_store.append(project_key, langgraph_result.memory_record)
                 return
 
             if decision.intent == "code_change":
@@ -158,17 +199,31 @@ class AgentOrchestrator(BaseAgent):
                 "intent": decision.intent,
                 "planName": plan.plan_name,
                 "steps": plan.steps,
+                "executionPath": "legacy",
             }
-            self.publish_event(task, client, "TASK_DONE", payload)
+            self.publish_event(
+                task,
+                client,
+                "TASK_DONE",
+                self._terminal_payload(task, payload, task_status="done", intent=decision.intent),
+            )
             memory_record = {
                 "intent": decision.intent,
                 "planName": plan.plan_name,
                 "status": "done",
                 "result": "planned",
+                "executionPath": "legacy",
             }
             self.memory_store.append(project_key, memory_record)
         except Exception as exc:  # noqa: BLE001
-            payload = _failure_payload("orchestrator_error", detail=str(exc))
+            base_payload = _failure_payload("orchestrator_error", detail=str(exc))
+            payload = self._terminal_payload(
+                task,
+                base_payload,
+                task_status="failed",
+                intent=decision.intent,
+                reason=str(base_payload.get("reason", "")).strip(),
+            )
             self.publish_event(task, client, "TASK_FAILED", payload)
             self.memory_store.append(
                 project_key,
@@ -187,6 +242,175 @@ class AgentOrchestrator(BaseAgent):
             self.publish_event(task, client, event_type, payload)
 
         return _emit
+
+    def _terminal_payload(
+        self,
+        task: dict[str, Any],
+        payload: dict[str, Any],
+        *,
+        task_status: str,
+        intent: str = "",
+        reason: str = "",
+        fix_loop_attempts: int = 0,
+        fix_loop_success: bool | None = None,
+    ) -> dict[str, Any]:
+        output = dict(payload)
+        output.setdefault("executionPath", str(task.get("_executionPath", "")).strip() or "legacy")
+        return attach_terminal_observability(
+            task,
+            output,
+            task_status=task_status,
+            intent=intent,
+            reason=reason,
+            generation_target=_generation_target_for_metrics(task),
+            fix_loop_attempts=fix_loop_attempts,
+            fix_loop_success=fix_loop_success,
+        )
+
+    def _maybe_execute_langgraph(
+        self,
+        task: dict[str, Any],
+        client: ControlPlaneClient,
+        intent: str,
+        plan: PlanResult,
+    ) -> LangGraphExecutionResult | None:
+        if self.engine != "langgraph":
+            return None
+        if not self.langgraph_runtime.supports(intent):
+            task["_executionPath"] = "legacy"
+            self.publish_event(
+                task,
+                client,
+                "ASSISTANT_OUTPUT",
+                {
+                    "stage": "LangGraphRuntime",
+                    "message": "Intent not migrated yet, falling back to legacy pipeline.",
+                    "intent": intent,
+                    "fallbackEngine": "legacy",
+                },
+            )
+            return None
+
+        publisher = self._publisher(task, client)
+        with observe_task_span(task, "langgraph_runtime", stage="LangGraphRuntime", attributes={"intent": intent}):
+            result = self.langgraph_runtime.execute(
+                intent=intent,
+                publish_event=publisher,
+                analyze_handler=lambda: self._build_langgraph_analyze_result(plan),
+                test_handler=lambda: self._execute_langgraph_test(task, client, plan, publisher),
+            )
+        if result.handled:
+            task["_executionPath"] = "langgraph"
+            return result
+        task["_executionPath"] = "legacy"
+        self.publish_event(
+            task,
+            client,
+            "ASSISTANT_OUTPUT",
+            {
+                "stage": "LangGraphRuntime",
+                "message": "LangGraph runtime skipped current intent, falling back to legacy pipeline.",
+                "intent": intent,
+                "fallbackEngine": "legacy",
+            },
+        )
+        return None
+
+    @staticmethod
+    def _build_langgraph_analyze_result(plan: PlanResult) -> LangGraphExecutionResult:
+        payload = {
+            "result": "planned",
+            "intent": "analyze",
+            "planName": plan.plan_name,
+            "steps": plan.steps,
+            "executionPath": "langgraph",
+        }
+        memory_record = {
+            "intent": "analyze",
+            "planName": plan.plan_name,
+            "status": "done",
+            "result": "planned",
+            "executionPath": "langgraph",
+        }
+        return LangGraphExecutionResult(
+            handled=True,
+            terminal_event_type="TASK_DONE",
+            terminal_payload=payload,
+            memory_record=memory_record,
+            task_status="done",
+            reason="planned",
+        )
+
+    def _execute_langgraph_test(
+        self,
+        task: dict[str, Any],
+        client: ControlPlaneClient,
+        plan: PlanResult,
+        publisher,
+    ) -> LangGraphExecutionResult:
+        with observe_task_span(task, "test_execution", stage="TesterAgent", attributes={"runtime": "langgraph"}):
+            result = self.tester_agent.execute(task, client, plan, publish_event=publisher)
+        if result.success:
+            payload: dict[str, Any] = {
+                "result": "executed",
+                "intent": "test",
+                "planName": plan.plan_name,
+                "status": result.status,
+                "command": result.command,
+                "attempts": result.attempts,
+                "retries": result.retries,
+                "executionPath": "langgraph",
+            }
+            if result.trace_id:
+                payload["traceId"] = result.trace_id
+            if result.run_id:
+                payload["runId"] = result.run_id
+            memory_record = {
+                "intent": "test",
+                "planName": plan.plan_name,
+                "status": "done",
+                "command": result.command,
+                "result": "executed",
+                "traceId": result.trace_id,
+                "runId": result.run_id,
+                "executionPath": "langgraph",
+            }
+            return LangGraphExecutionResult(
+                handled=True,
+                terminal_event_type="TASK_DONE",
+                terminal_payload=payload,
+                memory_record=memory_record,
+                task_status="done",
+                reason="executed",
+            )
+
+        payload = _failure_payload(
+            result.status or result.reason or "test_failed",
+            status=result.status,
+            detail=result.reason,
+            command=result.command,
+        )
+        payload["executionPath"] = "langgraph"
+        memory_record = {
+            "intent": "test",
+            "planName": plan.plan_name,
+            "status": "failed",
+            "reason": payload["reason"],
+            "errorCode": payload["errorCode"],
+            "detail": payload.get("detail"),
+            "command": result.command,
+            "traceId": result.trace_id,
+            "runId": result.run_id,
+            "executionPath": "langgraph",
+        }
+        return LangGraphExecutionResult(
+            handled=True,
+            terminal_event_type="TASK_FAILED",
+            terminal_payload=payload,
+            memory_record=memory_record,
+            task_status="failed",
+            reason=str(payload.get("reason", "")).strip(),
+        )
 
     def _handle_code_change(
         self,
@@ -220,7 +444,8 @@ class AgentOrchestrator(BaseAgent):
                 )
 
             publisher = self._publisher(task, client)
-            coded = self.coder_agent.execute(task, client, plan, publish_event=publisher)
+            with observe_task_span(task, "code_generation", stage="CoderAgent", attributes={"attempt": fix_attempt}):
+                coded = self.coder_agent.execute(task, client, plan, publish_event=publisher)
             if not coded:
                 return {
                     "intent": "code_change",
@@ -230,18 +455,28 @@ class AgentOrchestrator(BaseAgent):
                     "errorCode": _error_code_from_reason("coder_failed"),
                 }
 
-            validation = self.validation_gate.validate(task, _resolve_workspace(task))
+            with observe_task_span(task, "validation_gate", stage="ValidationGate"):
+                validation = self.validation_gate.validate(task, _resolve_workspace(task))
             if not validation.ok:
                 last_test_error = validation.summary
                 if fix_attempt < max_fix_attempts:
                     fix_attempt += 1
                     continue
-                payload = _failure_payload(
+                base_payload = _failure_payload(
                     "fix_loop_exhausted",
                     plan_name=plan.plan_name,
                     attempt=fix_attempt,
                     maxAttempts=max_fix_attempts,
                     lastTestError=last_test_error,
+                )
+                payload = self._terminal_payload(
+                    task,
+                    base_payload,
+                    task_status="failed",
+                    intent="code_change",
+                    reason=str(base_payload.get("reason", "")).strip(),
+                    fix_loop_attempts=fix_attempt,
+                    fix_loop_success=False,
                 )
                 self.publish_event(task, client, "TASK_FAILED", payload)
                 return {
@@ -253,7 +488,8 @@ class AgentOrchestrator(BaseAgent):
                     "detail": last_test_error,
                 }
 
-            dag_results = self._run_review_and_test(task, client, plan, publisher)
+            with observe_task_span(task, "review_and_test", stage="Orchestrator"):
+                dag_results = self._run_review_and_test(task, client, plan, publisher)
             if dag_results is None:
                 return {
                     "intent": "code_change",
@@ -266,7 +502,16 @@ class AgentOrchestrator(BaseAgent):
             review = dag_results["review"]
             test = dag_results["test"]
             if not isinstance(review, ReviewResult) or not isinstance(test, TesterResult):
-                payload = _failure_payload("parallel_result_invalid", plan_name=plan.plan_name)
+                base_payload = _failure_payload("parallel_result_invalid", plan_name=plan.plan_name)
+                payload = self._terminal_payload(
+                    task,
+                    base_payload,
+                    task_status="failed",
+                    intent="code_change",
+                    reason=str(base_payload.get("reason", "")).strip(),
+                    fix_loop_attempts=fix_attempt,
+                    fix_loop_success=False,
+                )
                 self.publish_event(task, client, "TASK_FAILED", payload)
                 return {
                     "intent": "code_change",
@@ -277,12 +522,21 @@ class AgentOrchestrator(BaseAgent):
                 }
 
             if not review.approved:
-                payload = _failure_payload(
+                base_payload = _failure_payload(
                     "review_rejected",
                     plan_name=plan.plan_name,
                     summary=review.summary,
                     issues=review.issues,
                     riskLevel=review.risk_level,
+                )
+                payload = self._terminal_payload(
+                    task,
+                    base_payload,
+                    task_status="failed",
+                    intent="code_change",
+                    reason=str(base_payload.get("reason", "")).strip(),
+                    fix_loop_attempts=fix_attempt,
+                    fix_loop_success=False,
                 )
                 self.publish_event(task, client, "TASK_FAILED", payload)
                 return {
@@ -302,7 +556,7 @@ class AgentOrchestrator(BaseAgent):
                 if fix_attempt < max_fix_attempts:
                     fix_attempt += 1
                     continue
-                payload = _failure_payload(
+                base_payload = _failure_payload(
                     "fix_loop_exhausted",
                     plan_name=plan.plan_name,
                     attempt=fix_attempt,
@@ -310,6 +564,15 @@ class AgentOrchestrator(BaseAgent):
                     lastTestError=last_test_error,
                     testStatus=test.status,
                     command=test.command,
+                )
+                payload = self._terminal_payload(
+                    task,
+                    base_payload,
+                    task_status="failed",
+                    intent="code_change",
+                    reason=str(base_payload.get("reason", "")).strip(),
+                    fix_loop_attempts=fix_attempt,
+                    fix_loop_success=False,
                 )
                 self.publish_event(task, client, "TASK_FAILED", payload)
                 return {
@@ -326,7 +589,7 @@ class AgentOrchestrator(BaseAgent):
             if _should_publish_generated_artifact(task):
                 artifact = self._publish_generated_artifact(task, client, test)
 
-            done_payload = _build_code_change_done_payload(
+            base_done_payload = _build_code_change_done_payload(
                 plan.plan_name,
                 review,
                 test,
@@ -334,6 +597,14 @@ class AgentOrchestrator(BaseAgent):
                 attempt=fix_attempt if fix_attempt > 0 else None,
                 max_attempts=max_fix_attempts if fix_attempt > 0 else None,
                 target=_resolved_generation_target(task),
+            )
+            done_payload = self._terminal_payload(
+                task,
+                base_done_payload,
+                task_status="done",
+                intent="code_change",
+                fix_loop_attempts=fix_attempt,
+                fix_loop_success=True if fix_attempt > 0 else None,
             )
             self.publish_event(task, client, "TASK_DONE", done_payload)
             return {
@@ -450,8 +721,9 @@ class AgentOrchestrator(BaseAgent):
         )
 
         started_at = monotonic()
-        bundle = build_export_zip(workspace, generated_files, file_name="export.zip")
-        uploaded = self._try_upload_artifact(task, client, bundle)
+        with observe_task_span(task, "artifact_publish", stage="Artifact"):
+            bundle = build_export_zip(workspace, generated_files, file_name="export.zip")
+            uploaded = self._try_upload_artifact(task, client, bundle)
         payload = _build_artifact_ready_payload(task, bundle, uploaded, target, template_id, export_mode)
         self.publish_event(
             task,
@@ -505,7 +777,8 @@ class AgentOrchestrator(BaseAgent):
             },
         )
         try:
-            result = self.exec_tool.execute(task, command, prompt=prompt, intent=intent)
+            with observe_task_span(task, "sandbox_execute", stage="ExecTool", attributes={"intent": intent}):
+                result = self.exec_tool.execute(task, command, prompt=prompt, intent=intent)
         except Exception as exc:  # noqa: BLE001
             self.publish_event(
                 task,
@@ -518,7 +791,14 @@ class AgentOrchestrator(BaseAgent):
                     "error": str(exc),
                 },
             )
-            payload = _failure_payload("sandbox_request_failed", detail=str(exc))
+            base_payload = _failure_payload("sandbox_request_failed", detail=str(exc))
+            payload = self._terminal_payload(
+                task,
+                base_payload,
+                task_status="failed",
+                intent=intent,
+                reason=str(base_payload.get("reason", "")).strip(),
+            )
             self.publish_event(task, client, "TASK_FAILED", payload)
             return {
                 "intent": intent,
@@ -546,7 +826,17 @@ class AgentOrchestrator(BaseAgent):
             },
         )
         if result.ok:
-            self.publish_event(task, client, "TASK_DONE", _build_done_payload(result, plan_name, intent))
+            self.publish_event(
+                task,
+                client,
+                "TASK_DONE",
+                self._terminal_payload(
+                    task,
+                    _build_done_payload(result, plan_name, intent),
+                    task_status="done",
+                    intent=intent,
+                ),
+            )
             payload = {
                 "intent": intent,
                 "planName": plan_name,
@@ -570,7 +860,18 @@ class AgentOrchestrator(BaseAgent):
             detail=result.reason,
             retryable=result.retryable,
         )
-        self.publish_event(task, client, "TASK_FAILED", payload)
+        self.publish_event(
+            task,
+            client,
+            "TASK_FAILED",
+            self._terminal_payload(
+                task,
+                payload,
+                task_status="failed",
+                intent=intent,
+                reason=str(payload.get("reason", "")).strip(),
+            ),
+        )
         output = {
             "intent": intent,
             "planName": plan_name,
@@ -817,6 +1118,15 @@ def _resolve_generated_files(task: dict[str, Any], workspace: Path) -> list[str]
 def _resolved_generation_target(task: dict[str, Any]) -> str:
     target = str(task.get("_generated_target") or task.get("target") or "").strip().lower()
     return target or "web"
+
+
+def _generation_target_for_metrics(task: dict[str, Any]) -> str:
+    target = str(task.get("_generated_target") or task.get("target") or "").strip().lower()
+    if target:
+        return target
+    if _should_publish_generated_artifact(task):
+        return _resolved_generation_target(task)
+    return ""
 
 
 def _build_artifact_ready_payload(

@@ -1104,3 +1104,95 @@ def test_error_code_from_reason_normalization() -> None:
     assert _error_code_from_reason("approval rejected") == "APPROVAL_REJECTED"
     assert _error_code_from_reason("fix-loop_exhausted") == "FIX_LOOP_EXHAUSTED"
     assert _error_code_from_reason("  ") == "UNKNOWN_ERROR"
+
+
+def test_orchestrator_terminal_payload_contains_observability_summary(monkeypatch) -> None:
+    monkeypatch.setenv("LLM_BACKEND", "openai")
+    monkeypatch.setenv("OPENAI_API_KEY", "dummy")
+    task = {
+        "taskId": "task_obs_001",
+        "assistant": "ai-agent",
+        "sessionKey": "sess_obs_001",
+        "prompt": "please analyze this change",
+    }
+    client = _FakeClient()
+
+    AgentOrchestrator().handle_task(task, client)
+
+    terminal_payload = client.events[-1][1]["payload"]
+    observability = terminal_payload["observability"]
+    assert observability["engine"] == "legacy"
+    assert observability["taskStatus"] == "done"
+    assert observability["intent"] == "analyze"
+    assert observability["traceId"].startswith("trc_task_obs_001_")
+    assert observability["runId"].startswith("run_task_obs_001_")
+    span_names = {item["name"] for item in observability["spans"]}
+    assert {"memory_context", "intent_inference", "plan_build"} <= span_names
+    metric_names = {item["name"] for item in observability["metrics"]}
+    assert "task_total" in metric_names
+    assert "event_publish_total" in metric_names
+
+
+def test_orchestrator_langgraph_engine_routes_analyze_via_runtime(monkeypatch) -> None:
+    monkeypatch.setenv("LLM_BACKEND", "openai")
+    monkeypatch.setenv("OPENAI_API_KEY", "dummy")
+    task = {
+        "taskId": "task_lg_001",
+        "assistant": "ai-agent",
+        "sessionKey": "sess_lg_001",
+        "prompt": "please analyze this change",
+    }
+    client = _FakeClient()
+
+    AgentOrchestrator(engine="langgraph").handle_task(task, client)
+
+    runtime_events = [
+        event["payload"]
+        for _, event in client.events
+        if event["type"] == "ASSISTANT_OUTPUT" and event["payload"].get("stage") == "LangGraphRuntime"
+    ]
+    assert runtime_events
+    assert runtime_events[0]["intent"] == "analyze"
+    terminal_payload = client.events[-1][1]["payload"]
+    assert terminal_payload["executionPath"] == "langgraph"
+    assert terminal_payload["observability"]["engine"] == "langgraph"
+    assert terminal_payload["observability"]["intent"] == "analyze"
+
+
+def test_orchestrator_langgraph_engine_routes_test_without_exec_tool(monkeypatch) -> None:
+    monkeypatch.setenv("LLM_BACKEND", "openai")
+    monkeypatch.setenv("OPENAI_API_KEY", "dummy")
+    task = {
+        "taskId": "task_lg_002",
+        "assistant": "ai-agent",
+        "sessionKey": "sess_lg_002",
+        "prompt": "run tests for this project",
+    }
+    client = _FakeClient()
+    tester = _FakeTesterAgent(
+        RunResult(
+            success=True,
+            attempts=1,
+            retries=0,
+            command="pytest -q",
+            status="ok",
+            reason=None,
+            trace_id="trc_task_lg_002",
+            run_id="run_task_lg_002",
+        )
+    )
+
+    AgentOrchestrator(
+        engine="langgraph",
+        tester_agent=tester,
+        exec_tool=_RaisingExecTool("legacy exec tool should not be used"),
+    ).handle_task(task, client)
+
+    assert tester.calls
+    stages = [event["payload"].get("stage") for _, event in client.events if event["type"] == "ASSISTANT_OUTPUT"]
+    assert "ExecTool" not in stages
+    terminal_payload = client.events[-1][1]["payload"]
+    assert terminal_payload["executionPath"] == "langgraph"
+    assert terminal_payload["command"] == "pytest -q"
+    assert terminal_payload["observability"]["engine"] == "langgraph"
+    assert terminal_payload["observability"]["intent"] == "test"

@@ -3,7 +3,7 @@
 ## Agent service
 
 - `runtime.txt`: production/runtime dependencies for `python-agent`
-- `dev.txt`: local development and test dependencies for `python-agent`
+- `dev.txt`: local development and test dependencies for `python-agent` (includes `runtime.txt`)
 - `../requirements.txt`: backward-compatible shortcut to `dev.txt`
 
 Install runtime dependencies only:

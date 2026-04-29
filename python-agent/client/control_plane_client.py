@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import mimetypes
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 from urllib import error as urllib_error
@@ -16,6 +17,12 @@ class ControlPlaneRequestError(RuntimeError):
         super().__init__(message)
         self.retryable = retryable
         self.status_code = status_code
+
+
+@dataclass(frozen=True)
+class PublishEventResult:
+    response: dict[str, Any] | None
+    attempts: int
 
 
 class ControlPlaneClient:
@@ -55,17 +62,32 @@ class ControlPlaneClient:
         max_attempts: int = 3,
         initial_backoff_seconds: float = 0.2,
     ) -> dict[str, Any] | None:
+        return self.publish_event_with_retry_result(
+            task_id,
+            event,
+            max_attempts=max_attempts,
+            initial_backoff_seconds=initial_backoff_seconds,
+        ).response
+
+    def publish_event_with_retry_result(
+        self,
+        task_id: str,
+        event: dict[str, Any],
+        *,
+        max_attempts: int = 3,
+        initial_backoff_seconds: float = 0.2,
+    ) -> PublishEventResult:
         attempts = max(1, min(int(max_attempts), 6))
         backoff = max(0.05, float(initial_backoff_seconds))
         for attempt in range(1, attempts + 1):
             try:
-                return self.publish_event(task_id, event)
+                return PublishEventResult(response=self.publish_event(task_id, event), attempts=attempt)
             except Exception as exc:  # noqa: BLE001
                 retryable = isinstance(exc, ControlPlaneRequestError) and exc.retryable
                 if not retryable or attempt >= attempts:
                     raise
                 time.sleep(backoff * attempt)
-        return None
+        return PublishEventResult(response=None, attempts=attempts)
 
     def upload_artifact(
         self,

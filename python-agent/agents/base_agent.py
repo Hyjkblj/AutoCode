@@ -8,6 +8,7 @@ from typing import Any
 from uuid import uuid4
 
 from client.control_plane_client import ControlPlaneClient
+from utils.observability import enrich_payload, ensure_task_observability, record_event_publish
 
 
 class BaseAgent(ABC):
@@ -31,10 +32,16 @@ class BaseAgent(ABC):
         task_id = str(task.get("taskId", "")).strip()
         if not task_id:
             raise ValueError("task.taskId is required")
-        self._flush_outbox(task_id, client)
-        event = self._build_event(task=task, event_type=event_type, payload=payload or {}, seq=self._next_seq(task_id))
+        ensure_task_observability(task, engine=str(task.get("_agentEngine", "")).strip())
+        self._flush_outbox(task, client)
+        event = self._build_event(
+            task=task,
+            event_type=event_type,
+            payload=enrich_payload(task, payload or {}),
+            seq=self._next_seq(task_id),
+        )
         self._enqueue_outbox(task_id, event)
-        self._deliver_event(task_id, event, client)
+        self._deliver_event(task, event, client)
         self._ack_outbox(task_id, str(event.get("eventId", "")).strip())
 
     def _next_seq(self, task_id: str) -> int:
@@ -61,19 +68,30 @@ class BaseAgent(ABC):
             event["sessionId"] = session_id
         return event
 
-    def _flush_outbox(self, task_id: str, client: ControlPlaneClient) -> None:
+    def _flush_outbox(self, task: dict[str, Any], client: ControlPlaneClient) -> None:
+        task_id = str(task.get("taskId", "")).strip()
         pending = self._pending_outbox(task_id)
         for event in pending:
             event_id = str(event.get("eventId", "")).strip()
-            self._deliver_event(task_id, event, client)
+            self._deliver_event(task, event, client)
             self._ack_outbox(task_id, event_id)
 
-    def _deliver_event(self, task_id: str, event: dict[str, Any], client: ControlPlaneClient) -> None:
+    def _deliver_event(self, task: dict[str, Any], event: dict[str, Any], client: ControlPlaneClient) -> None:
+        task_id = str(task.get("taskId", "")).strip()
+        attempts = 1
+        publish_with_retry_result = getattr(client, "publish_event_with_retry_result", None)
+        if callable(publish_with_retry_result):
+            result = publish_with_retry_result(task_id, event)
+            attempts = max(1, int(getattr(result, "attempts", 1)))
+            record_event_publish(task, str(event.get("type", "")).strip(), attempts=attempts)
+            return
         publish_with_retry = getattr(client, "publish_event_with_retry", None)
         if callable(publish_with_retry):
             publish_with_retry(task_id, event)
+            record_event_publish(task, str(event.get("type", "")).strip(), attempts=attempts)
             return
         client.publish_event(task_id, event)
+        record_event_publish(task, str(event.get("type", "")).strip(), attempts=attempts)
 
     def _enqueue_outbox(self, task_id: str, event: dict[str, Any]) -> None:
         with self._outbox_lock:

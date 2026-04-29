@@ -35,6 +35,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.request;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @SpringBootTest(properties = {
@@ -134,16 +135,18 @@ class ArtifactsIntegrationTest {
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.ok").value(false));
 
-        mockMvc.perform(get("/api/v1/tasks/{taskId}/artifacts/{artifactId}/download", taskId, artifactId)
+        MvcResult downloadResult = mockMvc.perform(get("/api/v1/tasks/{taskId}/artifacts/{artifactId}/download", taskId, artifactId)
                         .queryParam("token", "test-download-token")
                         .header("Authorization", "Bearer operator-dev-token"))
-                .andExpect(status().isOk())
-                .andExpect(result -> {
-                    byte[] bytes = result.getResponse().getContentAsByteArray();
-                    if (bytes.length == 0) {
-                        throw new AssertionError("downloaded bytes should not be empty");
-                    }
-                });
+                .andExpect(request().asyncStarted())
+                .andReturn();
+
+        downloadResult.getAsyncResult();
+        assertEquals(200, downloadResult.getResponse().getStatus());
+        byte[] downloadedBytes = downloadResult.getResponse().getContentAsByteArray();
+        if (downloadedBytes.length == 0) {
+            throw new AssertionError("downloaded bytes should not be empty");
+        }
 
         mockMvc.perform(get("/api/v1/tasks/{taskId}/artifacts/{artifactId}/preview", taskId, artifactId)
                         .header("Authorization", "Bearer operator-dev-token"))
@@ -524,30 +527,53 @@ class ArtifactsIntegrationTest {
 
         JsonNode payload = objectMapper.readTree(urlResponse).path("payload");
         String shareUrl = payload.path("shareUrl").asText();
-        assertTrue(shareUrl.contains("token=test-download-token"));
-        int idx = shareUrl.indexOf("/api/v1/tasks/");
-        assertTrue(idx >= 0, "shareUrl should contain API path");
-        String apiPathWithQuery = shareUrl.substring(idx);
+        String directShareUrl = payload.path("directShareUrl").asText();
+        String shortUrl = payload.path("shortUrl").asText();
+        assertTrue(directShareUrl.contains("token=test-download-token"));
+
+        String apiPathWithQuery;
+        if (shareUrl.contains("/api/v1/tasks/")) {
+            apiPathWithQuery = shareUrl.substring(shareUrl.indexOf("/api/v1/tasks/"));
+        } else {
+            assertEquals(shortUrl, shareUrl, "shareUrl should expose short link when available");
+            int shortIdx = shortUrl.indexOf("/s/");
+            assertTrue(shortIdx >= 0, "shortUrl should contain short-link path");
+            String shortPath = shortUrl.substring(shortIdx);
+            String location = mockMvc.perform(get(shortPath))
+                    .andExpect(status().isFound())
+                    .andReturn()
+                    .getResponse()
+                    .getHeader(HttpHeaders.LOCATION);
+            assertNotNull(location, "short link should redirect to tokenized hosted site");
+            assertTrue(location.contains("token=test-download-token"));
+            int idx = location.indexOf("/api/v1/tasks/");
+            assertTrue(idx >= 0, "redirect location should contain API path");
+            apiPathWithQuery = location.substring(idx);
+        }
         String indexPath = apiPathWithQuery.substring(0, apiPathWithQuery.indexOf('?'));
 
-        MvcResult indexResult = mockMvc.perform(get(indexPath)
+        MvcResult indexAsync = mockMvc.perform(get(indexPath)
                         .queryParam("token", "test-download-token"))
-                .andExpect(status().isOk())
+                .andExpect(request().asyncStarted())
                 .andReturn();
+        indexAsync.getAsyncResult();
+        MvcResult indexResult = indexAsync;
+        assertEquals(200, indexResult.getResponse().getStatus());
         String html = indexResult.getResponse().getContentAsString();
         assertTrue(html.contains("Hello AutoCode"));
         String setCookie = indexResult.getResponse().getHeader(HttpHeaders.SET_COOKIE);
         assertNotNull(setCookie, "site index should set shared-token cookie");
 
-        mockMvc.perform(get("/api/v1/tasks/{taskId}/artifacts/{artifactId}/site/app.js", taskId, artifactId)
+        MvcResult appJsAsync = mockMvc.perform(get("/api/v1/tasks/{taskId}/artifacts/{artifactId}/site/app.js", taskId, artifactId)
                         .queryParam("token", "test-download-token"))
-                .andExpect(status().isOk())
-                .andExpect(result -> {
-                    String js = result.getResponse().getContentAsString();
-                    if (!js.contains("window.__autocode")) {
-                        throw new AssertionError("expected hosted js content");
-                    }
-                });
+                .andExpect(request().asyncStarted())
+                .andReturn();
+        appJsAsync.getAsyncResult();
+        assertEquals(200, appJsAsync.getResponse().getStatus());
+        String js = appJsAsync.getResponse().getContentAsString();
+        if (!js.contains("window.__autocode")) {
+            throw new AssertionError("expected hosted js content");
+        }
     }
 
     private byte[] buildZip(Map<String, String> files) throws IOException {

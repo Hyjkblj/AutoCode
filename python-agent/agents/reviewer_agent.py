@@ -10,6 +10,7 @@ from agents.planner_agent import PlanResult
 from client.control_plane_client import ControlPlaneClient
 from llm.llm_client import LLMClient
 from tools.search_tool import SearchTool
+from utils.circuit_breaker import CircuitBreaker
 
 
 _JSON_BLOCK_RE = re.compile(r"\{.*\}", re.DOTALL)
@@ -25,9 +26,15 @@ class ReviewResult:
 
 
 class ReviewerAgent:
-    def __init__(self, search_tool: SearchTool | None = None, llm_client: LLMClient | None = None) -> None:
+    def __init__(
+        self,
+        search_tool: SearchTool | None = None,
+        llm_client: LLMClient | None = None,
+        circuit_breaker: CircuitBreaker | None = None,
+    ) -> None:
         self.search_tool = search_tool or SearchTool()
         self.llm_client = llm_client or LLMClient()
+        self.circuit_breaker = circuit_breaker or CircuitBreaker(name="reviewer-llm")
 
     def review(
         self,
@@ -74,16 +81,16 @@ class ReviewerAgent:
             {
                 "role": "system",
                 "content": (
-                    "You are a code reviewer. Return strict JSON with keys: risk_level, issues, summary. "
-                    "risk_level must be one of high, medium, low. issues must be a list of strings."
-                ),
-            },
+                "You are a code reviewer. Return strict JSON with keys: risk_level, issues, summary. "
+                "risk_level must be one of high, medium, low. issues must be a list of strings."
+            ),
+        },
             {
                 "role": "user",
                 "content": f"Review this unified diff:\n{diff_text}",
             },
         ]
-        raw = self.llm_client.chat(messages)
+        raw = self.circuit_breaker.call(lambda: self.llm_client.chat(messages))
         payload = _parse_json_object(raw)
         risk_level = _normalize_risk_level(payload.get("risk_level"))
         issues = _normalize_issues(payload.get("issues"))

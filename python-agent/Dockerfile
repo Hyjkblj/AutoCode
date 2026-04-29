@@ -4,8 +4,8 @@ WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
-COPY python-agent/requirements.txt /app/requirements.txt
-RUN pip install --no-cache-dir -r /app/requirements.txt
+COPY python-agent/requirements /app/requirements
+RUN pip install --no-cache-dir -r /app/requirements/runtime.txt
 
 COPY python-agent /app
 

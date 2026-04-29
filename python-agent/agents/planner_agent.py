@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 from agents.intent_agent import IntentDecision
 from llm.llm_client import LLMClient
+from utils.circuit_breaker import CircuitBreaker
 
 
 _JSON_BLOCK_RE = re.compile(r"\{.*\}", re.DOTALL)
@@ -19,8 +20,13 @@ class PlanResult:
 
 
 class PlannerAgent:
-    def __init__(self, llm_client: LLMClient | None = None) -> None:
+    def __init__(
+        self,
+        llm_client: LLMClient | None = None,
+        circuit_breaker: CircuitBreaker | None = None,
+    ) -> None:
         self.llm_client = llm_client or LLMClient()
+        self.circuit_breaker = circuit_breaker or CircuitBreaker(name="planner-llm")
 
     def build_plan(self, prompt: str, intent: IntentDecision) -> PlanResult:
         if intent.intent == "llm_key_missing":
@@ -31,7 +37,7 @@ class PlannerAgent:
             )
 
         try:
-            response = self.llm_client.chat(_planner_messages(prompt, intent.intent))
+            response = self.circuit_breaker.call(lambda: self.llm_client.chat(_planner_messages(prompt, intent.intent)))
             payload = _parse_json_object(response)
             plan_name = _normalize_plan_name(payload.get("plan_name"), intent.intent)
             steps = _normalize_steps(payload.get("steps"))

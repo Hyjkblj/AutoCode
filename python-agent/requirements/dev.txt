@@ -1,0 +1,4 @@
+-r runtime.txt
+
+# Local development and test dependencies.
+pytest>=8.0.0,<9

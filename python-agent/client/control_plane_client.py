@@ -1,12 +1,21 @@
 from __future__ import annotations
 
-import mimetypes
 import json
+import mimetypes
+import time
 from pathlib import Path
-from uuid import uuid4
 from typing import Any
+from urllib import error as urllib_error
 from urllib import parse, request
 from urllib.error import HTTPError
+from uuid import uuid4
+
+
+class ControlPlaneRequestError(RuntimeError):
+    def __init__(self, message: str, *, retryable: bool, status_code: int | None = None) -> None:
+        super().__init__(message)
+        self.retryable = retryable
+        self.status_code = status_code
 
 
 class ControlPlaneClient:
@@ -37,6 +46,26 @@ class ControlPlaneClient:
     def publish_event(self, task_id: str, event: dict[str, Any]) -> dict[str, Any] | None:
         safe_task_id = parse.quote(task_id, safe="")
         return self._post_json(f"/api/v1/agent/tasks/{safe_task_id}/events", {"event": event})
+
+    def publish_event_with_retry(
+        self,
+        task_id: str,
+        event: dict[str, Any],
+        *,
+        max_attempts: int = 3,
+        initial_backoff_seconds: float = 0.2,
+    ) -> dict[str, Any] | None:
+        attempts = max(1, min(int(max_attempts), 6))
+        backoff = max(0.05, float(initial_backoff_seconds))
+        for attempt in range(1, attempts + 1):
+            try:
+                return self.publish_event(task_id, event)
+            except Exception as exc:  # noqa: BLE001
+                retryable = isinstance(exc, ControlPlaneRequestError) and exc.retryable
+                if not retryable or attempt >= attempts:
+                    raise
+                time.sleep(backoff * attempt)
+        return None
 
     def upload_artifact(
         self,
@@ -85,11 +114,19 @@ class ControlPlaneClient:
                 if not isinstance(decoded, dict):
                     raise RuntimeError(f"invalid json response from {url}: expected object")
                 if decoded.get("ok") is False:
-                    raise RuntimeError(str(decoded.get("error") or "artifact upload failed"))
+                    raise ControlPlaneRequestError(
+                        str(decoded.get("error") or "artifact upload failed"),
+                        retryable=False,
+                        status_code=status,
+                    )
                 return _extract_payload(decoded)
         except HTTPError as exc:
             message = exc.read().decode("utf-8", errors="replace").strip()
-            raise RuntimeError(f"POST /api/v1/tasks/{safe_task_id}/artifacts failed: {exc.code} {message}") from exc
+            raise ControlPlaneRequestError(
+                f"POST /api/v1/tasks/{safe_task_id}/artifacts failed: {exc.code} {message}",
+                retryable=_is_retryable_http_status(exc.code),
+                status_code=exc.code,
+            ) from exc
 
     def _post_json(self, path: str, body: dict[str, Any]) -> dict[str, Any] | None:
         data = self._request_json("POST", path, body=body)
@@ -123,15 +160,32 @@ class ControlPlaneClient:
                     return {}
                 decoded = json.loads(raw)
                 if not isinstance(decoded, dict):
-                    raise RuntimeError(f"invalid json response from {url}: expected object")
+                    raise ControlPlaneRequestError(
+                        f"invalid json response from {url}: expected object",
+                        retryable=False,
+                        status_code=status,
+                    )
                 if decoded.get("ok") is False:
-                    raise RuntimeError(str(decoded.get("error") or f"{method} {path} failed"))
+                    raise ControlPlaneRequestError(
+                        str(decoded.get("error") or f"{method} {path} failed"),
+                        retryable=False,
+                        status_code=status,
+                    )
                 return decoded
         except HTTPError as exc:
             if exc.code == 204:
                 return None
             message = exc.read().decode("utf-8", errors="replace").strip()
-            raise RuntimeError(f"{method} {path} failed: {exc.code} {message}") from exc
+            raise ControlPlaneRequestError(
+                f"{method} {path} failed: {exc.code} {message}",
+                retryable=_is_retryable_http_status(exc.code),
+                status_code=exc.code,
+            ) from exc
+        except (urllib_error.URLError, TimeoutError) as exc:
+            raise ControlPlaneRequestError(
+                f"{method} {path} failed: {exc}",
+                retryable=True,
+            ) from exc
 
 
 def _build_url(base_url: str, path: str, query: dict[str, str] | None) -> str:
@@ -173,4 +227,12 @@ def _build_multipart_payload(
 
     chunks.append(f"--{boundary}--\r\n".encode("utf-8"))
     return b"".join(chunks)
+
+
+def _is_retryable_http_status(status_code: int | None) -> bool:
+    if status_code is None:
+        return True
+    if status_code >= 500:
+        return True
+    return status_code in {408, 425, 429}
 

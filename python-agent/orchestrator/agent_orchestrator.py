@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from time import monotonic
 from typing import Any
 
 from agents.base_agent import BaseAgent
@@ -11,8 +12,10 @@ from agents.planner_agent import PlanResult, PlannerAgent
 from agents.reviewer_agent import ReviewResult, ReviewerAgent
 from agents.tester_agent import TesterAgent, TesterResult
 from client.control_plane_client import ControlPlaneClient
+from generators.validation_gate import ValidationGate
 from memory.redis_memory import RedisMemory
 from orchestrator.dag_scheduler import DagNode, DagScheduler
+from orchestrator.distributed_lock import DistributedTaskLock
 from tools.exec_tool import ExecResult, ExecTool
 from utils.artifact_utils import ArtifactBundle, build_export_zip
 
@@ -28,6 +31,9 @@ class AgentOrchestrator(BaseAgent):
         exec_tool: ExecTool | None = None,
         memory_store: RedisMemory | None = None,
         dag_scheduler: DagScheduler | None = None,
+        validation_gate: ValidationGate | None = None,
+        distributed_lock: DistributedTaskLock | None = None,
+        engine: str | None = None,
     ) -> None:
         super().__init__()
         resolved_exec_tool = exec_tool or ExecTool()
@@ -39,18 +45,41 @@ class AgentOrchestrator(BaseAgent):
         self.tester_agent = tester_agent or TesterAgent(exec_tool=resolved_exec_tool)
         self.memory_store = memory_store or RedisMemory()
         self.dag_scheduler = dag_scheduler or DagScheduler(max_workers=4)
+        self.validation_gate = validation_gate or ValidationGate()
+        self.distributed_lock = distributed_lock or DistributedTaskLock()
+        self.engine = _resolve_agent_engine(engine)
 
     def handle_task(self, task: dict[str, Any], client: ControlPlaneClient) -> None:
         working_task = dict(task)
-        project_key = self.memory_store.project_key_for_task(working_task)
+        _normalize_generation_target(working_task)
+        validation_error = _validate_generation_request(working_task)
+        if validation_error is not None:
+            self.publish_event(working_task, client, "TASK_FAILED", validation_error)
+            return
+
+        task_id = str(working_task.get("taskId", "")).strip()
+        if not task_id:
+            raise ValueError("task.taskId is required")
+
+        lease = self.distributed_lock.acquire(task_id)
+        if not lease.acquired:
+            return
+
+        try:
+            self._handle_task_locked(working_task, client)
+        finally:
+            lease.release()
+
+    def _handle_task_locked(self, task: dict[str, Any], client: ControlPlaneClient) -> None:
+        project_key = self.memory_store.project_key_for_task(task)
         history = self.memory_store.recent(project_key, limit=5)
         hints = _build_memory_hints(history)
-        _apply_memory_hints(working_task, hints)
-        _normalize_generation_target(working_task)
+        _apply_memory_hints(task, hints)
+        task["_agentEngine"] = self.engine
 
         if history:
             self.publish_event(
-                working_task,
+                task,
                 client,
                 "ASSISTANT_OUTPUT",
                 {
@@ -63,16 +92,17 @@ class AgentOrchestrator(BaseAgent):
                 },
             )
 
-        prompt = str(working_task.get("prompt", "")).strip()
+        prompt = str(task.get("prompt", "")).strip()
         decision = self.intent_agent.infer(prompt)
         self.publish_event(
-            working_task,
+            task,
             client,
             "ASSISTANT_OUTPUT",
             {
                 "stage": "IntentAgent",
                 "message": "Intent analysis completed.",
                 "backend": decision.backend,
+                "engine": self.engine,
                 "intent": decision.intent,
                 "confidence": decision.confidence,
                 "reason": decision.reason,
@@ -81,12 +111,13 @@ class AgentOrchestrator(BaseAgent):
 
         plan = self.planner_agent.build_plan(prompt=prompt, intent=decision)
         self.publish_event(
-            working_task,
+            task,
             client,
             "ASSISTANT_OUTPUT",
             {
                 "stage": "PlannerAgent",
                 "message": "Plan generated.",
+                "engine": self.engine,
                 "planName": plan.plan_name,
                 "steps": plan.steps,
             },
@@ -94,26 +125,41 @@ class AgentOrchestrator(BaseAgent):
 
         memory_record: dict[str, Any]
         try:
+            if decision.intent == "llm_key_missing":
+                payload = _failure_payload(
+                    "llm_key_missing",
+                    plan_name=plan.plan_name,
+                    detail=decision.reason,
+                )
+                self.publish_event(task, client, "TASK_FAILED", payload)
+                memory_record = {
+                    "intent": decision.intent,
+                    "planName": plan.plan_name,
+                    "status": "failed",
+                    "reason": payload["reason"],
+                    "errorCode": payload["errorCode"],
+                    "detail": payload["detail"],
+                }
+                self.memory_store.append(project_key, memory_record)
+                return
+
             if decision.intent == "code_change":
-                memory_record = self._handle_code_change(working_task, client, plan)
+                memory_record = self._handle_code_change(task, client, plan)
                 self.memory_store.append(project_key, memory_record)
                 return
 
             if decision.intent in {"deploy", "test"}:
-                memory_record = self._execute_with_sandbox(working_task, client, decision.intent, prompt, plan.plan_name)
+                memory_record = self._execute_with_sandbox(task, client, decision.intent, prompt, plan.plan_name)
                 self.memory_store.append(project_key, memory_record)
                 return
 
-            self.publish_event(
-                working_task,
-                client,
-                "TASK_DONE",
-                {
-                    "result": "planned",
-                    "planName": plan.plan_name,
-                    "steps": plan.steps,
-                },
-            )
+            payload = {
+                "result": "planned",
+                "intent": decision.intent,
+                "planName": plan.plan_name,
+                "steps": plan.steps,
+            }
+            self.publish_event(task, client, "TASK_DONE", payload)
             memory_record = {
                 "intent": decision.intent,
                 "planName": plan.plan_name,
@@ -122,23 +168,17 @@ class AgentOrchestrator(BaseAgent):
             }
             self.memory_store.append(project_key, memory_record)
         except Exception as exc:  # noqa: BLE001
-            self.publish_event(
-                working_task,
-                client,
-                "TASK_FAILED",
-                {
-                    "reason": "orchestrator_error",
-                    "detail": str(exc),
-                },
-            )
+            payload = _failure_payload("orchestrator_error", detail=str(exc))
+            self.publish_event(task, client, "TASK_FAILED", payload)
             self.memory_store.append(
                 project_key,
                 {
                     "intent": decision.intent,
                     "planName": plan.plan_name,
                     "status": "failed",
-                    "reason": "orchestrator_error",
-                    "detail": str(exc),
+                    "reason": payload["reason"],
+                    "errorCode": payload["errorCode"],
+                    "detail": payload["detail"],
                 },
             )
 
@@ -154,16 +194,168 @@ class AgentOrchestrator(BaseAgent):
         client: ControlPlaneClient,
         plan: PlanResult,
     ) -> dict[str, Any]:
-        publisher = self._publisher(task, client)
-        coded = self.coder_agent.execute(task, client, plan, publish_event=publisher)
-        if not coded:
+        max_fix_attempts = _resolve_fix_loop_max_attempts()
+        fix_attempt = 0
+        last_test_error = ""
+
+        while True:
+            task["fixLoopAttempt"] = fix_attempt
+            if last_test_error:
+                task["lastTestError"] = last_test_error
+            else:
+                task.pop("lastTestError", None)
+
+            if fix_attempt > 0:
+                self.publish_event(
+                    task,
+                    client,
+                    "ASSISTANT_OUTPUT",
+                    {
+                        "stage": "Orchestrator",
+                        "message": "Fix loop attempt started.",
+                        "attempt": fix_attempt,
+                        "maxAttempts": max_fix_attempts,
+                        "lastTestError": last_test_error,
+                    },
+                )
+
+            publisher = self._publisher(task, client)
+            coded = self.coder_agent.execute(task, client, plan, publish_event=publisher)
+            if not coded:
+                return {
+                    "intent": "code_change",
+                    "planName": plan.plan_name,
+                    "status": "failed",
+                    "reason": "coder_failed",
+                    "errorCode": _error_code_from_reason("coder_failed"),
+                }
+
+            validation = self.validation_gate.validate(task, _resolve_workspace(task))
+            if not validation.ok:
+                last_test_error = validation.summary
+                if fix_attempt < max_fix_attempts:
+                    fix_attempt += 1
+                    continue
+                payload = _failure_payload(
+                    "fix_loop_exhausted",
+                    plan_name=plan.plan_name,
+                    attempt=fix_attempt,
+                    maxAttempts=max_fix_attempts,
+                    lastTestError=last_test_error,
+                )
+                self.publish_event(task, client, "TASK_FAILED", payload)
+                return {
+                    "intent": "code_change",
+                    "planName": plan.plan_name,
+                    "status": "failed",
+                    "reason": payload["reason"],
+                    "errorCode": payload["errorCode"],
+                    "detail": last_test_error,
+                }
+
+            dag_results = self._run_review_and_test(task, client, plan, publisher)
+            if dag_results is None:
+                return {
+                    "intent": "code_change",
+                    "planName": plan.plan_name,
+                    "status": "failed",
+                    "reason": "parallel_pipeline_error",
+                    "errorCode": _error_code_from_reason("parallel_pipeline_error"),
+                }
+
+            review = dag_results["review"]
+            test = dag_results["test"]
+            if not isinstance(review, ReviewResult) or not isinstance(test, TesterResult):
+                payload = _failure_payload("parallel_result_invalid", plan_name=plan.plan_name)
+                self.publish_event(task, client, "TASK_FAILED", payload)
+                return {
+                    "intent": "code_change",
+                    "planName": plan.plan_name,
+                    "status": "failed",
+                    "reason": payload["reason"],
+                    "errorCode": payload["errorCode"],
+                }
+
+            if not review.approved:
+                payload = _failure_payload(
+                    "review_rejected",
+                    plan_name=plan.plan_name,
+                    summary=review.summary,
+                    issues=review.issues,
+                    riskLevel=review.risk_level,
+                )
+                self.publish_event(task, client, "TASK_FAILED", payload)
+                return {
+                    "intent": "code_change",
+                    "planName": plan.plan_name,
+                    "status": "failed",
+                    "reason": payload["reason"],
+                    "errorCode": payload["errorCode"],
+                    "summary": review.summary,
+                    "issues": review.issues,
+                    "riskLevel": review.risk_level,
+                    "testCommand": test.command,
+                }
+
+            if not test.success:
+                last_test_error = str(test.reason or test.status or "test_failed").strip()
+                if fix_attempt < max_fix_attempts:
+                    fix_attempt += 1
+                    continue
+                payload = _failure_payload(
+                    "fix_loop_exhausted",
+                    plan_name=plan.plan_name,
+                    attempt=fix_attempt,
+                    maxAttempts=max_fix_attempts,
+                    lastTestError=last_test_error,
+                    testStatus=test.status,
+                    command=test.command,
+                )
+                self.publish_event(task, client, "TASK_FAILED", payload)
+                return {
+                    "intent": "code_change",
+                    "planName": plan.plan_name,
+                    "status": "failed",
+                    "reason": payload["reason"],
+                    "errorCode": payload["errorCode"],
+                    "detail": last_test_error,
+                    "testCommand": test.command,
+                }
+
+            artifact: dict[str, Any] | None = None
+            if _should_publish_generated_artifact(task):
+                artifact = self._publish_generated_artifact(task, client, test)
+
+            done_payload = _build_code_change_done_payload(
+                plan.plan_name,
+                review,
+                test,
+                artifact=artifact,
+                attempt=fix_attempt if fix_attempt > 0 else None,
+                max_attempts=max_fix_attempts if fix_attempt > 0 else None,
+                target=_resolved_generation_target(task),
+            )
+            self.publish_event(task, client, "TASK_DONE", done_payload)
             return {
                 "intent": "code_change",
                 "planName": plan.plan_name,
-                "status": "failed",
-                "reason": "coder_failed",
+                "status": "done",
+                "result": "coded_reviewed_tested",
+                "summary": review.summary,
+                "testStatus": test.status,
+                "testCommand": test.command,
+                "traceId": test.trace_id,
+                "runId": test.run_id,
+                "artifactId": artifact.get("artifactId") if artifact else None,
             }
 
+    def _run_review_and_test(
+        self,
+        task: dict[str, Any],
+        client: ControlPlaneClient,
+        plan: PlanResult,
+        publisher,
+    ) -> dict[str, Any] | None:
         self.publish_event(
             task,
             client,
@@ -176,7 +368,7 @@ class AgentOrchestrator(BaseAgent):
             },
         )
         try:
-            dag_results = self.dag_scheduler.run(
+            return self.dag_scheduler.run(
                 [
                     DagNode("review", lambda: self.reviewer_agent.review(task, client, plan, publish_event=publisher), ("coder",)),
                     DagNode("test", lambda: self.tester_agent.execute(task, client, plan, publish_event=publisher), ("coder",)),
@@ -194,135 +386,85 @@ class AgentOrchestrator(BaseAgent):
                     "error": str(exc),
                 },
             )
-            self.publish_event(
-                task,
-                client,
-                "TASK_FAILED",
-                {
-                    "reason": "parallel_pipeline_error",
-                    "planName": plan.plan_name,
-                    "detail": str(exc),
+            payload = _failure_payload("parallel_pipeline_error", plan_name=plan.plan_name, detail=str(exc))
+            self.publish_event(task, client, "TASK_FAILED", payload)
+            return None
+
+    def _publish_generated_artifact(
+        self,
+        task: dict[str, Any],
+        client: ControlPlaneClient,
+        test: TesterResult,
+    ) -> dict[str, Any]:
+        target = _resolved_generation_target(task)
+        template_id = str(task.get("templateId", "")).strip() or "default"
+        export_mode = str(task.get("exportMode", "")).strip().lower() or "zip"
+        task_id = str(task.get("taskId", "")).strip()
+        build_id = f"build_{task_id}_{target}"
+
+        self.publish_event(
+            task,
+            client,
+            "SPEC_PROPOSED",
+            {
+                "target": target,
+                "templateId": template_id,
+                "exportMode": export_mode,
+                "path": "spec.json",
+                "schemaVersion": "v1",
+                "traceId": test.trace_id,
+                "runId": test.run_id,
+                "artifact": {
+                    "artifactId": f"art_spec_{task_id}",
+                    "type": "spec",
+                    "name": "spec.json",
                 },
-            )
-            return {
-                "intent": "code_change",
-                "planName": plan.plan_name,
-                "status": "failed",
-                "reason": "parallel_pipeline_error",
-                "detail": str(exc),
-            }
+            },
+        )
 
-        review = dag_results["review"]
-        test = dag_results["test"]
-        if not isinstance(review, ReviewResult) or not isinstance(test, TesterResult):
-            self.publish_event(
-                task,
-                client,
-                "TASK_FAILED",
-                {
-                    "reason": "parallel_result_invalid",
-                    "planName": plan.plan_name,
-                },
-            )
-            return {
-                "intent": "code_change",
-                "planName": plan.plan_name,
-                "status": "failed",
-                "reason": "parallel_result_invalid",
-            }
-
-        if not review.approved:
-            self.publish_event(
-                task,
-                client,
-                "TASK_FAILED",
-                {
-                    "reason": "review_rejected",
-                    "planName": plan.plan_name,
-                    "summary": review.summary,
-                    "issues": review.issues,
-                },
-            )
-            return {
-                "intent": "code_change",
-                "planName": plan.plan_name,
-                "status": "failed",
-                "reason": "review_rejected",
-                "summary": review.summary,
-                "issues": review.issues,
-                "testCommand": test.command,
-            }
-
-        if not test.success:
-            self.publish_event(
-                task,
-                client,
-                "TASK_FAILED",
-                {
-                    "reason": "test_failed",
-                    "planName": plan.plan_name,
-                    "summary": review.summary,
-                    "testStatus": test.status,
-                    "detail": test.reason,
-                    "attempts": test.attempts,
-                    "retries": test.retries,
-                    "command": test.command,
-                },
-            )
-            return {
-                "intent": "code_change",
-                "planName": plan.plan_name,
-                "status": "failed",
-                "reason": "test_failed",
-                "summary": review.summary,
-                "testStatus": test.status,
-                "detail": test.reason,
-                "testCommand": test.command,
-            }
-
-        artifact: dict[str, Any] | None = None
-        if _is_web_generation_task(task):
-            try:
-                artifact = self._publish_web_artifact(task, client)
-            except Exception as exc:  # noqa: BLE001
-                self.publish_event(
-                    task,
-                    client,
-                    "TASK_FAILED",
-                    {
-                        "reason": "artifact_publish_failed",
-                        "detail": str(exc),
-                        "planName": plan.plan_name,
-                    },
-                )
-                return {
-                    "intent": "code_change",
-                    "planName": plan.plan_name,
-                    "status": "failed",
-                    "reason": "artifact_publish_failed",
-                    "detail": str(exc),
-                }
-
-        self.publish_event(task, client, "TASK_DONE", _build_code_change_done_payload(plan.plan_name, review, test, artifact))
-        return {
-            "intent": "code_change",
-            "planName": plan.plan_name,
-            "status": "done",
-            "result": "coded_reviewed_tested",
-            "summary": review.summary,
-            "testStatus": test.status,
-            "testCommand": test.command,
-            "traceId": test.trace_id,
-            "runId": test.run_id,
-            "artifactId": artifact.get("artifactId") if artifact else None,
-        }
-
-    def _publish_web_artifact(self, task: dict[str, Any], client: ControlPlaneClient) -> dict[str, Any]:
         workspace = _resolve_workspace(task)
         generated_files = _resolve_generated_files(task, workspace)
+        self.publish_event(
+            task,
+            client,
+            "BUILD_STARTED",
+            {
+                "buildId": build_id,
+                "tool": "artifact.export.zip",
+                "target": target,
+                "traceId": test.trace_id,
+                "runId": test.run_id,
+            },
+        )
+        self.publish_event(
+            task,
+            client,
+            "BUILD_LOG",
+            {
+                "buildId": build_id,
+                "level": "info",
+                "message": "Packaging generated web files into export.zip artifact.",
+                "traceId": test.trace_id,
+                "runId": test.run_id,
+            },
+        )
+
+        started_at = monotonic()
         bundle = build_export_zip(workspace, generated_files, file_name="export.zip")
         uploaded = self._try_upload_artifact(task, client, bundle)
-        payload = _build_artifact_ready_payload(bundle, uploaded)
+        payload = _build_artifact_ready_payload(task, bundle, uploaded, target, template_id, export_mode)
+        self.publish_event(
+            task,
+            client,
+            "BUILD_DONE",
+            {
+                "buildId": build_id,
+                "status": "success",
+                "durationMs": max(0, int((monotonic() - started_at) * 1000)),
+                "traceId": test.trace_id,
+                "runId": test.run_id,
+            },
+        )
         self.publish_event(task, client, "ARTIFACT_READY", payload)
         return payload["artifact"]
 
@@ -376,13 +518,15 @@ class AgentOrchestrator(BaseAgent):
                     "error": str(exc),
                 },
             )
-            self.publish_event(task, client, "TASK_FAILED", {"reason": "sandbox_request_failed", "detail": str(exc)})
+            payload = _failure_payload("sandbox_request_failed", detail=str(exc))
+            self.publish_event(task, client, "TASK_FAILED", payload)
             return {
                 "intent": intent,
                 "planName": plan_name,
                 "status": "failed",
-                "reason": "sandbox_request_failed",
-                "detail": str(exc),
+                "reason": payload["reason"],
+                "errorCode": payload["errorCode"],
+                "detail": payload["detail"],
                 "command": command,
             }
 
@@ -402,12 +546,7 @@ class AgentOrchestrator(BaseAgent):
             },
         )
         if result.ok:
-            self.publish_event(
-                task,
-                client,
-                "TASK_DONE",
-                _build_done_payload(result, plan_name, intent),
-            )
+            self.publish_event(task, client, "TASK_DONE", _build_done_payload(result, plan_name, intent))
             payload = {
                 "intent": intent,
                 "planName": plan_name,
@@ -424,32 +563,30 @@ class AgentOrchestrator(BaseAgent):
             if intent == "test":
                 payload["testCommand"] = command
             return payload
-        self.publish_event(
-            task,
-            client,
-            "TASK_FAILED",
-            {
-                "reason": _failure_reason(result),
-                "status": result.status,
-                "detail": result.reason,
-                "retryable": result.retryable,
-            },
+
+        payload = _failure_payload(
+            _failure_reason(result),
+            status=result.status,
+            detail=result.reason,
+            retryable=result.retryable,
         )
-        payload = {
+        self.publish_event(task, client, "TASK_FAILED", payload)
+        output = {
             "intent": intent,
             "planName": plan_name,
             "status": "failed",
-            "reason": _failure_reason(result),
-            "detail": result.reason,
+            "reason": payload["reason"],
+            "errorCode": payload["errorCode"],
+            "detail": payload.get("detail"),
             "command": command,
             "traceId": result.trace_id,
             "runId": result.run_id,
         }
         if intent == "deploy":
-            payload["deployCommand"] = command
+            output["deployCommand"] = command
         if intent == "test":
-            payload["testCommand"] = command
-        return payload
+            output["testCommand"] = command
+        return output
 
 
 def _resolve_command(task: dict[str, Any], intent: str, prompt: str) -> str:
@@ -497,7 +634,11 @@ def _build_code_change_done_payload(
     plan_name: str,
     review: ReviewResult,
     test: TesterResult,
+    *,
     artifact: dict[str, Any] | None = None,
+    attempt: int | None = None,
+    max_attempts: int | None = None,
+    target: str = "",
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "result": "coded_reviewed_tested",
@@ -508,8 +649,14 @@ def _build_code_change_done_payload(
         "testAttempts": test.attempts,
         "testRetries": test.retries,
     }
+    if target:
+        payload["intent"] = "code_change"
     if artifact:
         payload["artifact"] = artifact
+    if attempt is not None:
+        payload["attempt"] = attempt
+    if max_attempts is not None:
+        payload["maxAttempts"] = max_attempts
     if test.trace_id:
         payload["traceId"] = test.trace_id
     if test.run_id:
@@ -574,27 +721,82 @@ def _failure_reason(result: ExecResult) -> str:
     return "sandbox_exec_failed"
 
 
-def _is_web_generation_task(task: dict[str, Any]) -> bool:
+def _validate_generation_request(task: dict[str, Any]) -> dict[str, Any] | None:
+    target = str(task.get("target", "")).strip().lower()
+    export_mode = str(task.get("exportMode", "")).strip().lower()
+    if target and target not in {"web", "backend", "fullstack"}:
+        return _failure_payload("unsupported_target")
+    if export_mode and export_mode != "zip":
+        return _failure_payload("unsupported_export_mode")
+    return None
+
+
+def _resolve_fix_loop_max_attempts() -> int:
+    raw = os.getenv("MVP_FIX_LOOP_MAX_ATTEMPTS", "").strip()
+    if not raw:
+        return 3
+    try:
+        value = int(raw)
+    except ValueError:
+        return 3
+    return max(1, min(value, 3))
+
+
+def _error_code_from_reason(reason: str) -> str:
+    text = (reason or "").strip().upper()
+    if not text:
+        return "UNKNOWN_ERROR"
+    normalized = []
+    last_was_sep = False
+    for char in text:
+        if char.isalnum():
+            normalized.append(char)
+            last_was_sep = False
+            continue
+        if not last_was_sep:
+            normalized.append("_")
+        last_was_sep = True
+    output = "".join(normalized).strip("_")
+    return output or "UNKNOWN_ERROR"
+
+
+def _failure_payload(reason: str, **extra: Any) -> dict[str, Any]:
+    payload: dict[str, Any] = {"reason": reason, "errorCode": _error_code_from_reason(reason)}
+    if "plan_name" in extra and "planName" not in extra:
+        extra["planName"] = extra.pop("plan_name")
+    for key, value in extra.items():
+        if value is None:
+            continue
+        if isinstance(value, str) and not value.strip():
+            continue
+        payload[key] = value
+    return payload
+
+
+def _should_publish_generated_artifact(task: dict[str, Any]) -> bool:
     files = task.get("_generated_files")
-    if isinstance(files, list):
-        normalized = [str(item).strip() for item in files if str(item).strip()]
-        return len(normalized) > 0
-    return False
+    if not isinstance(files, list):
+        return False
+    return bool(files)
+
+
+def _resolve_agent_engine(engine: str | None) -> str:
+    candidate = (engine or os.getenv("AGENT_ENGINE", "legacy")).strip().lower()
+    return candidate if candidate in {"legacy", "langgraph"} else "legacy"
 
 
 def _normalize_generation_target(task: dict[str, Any]) -> None:
     target = str(task.get("target", "")).strip().lower()
     if target:
         task["target"] = target
-        return
-    # Intentionally do not infer target from assistant.
-    # assistant=web is commonly used by mobile default settings; forcing target here
-    # would hard-lock all tasks into a single generation branch.
+    export_mode = str(task.get("exportMode", "")).strip().lower()
+    if export_mode:
+        task["exportMode"] = export_mode
 
 
 def _resolve_workspace(task: dict[str, Any]) -> Path:
     raw = str(task.get("workspacePath", "")).strip()
-    if not raw:
+    if not raw or raw.lower() in {"none", "null", "undefined", "nil", "nan"}:
         raw = "."
     return Path(raw).resolve(strict=False)
 
@@ -609,10 +811,22 @@ def _resolve_generated_files(task: dict[str, Any], workspace: Path) -> list[str]
     existing = [name for name in defaults if (workspace / name).exists()]
     if existing:
         return existing
-    raise FileNotFoundError("no generated web files available for artifact packaging")
+    raise FileNotFoundError("no generated files available for artifact packaging")
 
 
-def _build_artifact_ready_payload(bundle: ArtifactBundle, uploaded: dict[str, Any] | None) -> dict[str, Any]:
+def _resolved_generation_target(task: dict[str, Any]) -> str:
+    target = str(task.get("_generated_target") or task.get("target") or "").strip().lower()
+    return target or "web"
+
+
+def _build_artifact_ready_payload(
+    task: dict[str, Any],
+    bundle: ArtifactBundle,
+    uploaded: dict[str, Any] | None,
+    target: str,
+    template_id: str,
+    export_mode: str,
+) -> dict[str, Any]:
     payload = bundle.to_event_payload()
     artifact = payload["artifact"]
     if not isinstance(artifact, dict):
@@ -634,4 +848,36 @@ def _build_artifact_ready_payload(bundle: ArtifactBundle, uploaded: dict[str, An
         size = uploaded.get("sizeBytes")
         if isinstance(size, int) and size >= 0:
             artifact["size"] = size
+
+    if target == "web":
+        artifact["entryPath"] = "index.html"
+        artifact["run"] = {
+            "command": "python -m http.server 8000",
+            "hints": [
+                "Run the command in the extracted artifact directory.",
+                "Open http://localhost:8000/index.html in a browser.",
+            ],
+        }
+    elif target == "fullstack":
+        artifact["entryPath"] = "frontend/index.html"
+        artifact["run"] = {
+            "command": "python backend/app.py",
+            "hints": [
+                "Install dependencies from requirements.txt first.",
+                "Open frontend/index.html after the backend server is running.",
+            ],
+        }
+    else:
+        artifact["entryPath"] = "backend/app.py"
+        artifact["run"] = {
+            "command": "python backend/app.py",
+            "hints": [
+                "Install dependencies from requirements.txt first.",
+                "Use the /health endpoint to confirm the service is running.",
+            ],
+        }
+
+    payload["target"] = target
+    payload["templateId"] = template_id
+    payload["exportMode"] = export_mode
     return payload

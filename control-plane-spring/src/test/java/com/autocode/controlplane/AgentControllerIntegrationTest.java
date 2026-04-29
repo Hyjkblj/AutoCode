@@ -322,8 +322,9 @@ class AgentControllerIntegrationTest extends OperatorProj1MembershipFixture {
     @Test
     void nextTaskShouldRecoverWhenTaskNextSeqIsStale() throws Exception {
         String nodeId = "node_stale_seq_" + System.nanoTime();
+        String profile = "stale-seq-" + Long.toHexString(System.nanoTime());
         registerNode(nodeId);
-        String taskId = createTaskAndGetId("stale next_seq task");
+        String taskId = createTaskAndGetId("stale next_seq task", profile);
 
         var task = taskEntityRepository.findById(taskId).orElseThrow();
         TaskEventEntity staleSeqEvent = new TaskEventEntity();
@@ -341,7 +342,7 @@ class AgentControllerIntegrationTest extends OperatorProj1MembershipFixture {
         mockMvc.perform(get("/api/v1/agent/tasks/next")
                         .header("X-Agent-Token", "ag-a")
                         .param("nodeId", nodeId)
-                        .param("profile", "coder"))
+                        .param("profile", profile))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.ok").value(true))
                 .andExpect(jsonPath("$.payload.taskId").value(taskId));

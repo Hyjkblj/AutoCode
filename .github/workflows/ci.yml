@@ -1,0 +1,44 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+      - main
+      - "upgrade/**"
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: |
+            python-agent/requirements.txt
+            python-agent/requirements/runtime.txt
+            python-agent/requirements/dev.txt
+
+      - name: Install Python deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r python-agent/requirements/dev.txt
+
+      - name: Run Maven tests
+        run: mvn -B -ntp test
+
+      - name: Run Python tests
+        run: pytest python-agent/tests -q
+
+      - name: Compile Python agent
+        run: python -m compileall python-agent

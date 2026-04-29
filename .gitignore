@@ -22,6 +22,10 @@
 **/__pycache__/
 **/*.pyc
 .pytest_cache/
+**/.venv/
+**/*.egg-info/
+**/.mypy_cache/
+**/.ruff_cache/
 
 # Runtime and temp files
 .runtime-logs/

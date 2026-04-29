@@ -1,0 +1,2 @@
+# Dependencies for repository helper scripts under scripts/.
+Pillow>=10.0.0,<12

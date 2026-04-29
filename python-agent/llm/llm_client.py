@@ -40,6 +40,7 @@ class LLMProfile:
 
 _DEFAULT_PROFILE_NAME = "doubao-seed-2.0-code-high-perf.json"
 _DEFAULT_OPENAI_BASE_URL = "https://api.openai.com"
+_ORIGINAL_URLOPEN = request.urlopen
 
 
 class LLMClient:
@@ -108,6 +109,9 @@ class LLMClient:
         )
         self._response_provider = response_provider
 
+    def has_required_key(self) -> bool:
+        return self.required_key_name() is None
+
     def is_configured(self) -> bool:
         return self.required_key_name() is None
 
@@ -134,6 +138,12 @@ class LLMClient:
             raise LLMClientError(f"{missing_key} missing")
         if not messages:
             raise LLMClientError("messages must not be empty")
+        if self._response_provider is None:
+            placeholder_key = self._placeholder_key_name()
+            if placeholder_key is not None:
+                raise LLMClientError(f"{placeholder_key} uses placeholder value")
+            if _is_pytest_active() and request.urlopen is _ORIGINAL_URLOPEN:
+                raise LLMClientError("live llm disabled during pytest")
 
         try:
             if self._response_provider is not None:
@@ -261,6 +271,16 @@ class LLMClient:
         if api_key and api_key not in template:
             return f"{template} {api_key}".strip()
         return template
+
+    def _placeholder_key_name(self) -> str | None:
+        if self.settings.backend == "openai":
+            for key_name in self._openai_key_candidates:
+                value = os.getenv(key_name, "").strip()
+                if _looks_like_placeholder_secret(value):
+                    return key_name
+            return None
+        api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
+        return "ANTHROPIC_API_KEY" if _looks_like_placeholder_secret(api_key) else None
 
 
 def _load_profile(config_path: str | None) -> LLMProfile:
@@ -504,3 +524,26 @@ def _strip_markdown_fence(text: str) -> str:
     if lines and lines[-1].strip() == "```":
         lines = lines[:-1]
     return "\n".join(lines).strip()
+
+
+def _looks_like_placeholder_secret(value: str) -> bool:
+    normalized = (value or "").strip().lower()
+    if not normalized:
+        return False
+    placeholder_values = {
+        "dummy",
+        "dummy-key",
+        "test",
+        "test-key",
+        "fake",
+        "fake-key",
+        "placeholder",
+        "placeholder-key",
+        "changeme",
+        "your-api-key",
+    }
+    return normalized in placeholder_values or normalized.startswith("dummy-") or normalized.startswith("test-")
+
+
+def _is_pytest_active() -> bool:
+    return bool(os.getenv("PYTEST_CURRENT_TEST", "").strip())

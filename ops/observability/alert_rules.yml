@@ -1,0 +1,56 @@
+groups:
+  - name: autocode-platform
+    rules:
+      - alert: ControlPlaneDown
+        expr: up{job="control-plane"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          service: control-plane
+        annotations:
+          summary: Control Plane unavailable
+          description: Control Plane has not been reachable for more than 2 minutes.
+
+      - alert: ControlPlaneHigh5xxRate
+        expr: |
+          (
+            sum(rate(http_server_requests_seconds_count{job="control-plane",status=~"5.."}[5m]))
+            /
+            clamp_min(sum(rate(http_server_requests_seconds_count{job="control-plane"}[5m])), 1)
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          service: control-plane
+        annotations:
+          summary: Control Plane 5xx rate is elevated
+          description: The Control Plane 5xx response ratio has been above 5% for 5 minutes.
+
+      - alert: ControlPlaneHighP95Latency
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (le) (rate(http_server_requests_seconds_bucket{job="control-plane"}[5m]))
+          ) > 1.5
+        for: 10m
+        labels:
+          severity: warning
+          service: control-plane
+        annotations:
+          summary: Control Plane P95 latency is high
+          description: P95 request latency has been above 1.5 seconds for 10 minutes.
+
+      - alert: ControlPlaneHeapPressure
+        expr: |
+          (
+            max(jvm_memory_used_bytes{job="control-plane",area="heap"})
+            /
+            clamp_min(max(jvm_memory_max_bytes{job="control-plane",area="heap"}), 1)
+          ) > 0.85
+        for: 10m
+        labels:
+          severity: warning
+          service: control-plane
+        annotations:
+          summary: Control Plane heap usage is high
+          description: Heap utilization has been above 85% for 10 minutes.

@@ -1,0 +1,18 @@
+{
+  "default_deny": true,
+  "global_allow": [
+    "builtin.diff-risk-reviewer",
+    "builtin.backend-template-generator",
+    "builtin.backend-pytest-tester"
+  ],
+  "environment_allow": {
+    "staging": [
+      "*"
+    ]
+  },
+  "project_allow": {
+    "demo-project": [
+      "builtin.diff-risk-reviewer"
+    ]
+  }
+}

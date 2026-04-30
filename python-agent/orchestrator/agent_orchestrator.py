@@ -17,9 +17,17 @@ from memory.redis_memory import RedisMemory
 from orchestrator.dag_scheduler import DagNode, DagScheduler
 from orchestrator.distributed_lock import DistributedTaskLock
 from orchestrator.langgraph_runtime import LangGraphExecutionResult, LangGraphRuntime
+from plugins.contracts import PluginContext
+from plugins.registry import PluginRegistry
 from tools.exec_tool import ExecResult, ExecTool
 from utils.artifact_utils import ArtifactBundle, build_export_zip
-from utils.observability import attach_terminal_observability, ensure_task_observability, observe_task_span
+from utils.circuit_breaker import CircuitBreakerOpenError
+from utils.observability import (
+    TaskObservability,
+    attach_terminal_observability,
+    ensure_task_observability,
+    observe_task_span,
+)
 
 
 class AgentOrchestrator(BaseAgent):
@@ -36,21 +44,24 @@ class AgentOrchestrator(BaseAgent):
         validation_gate: ValidationGate | None = None,
         distributed_lock: DistributedTaskLock | None = None,
         langgraph_runtime: LangGraphRuntime | None = None,
+        plugin_registry: PluginRegistry | None = None,
         engine: str | None = None,
     ) -> None:
         super().__init__()
         resolved_exec_tool = exec_tool or ExecTool()
+        resolved_plugin_registry = plugin_registry or PluginRegistry()
         self.intent_agent = intent_agent or IntentAgent()
         self.planner_agent = planner_agent or PlannerAgent()
-        self.coder_agent = coder_agent or CoderAgent()
+        self.coder_agent = coder_agent or CoderAgent(plugin_registry=resolved_plugin_registry)
         self.reviewer_agent = reviewer_agent or ReviewerAgent()
         self.exec_tool = resolved_exec_tool
-        self.tester_agent = tester_agent or TesterAgent(exec_tool=resolved_exec_tool)
+        self.tester_agent = tester_agent or TesterAgent(exec_tool=resolved_exec_tool, plugin_registry=resolved_plugin_registry)
         self.memory_store = memory_store or RedisMemory()
         self.dag_scheduler = dag_scheduler or DagScheduler(max_workers=4)
         self.validation_gate = validation_gate or ValidationGate()
         self.distributed_lock = distributed_lock or DistributedTaskLock()
         self.langgraph_runtime = langgraph_runtime or LangGraphRuntime()
+        self.plugin_registry = resolved_plugin_registry
         self.engine = _resolve_agent_engine(engine)
 
     def handle_task(self, task: dict[str, Any], client: ControlPlaneClient) -> None:
@@ -112,8 +123,10 @@ class AgentOrchestrator(BaseAgent):
             )
 
         prompt = str(task.get("prompt", "")).strip()
+        observation = ensure_task_observability(task, engine=self.engine)
         with observe_task_span(task, "intent_inference", stage="IntentAgent"):
-            decision = self.intent_agent.infer(prompt)
+            decision = self._infer_intent(task, prompt, observation)
+        task["intent"] = decision.intent
         self.publish_event(
             task,
             client,
@@ -130,7 +143,11 @@ class AgentOrchestrator(BaseAgent):
         )
 
         with observe_task_span(task, "plan_build", stage="PlannerAgent", attributes={"intent": decision.intent}):
-            plan = self.planner_agent.build_plan(prompt=prompt, intent=decision)
+            plan = self.planner_agent.build_plan_with_observability(
+                prompt=prompt,
+                intent=decision,
+                observation=observation,
+            )
         self.publish_event(
             task,
             client,
@@ -236,6 +253,23 @@ class AgentOrchestrator(BaseAgent):
                     "detail": payload["detail"],
                 },
             )
+
+    def _infer_intent(
+        self,
+        task: dict[str, Any],
+        prompt: str,
+        observation: TaskObservability,
+    ):
+        backend = self.intent_agent.llm_client.settings.backend
+        cache_cursor = self.intent_agent.llm_client.cache_event_cursor()
+        decision = self.intent_agent.infer(prompt)
+        self.intent_agent.llm_client.record_cache_metrics(
+            observation,
+            stage="IntentAgent",
+            backend=backend,
+            since_sequence=cache_cursor,
+        )
+        return decision
 
     def _publisher(self, task: dict[str, Any], client: ControlPlaneClient):
         def _emit(payload: dict[str, Any], event_type: str = "ASSISTANT_OUTPUT") -> None:
@@ -641,7 +675,7 @@ class AgentOrchestrator(BaseAgent):
         try:
             return self.dag_scheduler.run(
                 [
-                    DagNode("review", lambda: self.reviewer_agent.review(task, client, plan, publish_event=publisher), ("coder",)),
+                    DagNode("review", lambda: self._run_reviewer_with_plugins(task, client, plan, publisher), ("coder",)),
                     DagNode("test", lambda: self.tester_agent.execute(task, client, plan, publish_event=publisher), ("coder",)),
                     DagNode("coder", lambda: True, ()),
                 ]
@@ -660,6 +694,77 @@ class AgentOrchestrator(BaseAgent):
             payload = _failure_payload("parallel_pipeline_error", plan_name=plan.plan_name, detail=str(exc))
             self.publish_event(task, client, "TASK_FAILED", payload)
             return None
+
+    def _run_reviewer_with_plugins(
+        self,
+        task: dict[str, Any],
+        client: ControlPlaneClient,
+        plan: PlanResult,
+        publisher,
+    ) -> ReviewResult:
+        plugin_context = PluginContext(task=task, client=client, plan=plan, publish_event=publisher)
+        plugins = self.plugin_registry.resolve_reviewer_plugins(plugin_context)
+        if not plugins:
+            return self.reviewer_agent.review(task, client, plan, publish_event=publisher)
+
+        for plugin in plugins:
+            manifest = plugin.manifest
+            task["_activeReviewerPlugin"] = manifest.plugin_id
+            breaker_state = self.plugin_registry.plugin_state(manifest.plugin_id)
+            publisher(
+                {
+                    "stage": "ReviewerPlugin",
+                    "message": "Executing reviewer plugin.",
+                    "pluginId": manifest.plugin_id,
+                    "pluginVersion": manifest.version,
+                    "breakerStatus": breaker_state.get("status"),
+                    "failureCount": breaker_state.get("failureCount"),
+                    "permissions": {
+                        "workspaceRead": manifest.permissions.workspace_read,
+                        "workspaceWrite": manifest.permissions.workspace_write,
+                        "sandboxExec": manifest.permissions.sandbox_exec,
+                        "networkAccess": manifest.permissions.network_access,
+                    },
+                }
+            )
+            try:
+                with observe_task_span(
+                    task,
+                    "reviewer_plugin",
+                    stage="ReviewerPlugin",
+                    attributes={"pluginId": manifest.plugin_id},
+                ):
+                    result = self.plugin_registry.execute_plugin(
+                        manifest.plugin_id,
+                        lambda: plugin.review(plugin_context),
+                    )
+                publisher(ReviewerAgent.publish_payload(plan, result))
+                return result
+            except CircuitBreakerOpenError:
+                breaker_state = self.plugin_registry.plugin_state(manifest.plugin_id)
+                publisher(
+                    {
+                        "stage": "ReviewerPlugin",
+                        "message": "Plugin skipped due to circuit breaker, falling back to built-in implementation.",
+                        "pluginId": manifest.plugin_id,
+                        "breakerStatus": breaker_state.get("status"),
+                        "failureCount": breaker_state.get("failureCount"),
+                    }
+                )
+            except Exception as exc:  # noqa: BLE001
+                breaker_state = self.plugin_registry.plugin_state(manifest.plugin_id)
+                publisher(
+                    {
+                        "stage": "ReviewerPlugin",
+                        "message": "Reviewer plugin failed, falling back to built-in reviewer.",
+                        "pluginId": manifest.plugin_id,
+                        "breakerStatus": breaker_state.get("status"),
+                        "failureCount": breaker_state.get("failureCount"),
+                        "error": str(exc),
+                    }
+                )
+        task.pop("_activeReviewerPlugin", None)
+        return self.reviewer_agent.review(task, client, plan, publish_event=publisher)
 
     def _publish_generated_artifact(
         self,

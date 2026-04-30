@@ -11,9 +11,12 @@ from generators import GeneratedProjectResult
 from generators.backend_generator import BackendGenerator
 from generators.fullstack_generator import FullstackGenerator
 from llm.llm_client import LLMClient
+from plugins.contracts import PluginContext
+from plugins.registry import PluginRegistry
 from tools.file_tool import FileTool
 from tools.search_tool import SearchTool
-from utils.circuit_breaker import CircuitBreaker
+from utils.circuit_breaker import CircuitBreaker, CircuitBreakerOpenError
+from utils.observability import ensure_task_observability
 from utils.web_template import WebTemplateGenerator
 
 
@@ -27,6 +30,7 @@ class CoderAgent:
         fullstack_generator: FullstackGenerator | None = None,
         llm_client: LLMClient | None = None,
         circuit_breaker: CircuitBreaker | None = None,
+        plugin_registry: PluginRegistry | None = None,
     ) -> None:
         self.file_tool = file_tool or FileTool()
         self.search_tool = search_tool or SearchTool()
@@ -38,6 +42,7 @@ class CoderAgent:
         )
         self.llm_client = llm_client or LLMClient()
         self.circuit_breaker = circuit_breaker or CircuitBreaker(name="coder-llm")
+        self.plugin_registry = plugin_registry or PluginRegistry()
 
     def execute(
         self,
@@ -51,10 +56,13 @@ class CoderAgent:
         target = str(task.get("target", "")).strip().lower()
         assistant = str(task.get("assistant", "")).strip().lower()
         generation_target = self._resolve_generation_target(target=target, assistant=assistant, prompt=prompt)
+        if generation_target is not None:
+            task["_requestedGenerationTarget"] = generation_target
 
         if generation_target is not None:
             return self._generate_project(
                 task=task,
+                client=client,
                 plan=plan,
                 publish_event=publish_event,
                 workspace=workspace,
@@ -198,6 +206,7 @@ class CoderAgent:
         self,
         *,
         task: dict[str, Any],
+        client: ControlPlaneClient,
         plan: PlanResult,
         publish_event: EventPublisher,
         workspace: Path,
@@ -205,14 +214,14 @@ class CoderAgent:
         generation_target: str,
     ) -> bool:
         try:
-            if generation_target == "web":
-                template = self.web_template_generator.generate(prompt, target="web")
-            elif generation_target == "backend":
-                template = self.backend_generator.generate(prompt)
-            elif generation_target == "fullstack":
-                template = self.fullstack_generator.generate(prompt)
-            else:
-                raise ValueError("unsupported_target")
+            template = self._resolve_generation_template(
+                task=task,
+                client=client,
+                plan=plan,
+                publish_event=publish_event,
+                generation_target=generation_target,
+                prompt=prompt,
+            )
 
             task["_generated_target"] = generation_target
             task["_generated_files"] = list(template.files.keys())
@@ -293,6 +302,80 @@ class CoderAgent:
             publish_event({"reason": "generation_failed", "detail": str(exc)}, event_type="TASK_FAILED")
             return False
 
+    def _resolve_generation_template(
+        self,
+        *,
+        task: dict[str, Any],
+        client: ControlPlaneClient,
+        plan: PlanResult,
+        publish_event: EventPublisher,
+        generation_target: str,
+        prompt: str,
+    ) -> GeneratedProjectResult:
+        task.setdefault("intent", "code_change")
+        plugin_context = PluginContext(task=task, client=client, plan=plan, publish_event=publish_event)
+        plugins = self.plugin_registry.resolve_generator_plugins(plugin_context, target=generation_target)
+        for plugin in plugins:
+            manifest = plugin.manifest
+            task["_activeGeneratorPlugin"] = manifest.plugin_id
+            breaker_state = self.plugin_registry.plugin_state(manifest.plugin_id)
+            publish_event(
+                {
+                    "stage": "GeneratorPlugin",
+                    "message": "Executing generator plugin.",
+                    "pluginId": manifest.plugin_id,
+                    "pluginVersion": manifest.version,
+                    "target": generation_target,
+                    "breakerStatus": breaker_state.get("status"),
+                    "failureCount": breaker_state.get("failureCount"),
+                    "permissions": {
+                        "workspaceRead": manifest.permissions.workspace_read,
+                        "workspaceWrite": manifest.permissions.workspace_write,
+                        "sandboxExec": manifest.permissions.sandbox_exec,
+                        "networkAccess": manifest.permissions.network_access,
+                    },
+                }
+            )
+            try:
+                return self.plugin_registry.execute_plugin(
+                    manifest.plugin_id,
+                    lambda: plugin.generate(plugin_context),
+                )
+            except CircuitBreakerOpenError:
+                breaker_state = self.plugin_registry.plugin_state(manifest.plugin_id)
+                publish_event(
+                    {
+                        "stage": "GeneratorPlugin",
+                        "message": "Plugin skipped due to circuit breaker, falling back to built-in implementation.",
+                        "pluginId": manifest.plugin_id,
+                        "target": generation_target,
+                        "breakerStatus": breaker_state.get("status"),
+                        "failureCount": breaker_state.get("failureCount"),
+                    }
+                )
+            except Exception as exc:  # noqa: BLE001
+                breaker_state = self.plugin_registry.plugin_state(manifest.plugin_id)
+                publish_event(
+                    {
+                        "stage": "GeneratorPlugin",
+                        "message": "Generator plugin failed, falling back to built-in generator.",
+                        "pluginId": manifest.plugin_id,
+                        "target": generation_target,
+                        "breakerStatus": breaker_state.get("status"),
+                        "failureCount": breaker_state.get("failureCount"),
+                        "error": str(exc),
+                    }
+                )
+        task.pop("_activeGeneratorPlugin", None)
+
+        if generation_target == "web":
+            return self.web_template_generator.generate(prompt, target="web", task=task)
+        if generation_target == "backend":
+            return self.backend_generator.generate(prompt)
+        if generation_target == "fullstack":
+            return self.fullstack_generator.generate(prompt, task=task)
+        raise ValueError("unsupported_target")
+
     def _choose_target_file(self, workspace: Path, prompt: str) -> Path:
         prompt_lower = prompt.lower()
         if any(marker in prompt_lower for marker in ("readme", "docs", "文档")):
@@ -335,6 +418,8 @@ class CoderAgent:
         relative_path = self._relative_path(target_file, workspace)
         last_test_error = str(task.get("lastTestError", "")).strip()
         fix_attempt = int(task.get("fixLoopAttempt") or 0)
+        observation = ensure_task_observability(task, engine=str(task.get("_agentEngine", "")).strip())
+        cache_cursor = self.llm_client.cache_event_cursor()
         messages = [
             {
                 "role": "system",
@@ -356,7 +441,15 @@ class CoderAgent:
                 ),
             },
         ]
-        raw = self.llm_client.chat(messages)
+        try:
+            raw = self.llm_client.chat(messages)
+        finally:
+            self.llm_client.record_cache_metrics(
+                observation,
+                stage="CoderAgent",
+                backend=self.llm_client.settings.backend,
+                since_sequence=cache_cursor,
+            )
         text = str(raw or "").strip()
         if not text:
             raise ValueError("empty coder llm response")

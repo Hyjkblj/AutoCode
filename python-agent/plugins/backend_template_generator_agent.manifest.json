@@ -1,0 +1,19 @@
+{
+  "plugin_id": "builtin.backend-template-generator",
+  "version": "0.1.0",
+  "plugin_type": "generator",
+  "entrypoint": "backend_template_generator_agent.py",
+  "class_name": "BackendTemplateGeneratorAgent",
+  "enabled": true,
+  "priority": 10,
+  "capabilities": ["generator", "target:backend", "template:flask-sqlite"],
+  "supported_intents": ["code_change"],
+  "supported_assistants": ["ai-agent", "web"],
+  "timeout_seconds": 10,
+  "permissions": {
+    "workspace_read": true,
+    "workspace_write": true,
+    "sandbox_exec": false,
+    "network_access": false
+  }
+}

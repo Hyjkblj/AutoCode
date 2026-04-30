@@ -11,6 +11,7 @@ from client.control_plane_client import ControlPlaneClient
 from llm.llm_client import LLMClient
 from tools.search_tool import SearchTool
 from utils.circuit_breaker import CircuitBreaker
+from utils.observability import ensure_task_observability
 
 
 _JSON_BLOCK_RE = re.compile(r"\{.*\}", re.DOTALL)
@@ -56,11 +57,26 @@ class ReviewerAgent:
             return result
 
         if self.llm_client.has_required_key():
+            observation = ensure_task_observability(task, engine=str(task.get("_agentEngine", "")).strip())
+            cache_cursor = self.llm_client.cache_event_cursor()
             try:
                 llm_result = self._review_with_llm(diff_text)
+                self.llm_client.record_cache_metrics(
+                    observation,
+                    stage="ReviewerAgent",
+                    backend=self.llm_client.settings.backend,
+                    since_sequence=cache_cursor,
+                )
                 publish_event(_review_payload(plan, llm_result))
                 return llm_result
             except Exception:
+                self.llm_client.discard_cache_entries_since(cache_cursor, reason="invalid_reviewer_response")
+                self.llm_client.record_cache_metrics(
+                    observation,
+                    stage="ReviewerAgent",
+                    backend=self.llm_client.settings.backend,
+                    since_sequence=cache_cursor,
+                )
                 pass
 
         blocker_files = self.search_tool.search_files(workspace, "REVIEW_BLOCKER", max_results=5)
@@ -75,6 +91,10 @@ class ReviewerAgent:
         result = ReviewResult(approved=approved, summary=summary, issues=blockers, risk_level=risk_level)
         publish_event(_review_payload(plan, result))
         return result
+
+    @staticmethod
+    def publish_payload(plan: PlanResult, result: ReviewResult) -> dict[str, Any]:
+        return _review_payload(plan, result)
 
     def _review_with_llm(self, diff_text: str) -> ReviewResult:
         messages = [

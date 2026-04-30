@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from generators import GeneratedProjectResult
 from generators.backend_generator import BackendGenerator
 from utils.web_template import WebTemplateGenerator
@@ -15,9 +17,9 @@ class FullstackGenerator:
         self.backend_generator = backend_generator or BackendGenerator()
         self.web_template_generator = web_template_generator or WebTemplateGenerator()
 
-    def generate(self, prompt: str) -> GeneratedProjectResult:
+    def generate(self, prompt: str, task: dict[str, Any] | None = None) -> GeneratedProjectResult:
         backend = self.backend_generator.generate(prompt)
-        frontend = self.web_template_generator.generate(prompt, target="web")
+        frontend = self.web_template_generator.generate(prompt, target="web", task=task)
 
         files: dict[str, str] = {}
         for relative, content in frontend.files.items():

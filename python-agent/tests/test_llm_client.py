@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 
 import pytest
 
@@ -205,3 +206,176 @@ def test_llm_client_forwards_profile_openai_extra_request_fields(tmp_path, monke
     assert body["response_format"] == {"type": "text"}
     assert body["parallel_tool_calls"] is False
     assert "unexpected_option" not in body
+
+
+def test_llm_client_caches_identical_requests() -> None:
+    calls: list[tuple[str, str]] = []
+
+    def provider(backend, messages, model, temperature):  # noqa: ANN001
+        calls.append((backend, messages[-1]["content"]))
+        return "cached-response"
+
+    client = LLMClient(
+        response_provider=provider,
+        cache_enabled=True,
+        cache_max_size=8,
+        cache_ttl_seconds=60.0,
+    )
+    client.clear_cache(reset_stats=True)
+
+    first = client.generate("hello")
+    second = client.generate("hello")
+    stats = client.cache_stats()
+
+    assert first == "cached-response"
+    assert second == "cached-response"
+    assert len(calls) == 1
+    assert stats.hits == 1
+    assert stats.misses == 1
+    assert stats.requests == 2
+    assert client.last_cache_event() is not None
+    assert client.last_cache_event().status == "hit"
+
+
+def test_llm_client_cache_expires_by_ttl() -> None:
+    calls = {"count": 0}
+
+    def provider(backend, messages, model, temperature):  # noqa: ANN001
+        calls["count"] += 1
+        return f"response-{calls['count']}"
+
+    client = LLMClient(
+        response_provider=provider,
+        cache_enabled=True,
+        cache_max_size=8,
+        cache_ttl_seconds=1.0,
+    )
+    client.clear_cache(reset_stats=True)
+
+    first = client.generate("ttl test")
+    time.sleep(1.1)
+    second = client.generate("ttl test")
+    stats = client.cache_stats()
+
+    assert first == "response-1"
+    assert second == "response-2"
+    assert calls["count"] == 2
+    assert stats.hits == 0
+    assert stats.misses == 2
+
+
+def test_llm_client_cache_is_shared_across_instances() -> None:
+    calls = {"count": 0}
+
+    def provider(backend, messages, model, temperature):  # noqa: ANN001
+        calls["count"] += 1
+        return "shared-cache-response"
+
+    client_one = LLMClient(
+        response_provider=provider,
+        cache_enabled=True,
+        cache_max_size=8,
+        cache_ttl_seconds=60.0,
+    )
+    client_two = LLMClient(
+        response_provider=provider,
+        cache_enabled=True,
+        cache_max_size=8,
+        cache_ttl_seconds=60.0,
+    )
+    client_one.clear_cache(reset_stats=True)
+
+    first = client_one.generate("shared key")
+    second = client_two.generate("shared key")
+
+    assert first == "shared-cache-response"
+    assert second == "shared-cache-response"
+    assert calls["count"] == 1
+    assert client_two.last_cache_event() is not None
+    assert client_two.last_cache_event().status == "hit"
+
+
+def test_llm_client_bypasses_cache_when_disabled() -> None:
+    calls = {"count": 0}
+
+    def provider(backend, messages, model, temperature):  # noqa: ANN001
+        calls["count"] += 1
+        return f"bypass-{calls['count']}"
+
+    client = LLMClient(
+        response_provider=provider,
+        cache_enabled=False,
+    )
+    client.clear_cache(reset_stats=True)
+
+    first = client.generate("bypass me")
+    second = client.generate("bypass me")
+    stats = client.cache_stats()
+
+    assert first == "bypass-1"
+    assert second == "bypass-2"
+    assert calls["count"] == 2
+    assert stats.bypasses == 2
+    assert stats.requests == 2
+    assert client.last_cache_event() is not None
+    assert client.last_cache_event().status == "bypass"
+
+
+def test_llm_client_discards_last_cache_entry() -> None:
+    calls = {"count": 0}
+
+    def provider(backend, messages, model, temperature):  # noqa: ANN001
+        calls["count"] += 1
+        return f"bad-json-{calls['count']}"
+
+    client = LLMClient(
+        response_provider=provider,
+        cache_enabled=True,
+        cache_max_size=8,
+        cache_ttl_seconds=60.0,
+    )
+    client.clear_cache(reset_stats=True)
+
+    first = client.generate("discard")
+    removed = client.discard_last_cache_entry(reason="invalid_json")
+    second = client.generate("discard")
+    stats = client.cache_stats()
+
+    assert first == "bad-json-1"
+    assert removed is True
+    assert second == "bad-json-2"
+    assert calls["count"] == 2
+    assert stats.discards == 1
+    assert stats.failures == 1
+
+
+def test_llm_client_discards_only_entries_since_cursor() -> None:
+    calls = {"count": 0}
+
+    def provider(backend, messages, model, temperature):  # noqa: ANN001
+        calls["count"] += 1
+        return f"payload-{calls['count']}"
+
+    client = LLMClient(
+        response_provider=provider,
+        cache_enabled=True,
+        cache_max_size=8,
+        cache_ttl_seconds=60.0,
+    )
+    client.clear_cache(reset_stats=True)
+
+    first = client.generate("keep-me")
+    cursor = client.cache_event_cursor()
+    second = client.generate("drop-me")
+    removed = client.discard_cache_entries_since(cursor, reason="invalid_structured_response")
+    repeated_first = client.generate("keep-me")
+    repeated_second = client.generate("drop-me")
+    stats = client.cache_stats()
+
+    assert first == "payload-1"
+    assert second == "payload-2"
+    assert removed == 1
+    assert repeated_first == "payload-1"
+    assert repeated_second == "payload-3"
+    assert calls["count"] == 3
+    assert stats.discards == 1

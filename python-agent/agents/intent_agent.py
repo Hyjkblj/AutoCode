@@ -35,12 +35,14 @@ class IntentAgent:
             )
 
         try:
+            cache_cursor = self.llm_client.cache_event_cursor()
             payload = _parse_json_object(self.llm_client.chat(_intent_messages(prompt)))
             intent = _normalize_intent(payload.get("intent"))
             confidence = _normalize_confidence(payload.get("confidence"))
             reason = str(payload.get("reason") or "llm").strip() or "llm"
             return IntentDecision(backend=backend, intent=intent, confidence=confidence, reason=reason)
         except Exception as exc:  # noqa: BLE001
+            self.llm_client.discard_cache_entries_since(cache_cursor, reason="invalid_intent_response")
             fallback = _heuristic_intent(prompt=prompt, backend=backend)
             return IntentDecision(
                 backend=backend,

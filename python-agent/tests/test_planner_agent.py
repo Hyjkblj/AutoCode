@@ -53,3 +53,29 @@ def test_planner_agent_falls_back_when_llm_fails(monkeypatch) -> None:
     assert "execute deployment and report result" in plan.steps
     assert plan.reason.startswith("llm_fallback:")
 
+
+def test_planner_agent_discards_invalid_cached_response_and_recovers() -> None:
+    responses = iter(
+        [
+            '{"plan_name":"deploy_dynamic","steps":[]}',
+            '{"plan_name":"deploy_dynamic","steps":["collect context","deploy","report"]}',
+        ]
+    )
+    client = LLMClient(
+        response_provider=lambda backend, messages, model, temperature: next(responses),  # noqa: ARG005
+        cache_enabled=True,
+        cache_max_size=8,
+        cache_ttl_seconds=60.0,
+    )
+    client.clear_cache(reset_stats=True)
+    planner = PlannerAgent(llm_client=client)
+    intent = IntentDecision(backend="openai", intent="deploy", confidence=0.9, reason="deploy keywords")
+
+    first = planner.build_plan("deploy app", intent)
+    second = planner.build_plan("deploy app", intent)
+
+    assert first.plan_name == "deploy_pipeline"
+    assert first.reason.startswith("llm_fallback:")
+    assert second.plan_name == "deploy_dynamic"
+    assert second.reason == "llm"
+

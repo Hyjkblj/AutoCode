@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from agents.intent_agent import IntentDecision
 from llm.llm_client import LLMClient
 from utils.circuit_breaker import CircuitBreaker
+from utils.observability import TaskObservability
 
 
 _JSON_BLOCK_RE = re.compile(r"\{.*\}", re.DOTALL)
@@ -29,6 +30,15 @@ class PlannerAgent:
         self.circuit_breaker = circuit_breaker or CircuitBreaker(name="planner-llm")
 
     def build_plan(self, prompt: str, intent: IntentDecision) -> PlanResult:
+        return self.build_plan_with_observability(prompt=prompt, intent=intent, observation=None)
+
+    def build_plan_with_observability(
+        self,
+        *,
+        prompt: str,
+        intent: IntentDecision,
+        observation: TaskObservability | None,
+    ) -> PlanResult:
         if intent.intent == "llm_key_missing":
             return PlanResult(
                 plan_name="blocked_missing_key",
@@ -36,6 +46,7 @@ class PlannerAgent:
                 reason=intent.reason,
             )
 
+        cache_cursor = self.llm_client.cache_event_cursor()
         try:
             response = self.circuit_breaker.call(lambda: self.llm_client.chat(_planner_messages(prompt, intent.intent)))
             payload = _parse_json_object(response)
@@ -43,8 +54,23 @@ class PlannerAgent:
             steps = _normalize_steps(payload.get("steps"))
             if not steps:
                 raise ValueError("planner response steps must not be empty")
+            if observation is not None:
+                self.llm_client.record_cache_metrics(
+                    observation,
+                    stage="PlannerAgent",
+                    backend=intent.backend,
+                    since_sequence=cache_cursor,
+                )
             return PlanResult(plan_name=plan_name, steps=steps, reason="llm")
         except Exception as exc:  # noqa: BLE001
+            self.llm_client.discard_cache_entries_since(cache_cursor, reason="invalid_planner_response")
+            if observation is not None:
+                self.llm_client.record_cache_metrics(
+                    observation,
+                    stage="PlannerAgent",
+                    backend=intent.backend,
+                    since_sequence=cache_cursor,
+                )
             fallback = _fallback_plan(intent.intent)
             return PlanResult(
                 plan_name=fallback.plan_name,

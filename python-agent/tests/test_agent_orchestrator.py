@@ -3,11 +3,15 @@ from __future__ import annotations
 import zipfile
 from typing import Any
 
+from agents.intent_agent import IntentAgent
+from agents.planner_agent import PlannerAgent
 from agents.reviewer_agent import ReviewResult
 from agents.tester_agent import TesterResult as RunResult
 from llm.llm_client import LLMClient
 from memory.redis_memory import RedisMemory
 from orchestrator.agent_orchestrator import AgentOrchestrator, _error_code_from_reason, _resolve_fix_loop_max_attempts
+from plugins.contracts import PluginManifest, PluginPermissions
+from plugins.runtime import PluginRuntimeManager
 from tools.exec_tool import ExecResult
 
 
@@ -148,9 +152,66 @@ class _InvalidReviewerAgent:
         return {"approved": True}
 
 
+class _ReviewerPluginRegistryStub:
+    def __init__(self, plugin, *, failure_threshold: int = 1) -> None:  # noqa: ANN001
+        self.plugin = plugin
+        self.runtime = PluginRuntimeManager(
+            failure_threshold=failure_threshold,
+            recovery_timeout_seconds=30.0,
+        )
+
+    def resolve_reviewer_plugins(self, context):  # noqa: ANN001
+        return [self.plugin]
+
+    def execute_plugin(self, plugin_id: str, operation):  # noqa: ANN001
+        return self.runtime.execute(plugin_id, operation)
+
+    def plugin_state(self, plugin_id: str) -> dict[str, object]:
+        return self.runtime.state(plugin_id)
+
+
+class _FailingReviewerPlugin:
+    def __init__(self) -> None:
+        self.manifest = PluginManifest(
+            plugin_id="test.failing-reviewer",
+            version="0.1.0",
+            plugin_type="reviewer",
+            entrypoint="",
+            class_name="FailingReviewerPlugin",
+            permissions=PluginPermissions(),
+        )
+        self.calls = 0
+
+    def supports(self, context) -> bool:  # noqa: ANN001
+        return True
+
+    def review(self, context) -> ReviewResult:  # noqa: ANN001
+        self.calls += 1
+        raise RuntimeError("reviewer exploded")
+
+
 class _FailingDagScheduler:
     def run(self, nodes):  # noqa: ANN001
         raise RuntimeError("dag exploded")
+
+
+def _metric_value(
+    metrics: list[dict[str, Any]],
+    name: str,
+    *,
+    stage: str,
+    status: str | None = None,
+) -> Any:
+    for item in metrics:
+        if item.get("name") != name:
+            continue
+        tags = item.get("tags") if isinstance(item.get("tags"), dict) else {}
+        if tags.get("stage") != stage:
+            continue
+        if status is not None and tags.get("status") != status:
+            continue
+        return item.get("value")
+    return None
 
 
 def test_orchestrator_emits_intent_and_planner_events(monkeypatch) -> None:
@@ -1133,6 +1194,57 @@ def test_orchestrator_terminal_payload_contains_observability_summary(monkeypatc
     assert "event_publish_total" in metric_names
 
 
+def test_orchestrator_observability_reports_llm_cache_hits_per_stage(monkeypatch) -> None:
+    monkeypatch.setenv("LLM_BACKEND", "openai")
+    monkeypatch.setenv("OPENAI_API_KEY", "dummy")
+
+    def provider(backend, messages, model, temperature):  # noqa: ANN001
+        system_prompt = messages[0]["content"]
+        if "intent classifier" in system_prompt:
+            return '{"intent":"analyze","confidence":0.91,"reason":"cached"}'
+        if "planning agent" in system_prompt:
+            return '{"plan_name":"analysis_pipeline","steps":["gather context","report next actions"]}'
+        raise AssertionError(f"unexpected llm messages: {messages}")
+
+    shared_client = LLMClient(
+        response_provider=provider,
+        cache_enabled=True,
+        cache_max_size=8,
+        cache_ttl_seconds=60.0,
+    )
+    shared_client.clear_cache(reset_stats=True)
+    orchestrator = AgentOrchestrator(
+        intent_agent=IntentAgent(llm_client=shared_client),
+        planner_agent=PlannerAgent(llm_client=shared_client),
+    )
+
+    warmup_task = {
+        "taskId": "task_cache_obs_001",
+        "assistant": "ai-agent",
+        "sessionKey": "sess_cache_obs_001",
+        "prompt": "please analyze this change",
+    }
+    cached_task = {
+        "taskId": "task_cache_obs_002",
+        "assistant": "ai-agent",
+        "sessionKey": "sess_cache_obs_002",
+        "prompt": "please analyze this change",
+    }
+    warmup_client = _FakeClient()
+    cached_client = _FakeClient()
+
+    orchestrator.handle_task(warmup_task, warmup_client)
+    orchestrator.handle_task(cached_task, cached_client)
+
+    metrics = cached_client.events[-1][1]["payload"]["observability"]["metrics"]
+    assert _metric_value(metrics, "llm_cache_requests_total", stage="IntentAgent") == 1
+    assert _metric_value(metrics, "llm_cache_hits_total", stage="IntentAgent") == 1
+    assert _metric_value(metrics, "llm_cache_event_total", stage="IntentAgent", status="hit") == 1
+    assert _metric_value(metrics, "llm_cache_requests_total", stage="PlannerAgent") == 1
+    assert _metric_value(metrics, "llm_cache_hits_total", stage="PlannerAgent") == 1
+    assert _metric_value(metrics, "llm_cache_event_total", stage="PlannerAgent", status="hit") == 1
+
+
 def test_orchestrator_langgraph_engine_routes_analyze_via_runtime(monkeypatch) -> None:
     monkeypatch.setenv("LLM_BACKEND", "openai")
     monkeypatch.setenv("OPENAI_API_KEY", "dummy")
@@ -1196,3 +1308,112 @@ def test_orchestrator_langgraph_engine_routes_test_without_exec_tool(monkeypatch
     assert terminal_payload["command"] == "pytest -q"
     assert terminal_payload["observability"]["engine"] == "langgraph"
     assert terminal_payload["observability"]["intent"] == "test"
+
+
+def test_orchestrator_uses_reviewer_plugin_before_builtin_reviewer(monkeypatch) -> None:
+    monkeypatch.setenv("LLM_BACKEND", "openai")
+    monkeypatch.setenv("OPENAI_API_KEY", "dummy")
+
+    task = {
+        "taskId": "task_plugin_review_001",
+        "assistant": "ai-agent",
+        "sessionKey": "sess_plugin_review_001",
+        "prompt": "fix code issue",
+        "latestDiff": "--- a/x\n+++ b/x\n+rm -rf /\n",
+    }
+    client = _FakeClient()
+    tester = _FakeTesterAgent(
+        RunResult(
+            success=True,
+            attempts=1,
+            retries=0,
+            command="echo test",
+            status="ok",
+            reason=None,
+            trace_id="trc_task_plugin_review_001",
+            run_id="run_task_plugin_review_001",
+        )
+    )
+
+    orchestrator = AgentOrchestrator(
+        coder_agent=_FakeCoderAgent(),
+        tester_agent=tester,
+    )
+    orchestrator.handle_task(task, client)
+
+    assert client.events[-1][1]["type"] == "TASK_FAILED"
+    plugin_events = [
+        event["payload"]
+        for _, event in client.events
+        if event["type"] == "ASSISTANT_OUTPUT" and event["payload"].get("stage") == "ReviewerPlugin"
+    ]
+    assert plugin_events
+    assert plugin_events[0]["pluginId"] == "builtin.diff-risk-reviewer"
+    assert client.events[-1][1]["payload"]["reason"] == "review_rejected"
+
+
+def test_orchestrator_skips_open_reviewer_plugin_and_falls_back(monkeypatch) -> None:
+    monkeypatch.setenv("LLM_BACKEND", "openai")
+    monkeypatch.setenv("OPENAI_API_KEY", "dummy")
+    plugin = _FailingReviewerPlugin()
+    registry = _ReviewerPluginRegistryStub(plugin)
+    reviewer = _FakeReviewerAgent(ReviewResult(approved=True, summary="builtin reviewer fallback", issues=[]))
+    tester = _FakeTesterAgent(
+        RunResult(
+            success=True,
+            attempts=1,
+            retries=0,
+            command="echo test",
+            status="ok",
+            reason=None,
+            trace_id="trc_task_plugin_skip",
+            run_id="run_task_plugin_skip",
+        )
+    )
+    orchestrator = AgentOrchestrator(
+        coder_agent=_FakeCoderAgent(),
+        reviewer_agent=reviewer,
+        tester_agent=tester,
+        plugin_registry=registry,
+    )
+
+    first_task = {
+        "taskId": "task_plugin_skip_001",
+        "assistant": "ai-agent",
+        "sessionKey": "sess_plugin_skip_001",
+        "prompt": "fix code issue",
+        "latestDiff": "--- a/x\n+++ b/x\n+safe change\n",
+    }
+    second_task = {
+        "taskId": "task_plugin_skip_002",
+        "assistant": "ai-agent",
+        "sessionKey": "sess_plugin_skip_002",
+        "prompt": "fix code issue again",
+        "latestDiff": "--- a/x\n+++ b/x\n+safe change 2\n",
+    }
+    first_client = _FakeClient()
+    second_client = _FakeClient()
+
+    orchestrator.handle_task(first_task, first_client)
+    orchestrator.handle_task(second_task, second_client)
+
+    assert plugin.calls == 1
+    assert len(reviewer.calls) == 2
+    first_failure_events = [
+        event["payload"]
+        for _, event in first_client.events
+        if event["type"] == "ASSISTANT_OUTPUT"
+        and event["payload"].get("message") == "Reviewer plugin failed, falling back to built-in reviewer."
+    ]
+    second_skip_events = [
+        event["payload"]
+        for _, event in second_client.events
+        if event["type"] == "ASSISTANT_OUTPUT"
+        and event["payload"].get("message") == "Plugin skipped due to circuit breaker, falling back to built-in implementation."
+    ]
+    assert first_failure_events
+    assert first_failure_events[0]["breakerStatus"] == "open"
+    assert first_failure_events[0]["failureCount"] == 1
+    assert second_skip_events
+    assert second_skip_events[0]["breakerStatus"] == "open"
+    assert second_skip_events[0]["failureCount"] == 1

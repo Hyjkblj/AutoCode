@@ -5,6 +5,7 @@ from typing import Any
 from agents.planner_agent import PlanResult
 from agents.reviewer_agent import ReviewerAgent
 from llm.llm_client import LLMClient
+from tools.search_tool import SearchTool
 
 
 class _FakeClient:
@@ -120,3 +121,43 @@ def test_reviewer_agent_falls_back_to_blocker_scan_when_llm_fails(monkeypatch, t
     assert result.risk_level == "high"
     assert result.issues == ["unsafe.md"]
     assert events[0][1]["approved"] is False
+
+
+def test_reviewer_agent_discards_invalid_cached_response_and_recovers(tmp_path) -> None:
+    responses = iter(
+        [
+            "not json",
+            '{"risk_level":"low","issues":[],"summary":"recovered"}',
+        ]
+    )
+    workspace = tmp_path / "workspace"
+    workspace.mkdir(parents=True, exist_ok=True)
+    events: list[tuple[str, dict[str, Any]]] = []
+
+    def publish(payload: dict[str, Any], event_type: str = "ASSISTANT_OUTPUT") -> None:
+        events.append((event_type, payload))
+
+    client = LLMClient(
+        response_provider=lambda backend, messages, model, temperature: next(responses),  # noqa: ARG005
+        cache_enabled=True,
+        cache_max_size=8,
+        cache_ttl_seconds=60.0,
+    )
+    client.clear_cache(reset_stats=True)
+    agent = ReviewerAgent(llm_client=client, search_tool=SearchTool())
+
+    first = agent.review(
+        task={"workspacePath": str(workspace), "taskId": "task_305", "latestDiff": "--- a/z\n+++ b/z\n+line\n"},
+        client=_FakeClient(),
+        plan=PlanResult(plan_name="code_change_pipeline", steps=["review"]),
+        publish_event=publish,
+    )
+    second = agent.review(
+        task={"workspacePath": str(workspace), "taskId": "task_306", "latestDiff": "--- a/z\n+++ b/z\n+line\n"},
+        client=_FakeClient(),
+        plan=PlanResult(plan_name="code_change_pipeline", steps=["review"]),
+        publish_event=publish,
+    )
+
+    assert first.summary.startswith("LLM unavailable; fallback review passed")
+    assert second.summary == "recovered"

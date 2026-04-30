@@ -32,7 +32,7 @@ services:
       retries: 20
 
   control-plane:
-    profiles: ["fullstack"]
+    profiles: ["fullstack", "platform"]
     build:
       context: .
       dockerfile: control-plane-spring/Dockerfile
@@ -68,7 +68,7 @@ services:
       retries: 20
 
   pc-agent-java:
-    profiles: ["fullstack"]
+    profiles: ["fullstack", "platform"]
     build:
       context: .
       dockerfile: pc-agent-java/Dockerfile
@@ -88,7 +88,7 @@ services:
       - ./:/workspace
 
   python-agent:
-    profiles: ["fullstack"]
+    profiles: ["fullstack", "platform"]
     build:
       context: .
       dockerfile: python-agent/Dockerfile
@@ -115,7 +115,78 @@ services:
     volumes:
       - ./:/workspace
 
+  gateway:
+    profiles: ["platform"]
+    image: nginx:1.27-alpine
+    container_name: mvp-gateway
+    depends_on:
+      control-plane:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./ops/gateway/nginx.conf:/etc/nginx/nginx.conf:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/healthz >/dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+
+  alertmanager:
+    profiles: ["platform"]
+    image: prom/alertmanager:v0.27.0
+    container_name: mvp-alertmanager
+    command:
+      - "--config.file=/etc/alertmanager/alertmanager.yml"
+      - "--storage.path=/alertmanager"
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./ops/observability/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+
+  prometheus:
+    profiles: ["platform"]
+    image: prom/prometheus:v2.54.1
+    container_name: mvp-prometheus
+    depends_on:
+      control-plane:
+        condition: service_started
+      alertmanager:
+        condition: service_started
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=15d"
+      - "--web.enable-lifecycle"
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./ops/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./ops/observability/alert_rules.yml:/etc/prometheus/alert_rules.yml:ro
+      - prometheus-data:/prometheus
+
+  grafana:
+    profiles: ["platform"]
+    image: grafana/grafana:11.1.4
+    container_name: mvp-grafana
+    depends_on:
+      prometheus:
+        condition: service_started
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-changeme}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_METRICS_ENABLED: "true"
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./ops/observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./ops/observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+
 volumes:
   mysql-data:
   redis-data:
   control-plane-data:
+  prometheus-data:
+  grafana-data:

@@ -1,0 +1,19 @@
+{
+  "plugin_id": "builtin.backend-pytest-tester",
+  "version": "0.1.0",
+  "plugin_type": "tester",
+  "entrypoint": "backend_pytest_tester_agent.py",
+  "class_name": "BackendPytestTesterAgent",
+  "enabled": true,
+  "priority": 10,
+  "capabilities": ["tester", "command:pytest", "target:backend"],
+  "supported_intents": ["code_change", "test"],
+  "supported_assistants": ["ai-agent", "web"],
+  "timeout_seconds": 5,
+  "permissions": {
+    "workspace_read": true,
+    "workspace_write": false,
+    "sandbox_exec": false,
+    "network_access": false
+  }
+}

@@ -63,3 +63,28 @@ def test_intent_agent_falls_back_to_code_change_for_flask_health_prompt(monkeypa
     assert decision.confidence > 0.5
     assert decision.reason.startswith("llm_fallback:")
 
+
+def test_intent_agent_discards_invalid_cached_response_and_recovers() -> None:
+    responses = iter(
+        [
+            "not json",
+            '{"intent":"deploy","confidence":0.91,"reason":"recovered"}',
+        ]
+    )
+    client = LLMClient(
+        response_provider=lambda backend, messages, model, temperature: next(responses),  # noqa: ARG005
+        cache_enabled=True,
+        cache_max_size=8,
+        cache_ttl_seconds=60.0,
+    )
+    client.clear_cache(reset_stats=True)
+    agent = IntentAgent(llm_client=client)
+
+    first = agent.infer("deploy this app")
+    second = agent.infer("deploy this app")
+
+    assert first.intent == "deploy"
+    assert first.reason.startswith("llm_fallback:")
+    assert second.intent == "deploy"
+    assert second.reason == "recovered"
+

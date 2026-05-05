@@ -117,3 +117,39 @@ def test_web_template_fallback_after_retry_failure(monkeypatch) -> None:
 
     assert result.used_fallback is True
     assert result.reason.startswith("llm_fallback:retry_failed:")
+
+
+def test_web_template_discards_invalid_cached_response_and_recovers() -> None:
+    files = {
+        "index.html": "<html><body>ok</body></html>",
+        "styles.css": "body{color:black;}",
+        "app.js": "console.log('ok')",
+        "README.generated.md": "# ok",
+    }
+    responses = iter(
+        [
+            "not json",
+            "still not json",
+            json.dumps({"files": files, "theme": "clean"}),
+        ]
+    )
+
+    def provider(backend, messages, model, temperature):  # noqa: ANN001
+        return next(responses)
+
+    client = LLMClient(
+        response_provider=provider,
+        cache_enabled=True,
+        cache_max_size=8,
+        cache_ttl_seconds=60.0,
+    )
+    client.clear_cache(reset_stats=True)
+    generator = WebTemplateGenerator(llm_client=client)
+
+    first = generator.generate("build a page", target="web")
+    second = generator.generate("build a page", target="web")
+
+    assert first.used_fallback is True
+    assert first.reason.startswith("llm_fallback:")
+    assert second.used_fallback is False
+    assert second.files == files

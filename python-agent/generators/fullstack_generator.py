@@ -21,7 +21,6 @@ class FullstackGenerator:
     def generate(self, prompt: str, task: dict[str, Any] | None = None) -> GeneratedProjectResult:
         backend = self.backend_generator.generate(prompt)
         frontend = self.web_template_generator.generate(prompt, target="web", task=task)
-
         # Extract backend API metadata for frontend integration
         api_config = _extract_api_config(backend.files)
 

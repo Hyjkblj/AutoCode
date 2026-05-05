@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import mimetypes
 import time
 from dataclasses import dataclass
@@ -10,6 +11,9 @@ from urllib import error as urllib_error
 from urllib import parse, request
 from urllib.error import HTTPError
 from uuid import uuid4
+
+from utils.circuit_breaker import CircuitBreaker, CircuitBreakerOpenError
+from utils.observability import TaskObservability
 
 
 class ControlPlaneRequestError(RuntimeError):
@@ -23,6 +27,10 @@ class ControlPlaneRequestError(RuntimeError):
 class PublishEventResult:
     response: dict[str, Any] | None
     attempts: int
+    total_delay_seconds: float = 0.0
+    circuit_breaker_triggered: bool = False
+    final_error: Exception | None = None
+    ack_response: dict[str, Any] | None = None  # ACK response data (seq, accepted, duplicate, errorCode)
 
 
 class ControlPlaneClient:
@@ -32,6 +40,25 @@ class ControlPlaneClient:
         self.agent_version = agent_version.strip() or "0.1.0"
         self.timeout_seconds = timeout_seconds if timeout_seconds > 0 else 15
         self.user_agent = f"AutoCode-Python-Agent/{self.agent_version}"
+        
+        # Initialize circuit breaker for event delivery
+        self._event_circuit_breaker = CircuitBreaker(
+            name="control_plane_events",
+            failure_threshold=3,
+            recovery_timeout_seconds=60.0
+        )
+        
+        # Initialize logger for structured logging
+        self._logger = logging.getLogger(f"{__name__}.ControlPlaneClient")
+        
+        # Metrics tracking
+        self._event_delivery_metrics = {
+            "total_attempts": 0,
+            "successful_deliveries": 0,
+            "failed_deliveries": 0,
+            "circuit_breaker_opens": 0,
+            "retry_exhausted": 0
+        }
 
     def register(self, node_id: str, capabilities: str | None = None) -> dict[str, Any] | None:
         body: dict[str, Any] = {
@@ -51,6 +78,25 @@ class ControlPlaneClient:
         return _extract_payload(data) if data is not None else None
 
     def publish_event(self, task_id: str, event: dict[str, Any]) -> dict[str, Any] | None:
+        """
+        Publish event to Control Plane and return the ACK payload.
+        
+        The Control Plane responds with the standard ApiResponse envelope and this
+        client unwraps it before returning:
+        {
+            "seq": 123,
+            "accepted": true,
+            "duplicate": false,
+            "errorCode": null
+        }
+        
+        Args:
+            task_id: Task identifier
+            event: Event data to publish
+            
+        Returns:
+            ACK payload from Control Plane, or None if no response
+        """
         safe_task_id = parse.quote(task_id, safe="")
         return self._post_json(f"/api/v1/agent/tasks/{safe_task_id}/events", {"event": event})
 
@@ -59,35 +105,468 @@ class ControlPlaneClient:
         task_id: str,
         event: dict[str, Any],
         *,
-        max_attempts: int = 3,
-        initial_backoff_seconds: float = 0.2,
+        max_attempts: int = 5,
+        initial_backoff_seconds: float = 1.0,
+        observability: TaskObservability | None = None,
     ) -> dict[str, Any] | None:
-        return self.publish_event_with_retry_result(
+        """
+        Publish event with retry logic - convenience method that returns only the response.
+        
+        Args:
+            task_id: Task identifier
+            event: Event data to publish
+            max_attempts: Maximum retry attempts (default 5)
+            initial_backoff_seconds: Initial backoff delay (default 1s)
+            observability: Optional observability context
+            
+        Returns:
+            Response from successful delivery, or None if all attempts failed
+        """
+        result = self.publish_event_with_retry_result(
             task_id,
             event,
             max_attempts=max_attempts,
             initial_backoff_seconds=initial_backoff_seconds,
-        ).response
+            observability=observability,
+        )
+        return result.response
 
     def publish_event_with_retry_result(
         self,
         task_id: str,
         event: dict[str, Any],
         *,
-        max_attempts: int = 3,
-        initial_backoff_seconds: float = 0.2,
+        max_attempts: int = 5,
+        initial_backoff_seconds: float = 1.0,
+        observability: TaskObservability | None = None,
     ) -> PublishEventResult:
-        attempts = max(1, min(int(max_attempts), 6))
-        backoff = max(0.05, float(initial_backoff_seconds))
+        """
+        Publish event with exponential backoff retry logic and circuit breaker integration.
+        
+        Implements Requirement 2.2: "WHEN the Control_Plane is unavailable, THE Python_Agent 
+        SHALL retry event delivery with exponential backoff up to 5 attempts"
+        
+        Args:
+            task_id: Task identifier
+            event: Event data to publish
+            max_attempts: Maximum retry attempts (default 5 per requirement)
+            initial_backoff_seconds: Initial backoff delay (default 1s)
+            observability: Optional observability context for structured logging
+            
+        Returns:
+            PublishEventResult with delivery status and metrics
+        """
+        attempts = max(1, min(int(max_attempts), 5))  # Enforce requirement limit
+        backoff = max(1.0, float(initial_backoff_seconds))  # Start at 1s per requirement
+        total_delay = 0.0
+        circuit_breaker_triggered = False
+        final_error = None
+        
+        # Structured logging context
+        log_context = {
+            "taskId": task_id,
+            "eventType": event.get("type", "unknown"),
+            "maxAttempts": attempts,
+            "initialBackoff": backoff
+        }
+        
+        if observability:
+            log_context.update({
+                "traceId": observability.trace_id,
+                "runId": observability.run_id
+            })
+        
+        self._logger.info("Starting event delivery with retry", extra=log_context)
+        
         for attempt in range(1, attempts + 1):
+            attempt_start = time.time()
+            
+            # Calculate exponential backoff: 1s, 2s, 4s, 8s, 16s
+            if attempt > 1:
+                delay = backoff * (2 ** (attempt - 2))  # 1s, 2s, 4s, 8s, 16s
+                total_delay += delay
+                
+                self._logger.info(
+                    f"Retrying event delivery after backoff (attempt {attempt}/{attempts})",
+                    extra={**log_context, "attempt": attempt, "backoffSeconds": delay}
+                )
+                time.sleep(delay)
+            
             try:
-                return PublishEventResult(response=self.publish_event(task_id, event), attempts=attempt)
-            except Exception as exc:  # noqa: BLE001
+                # Track metrics
+                self._event_delivery_metrics["total_attempts"] += 1
+                
+                # Check circuit breaker state before attempting
+                try:
+                    # Use circuit breaker for event delivery
+                    def publish_operation():
+                        return self.publish_event(task_id, event)
+                    
+                    response = self._event_circuit_breaker.call(publish_operation)
+                    
+                    # Extract and validate ACK response
+                    ack_response = self.extract_ack_response(response)
+                    if ack_response is None:
+                        # Invalid ACK response format - treat as error
+                        raise ControlPlaneRequestError(
+                            "Invalid ACK response format from Control Plane",
+                            retryable=True
+                        )
+                    
+                    # Log ACK response details
+                    self._logger.info(
+                        "Received ACK response",
+                        extra={
+                            **log_context,
+                            "attempt": attempt,
+                            "ackSeq": ack_response["seq"],
+                            "ackAccepted": ack_response["accepted"],
+                            "ackDuplicate": ack_response["duplicate"],
+                            "ackErrorCode": ack_response["errorCode"]
+                        }
+                    )
+                    
+                    # Check if event was accepted
+                    if not ack_response["accepted"]:
+                        error_code = ack_response.get("errorCode", "UNKNOWN_ERROR")
+                        
+                        # Determine if error is retryable
+                        non_retryable_errors = {
+                            "INVALID_NODE_ID",
+                            "NODE_NOT_REGISTERED", 
+                            "MISSING_EVENT_ID",
+                            "TASK_NOT_FOUND",
+                            "ACCESS_DENIED",
+                            "INVALID_EVENT",
+                        }
+                        
+                        retryable = error_code not in non_retryable_errors
+                        
+                        raise ControlPlaneRequestError(
+                            f"Event not accepted by Control Plane: {error_code}",
+                            retryable=retryable
+                        )
+                    
+                    # Event was accepted - check for duplicate
+                    if ack_response["duplicate"]:
+                        self._logger.info(
+                            "Event was duplicate but acknowledged",
+                            extra={
+                                **log_context,
+                                "attempt": attempt,
+                                "ackSeq": ack_response["seq"]
+                            }
+                        )
+                    
+                except CircuitBreakerOpenError as exc:
+                    circuit_breaker_triggered = True
+                    final_error = exc
+                    self._event_delivery_metrics["circuit_breaker_opens"] += 1
+                    
+                    self._logger.warning(
+                        "Circuit breaker open - event delivery blocked",
+                        extra={
+                            **log_context,
+                            "attempt": attempt,
+                            "circuitBreakerState": self._event_circuit_breaker.state()
+                        }
+                    )
+                    
+                    # Don't retry when circuit breaker is open
+                    break
+                
+                # Success - record metrics and log
+                self._event_delivery_metrics["successful_deliveries"] += 1
+                attempt_duration = time.time() - attempt_start
+                
+                self._logger.info(
+                    "Event delivery successful",
+                    extra={
+                        **log_context,
+                        "attempt": attempt,
+                        "durationSeconds": round(attempt_duration, 3),
+                        "totalDelaySeconds": round(total_delay, 3)
+                    }
+                )
+                
+                # Record observability metrics
+                if observability:
+                    observability.record_event_publish(
+                        event.get("type", "unknown"),
+                        attempts=attempt
+                    )
+                    observability.record_metric(
+                        "event_delivery_success_total",
+                        1,
+                        unit="count",
+                        attempts=str(attempt)
+                    )
+                
+                return PublishEventResult(
+                    response=response,
+                    attempts=attempt,
+                    total_delay_seconds=total_delay,
+                    circuit_breaker_triggered=circuit_breaker_triggered,
+                    final_error=None,
+                    ack_response=ack_response
+                )
+                
+            except Exception as exc:
+                final_error = exc
+                attempt_duration = time.time() - attempt_start
                 retryable = isinstance(exc, ControlPlaneRequestError) and exc.retryable
-                if not retryable or attempt >= attempts:
-                    raise
-                time.sleep(backoff * attempt)
-        return PublishEventResult(response=None, attempts=attempts)
+                
+                self._logger.warning(
+                    f"Event delivery failed (attempt {attempt}/{attempts})",
+                    extra={
+                        **log_context,
+                        "attempt": attempt,
+                        "error": str(exc),
+                        "retryable": retryable,
+                        "durationSeconds": round(attempt_duration, 3)
+                    }
+                )
+                
+                # For non-retryable errors, return result immediately
+                if not retryable:
+                    self._event_delivery_metrics["failed_deliveries"] += 1
+                    
+                    self._logger.error(
+                        "Event delivery failed with non-retryable error",
+                        extra={
+                            **log_context,
+                            "attempt": attempt,
+                            "error": str(exc),
+                            "totalDelaySeconds": round(total_delay, 3)
+                        }
+                    )
+                    
+                    # Record observability metrics for non-retryable failure
+                    if observability:
+                        observability.record_metric(
+                            "event_delivery_failure_total",
+                            1,
+                            unit="count",
+                            attempts=str(attempt),
+                            errorType="non_retryable"
+                        )
+                    
+                    return PublishEventResult(
+                        response=None,
+                        attempts=attempt,
+                        total_delay_seconds=total_delay,
+                        circuit_breaker_triggered=circuit_breaker_triggered,
+                        final_error=exc,
+                        ack_response=None
+                    )
+                
+                # If this is the last attempt, break out of loop
+                if attempt >= attempts:
+                    break
+        
+        # All attempts failed
+        self._event_delivery_metrics["failed_deliveries"] += 1
+        if not circuit_breaker_triggered:
+            self._event_delivery_metrics["retry_exhausted"] += 1
+        
+        self._logger.error(
+            "Event delivery failed after all retry attempts",
+            extra={
+                **log_context,
+                "totalAttempts": attempts,
+                "totalDelaySeconds": round(total_delay, 3),
+                "circuitBreakerTriggered": circuit_breaker_triggered,
+                "finalError": str(final_error) if final_error else None
+            }
+        )
+        
+        # Record observability metrics for failure
+        if observability:
+            observability.record_metric(
+                "event_delivery_failure_total",
+                1,
+                unit="count",
+                attempts=str(attempts),
+                circuitBreakerTriggered=str(circuit_breaker_triggered)
+            )
+        
+        return PublishEventResult(
+            response=None,
+            attempts=attempts,
+            total_delay_seconds=total_delay,
+            circuit_breaker_triggered=circuit_breaker_triggered,
+            final_error=final_error,
+            ack_response=None
+        )
+
+    def get_event_delivery_metrics(self) -> dict[str, Any]:
+        """
+        Get event delivery metrics for monitoring and observability.
+        
+        Returns:
+            Dictionary containing delivery success/failure rates and circuit breaker stats
+        """
+        total = self._event_delivery_metrics["total_attempts"]
+        success_rate = (
+            self._event_delivery_metrics["successful_deliveries"] / total * 100
+            if total > 0 else 0.0
+        )
+        failure_rate = (
+            self._event_delivery_metrics["failed_deliveries"] / total * 100
+            if total > 0 else 0.0
+        )
+        
+        return {
+            "totalAttempts": total,
+            "successfulDeliveries": self._event_delivery_metrics["successful_deliveries"],
+            "failedDeliveries": self._event_delivery_metrics["failed_deliveries"],
+            "successRate": round(success_rate, 2),
+            "failureRate": round(failure_rate, 2),
+            "circuitBreakerOpens": self._event_delivery_metrics["circuit_breaker_opens"],
+            "retryExhausted": self._event_delivery_metrics["retry_exhausted"],
+            "circuitBreakerState": self._event_circuit_breaker.state()
+        }
+
+    def extract_ack_response(self, response: dict[str, Any] | None) -> dict[str, Any] | None:
+        """
+        Extract ACK response data from Control Plane response.
+        
+        Expected response format after ApiResponse unwrapping:
+        {
+            "seq": 123,
+            "accepted": true,
+            "duplicate": false,
+            "errorCode": null
+        }
+        
+        Args:
+            response: Full response from Control Plane
+            
+        Returns:
+            ACK response data with seq, accepted, duplicate, errorCode fields, or None if invalid
+        """
+        if not response or not isinstance(response, dict):
+            return None
+            
+        # Validate required ACK fields
+        required_fields = ["seq", "accepted", "duplicate", "errorCode"]
+        if not all(field in response for field in required_fields):
+            return None
+            
+        # Validate field types
+        if not isinstance(response.get("seq"), int):
+            return None
+        if response["seq"] < 0:
+            return None
+        if not isinstance(response.get("accepted"), bool):
+            return None
+        if not isinstance(response.get("duplicate"), bool):
+            return None
+            
+        # errorCode can be string or None
+        error_code = response.get("errorCode")
+        if error_code is not None and not isinstance(error_code, str):
+            return None
+            
+        return {
+            "seq": response["seq"],
+            "accepted": response["accepted"],
+            "duplicate": response["duplicate"],
+            "errorCode": error_code
+        }
+
+    def validate_ack_response(self, ack_response: dict[str, Any], expected_seq: int | None = None) -> bool:
+        """
+        Validate ACK response structure and optionally check sequence number.
+        
+        Args:
+            ack_response: ACK response data from extract_ack_response
+            expected_seq: Optional expected sequence number to validate
+            
+        Returns:
+            True if ACK response is valid, False otherwise
+        """
+        if not ack_response or not isinstance(ack_response, dict):
+            return False
+            
+        # Check required fields exist and have correct types
+        required_fields = {
+            "seq": int,
+            "accepted": bool,
+            "duplicate": bool
+        }
+        
+        for field, expected_type in required_fields.items():
+            if field not in ack_response:
+                return False
+            if not isinstance(ack_response[field], expected_type):
+                return False
+                
+        # Validate sequence number constraints (minimum: 0 per schema)
+        seq = ack_response["seq"]
+        if seq < 0:
+            return False
+                
+        # Validate sequence number if provided
+        if expected_seq is not None:
+            if seq != expected_seq:
+                return False
+                
+        # errorCode should be string or None
+        error_code = ack_response.get("errorCode")
+        if error_code is not None and not isinstance(error_code, str):
+            return False
+            
+        return True
+    
+    def publish_event_with_ack(
+        self,
+        task_id: str,
+        event: dict[str, Any],
+        *,
+        max_attempts: int = 5,
+        initial_backoff_seconds: float = 1.0,
+        observability: TaskObservability | None = None,
+    ) -> dict[str, Any] | None:
+        """
+        Publish event with retry logic and return only the ACK response data.
+        
+        Args:
+            task_id: Task identifier
+            event: Event data to publish
+            max_attempts: Maximum retry attempts (default 5)
+            initial_backoff_seconds: Initial backoff delay (default 1s)
+            observability: Optional observability context
+            
+        Returns:
+            ACK response data with seq, accepted, duplicate, errorCode fields, or None if failed
+            
+        Raises:
+            ControlPlaneRequestError: If event delivery fails with non-retryable error or after all retries
+        """
+        result = self.publish_event_with_retry_result(
+            task_id,
+            event,
+            max_attempts=max_attempts,
+            initial_backoff_seconds=initial_backoff_seconds,
+            observability=observability,
+        )
+        
+        # If there was a final error, raise it
+        if result.final_error is not None:
+            raise result.final_error
+            
+        return result.ack_response
+
+    def reset_metrics(self) -> None:
+        """Reset event delivery metrics - useful for testing."""
+        self._event_delivery_metrics = {
+            "total_attempts": 0,
+            "successful_deliveries": 0,
+            "failed_deliveries": 0,
+            "circuit_breaker_opens": 0,
+            "retry_exhausted": 0
+        }
 
     def upload_artifact(
         self,

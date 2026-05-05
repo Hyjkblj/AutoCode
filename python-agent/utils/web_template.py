@@ -8,6 +8,7 @@ from html import escape
 from typing import Any
 
 from llm.llm_client import LLMClient
+from utils.observability import ensure_task_observability
 
 
 REQUIRED_WEB_FILES: tuple[str, ...] = (
@@ -30,7 +31,7 @@ class WebTemplateGenerator:
     def __init__(self, llm_client: LLMClient | None = None) -> None:
         self.llm_client = llm_client or LLMClient()
 
-    def generate(self, prompt: str, target: str = "web") -> WebTemplateResult:
+    def generate(self, prompt: str, target: str = "web", task: dict[str, Any] | None = None) -> WebTemplateResult:
         normalized_target = (target or "web").strip().lower()
         if normalized_target != "web":
             raise ValueError("unsupported_target")
@@ -38,8 +39,9 @@ class WebTemplateGenerator:
         prompt_text = (prompt or "").strip()
 
         if self.llm_client.is_configured():
+            attempt_cursor = self.llm_client.cache_event_cursor()
             try:
-                llm_files, llm_theme = self._generate_via_llm(prompt_text)
+                llm_files, llm_theme = self._generate_via_llm(prompt_text, task=task)
                 return WebTemplateResult(
                     files=llm_files,
                     used_fallback=False,
@@ -47,10 +49,19 @@ class WebTemplateGenerator:
                     theme=llm_theme,
                 )
             except Exception as exc:  # noqa: BLE001
+                self.llm_client.discard_cache_entries_since(attempt_cursor, reason="invalid_web_template_response")
+                if task is not None:
+                    self.llm_client.record_cache_metrics(
+                        ensure_task_observability(task, engine=str(task.get("_agentEngine", "")).strip()),
+                        stage="WebTemplateGenerator",
+                        backend=self.llm_client.settings.backend,
+                    )
                 if _should_retry_llm_generation(exc):
+                    retry_cursor = self.llm_client.cache_event_cursor()
                     try:
                         llm_files, llm_theme = self._generate_via_llm(
                             _build_retry_prompt(prompt_text),
+                            task=task,
                             is_retry=True,
                         )
                         return WebTemplateResult(
@@ -60,6 +71,16 @@ class WebTemplateGenerator:
                             theme=llm_theme,
                         )
                     except Exception as retry_exc:  # noqa: BLE001
+                        self.llm_client.discard_cache_entries_since(
+                            retry_cursor,
+                            reason="invalid_web_template_retry_response",
+                        )
+                        if task is not None:
+                            self.llm_client.record_cache_metrics(
+                                ensure_task_observability(task, engine=str(task.get("_agentEngine", "")).strip()),
+                                stage="WebTemplateGenerator",
+                                backend=self.llm_client.settings.backend,
+                            )
                         fallback, fallback_theme = _fallback_files(prompt_text)
                         return WebTemplateResult(
                             files=fallback,
@@ -84,7 +105,13 @@ class WebTemplateGenerator:
             theme=fallback_theme,
         )
 
-    def _generate_via_llm(self, prompt: str, *, is_retry: bool = False) -> tuple[dict[str, str], str]:
+    def _generate_via_llm(
+        self,
+        prompt: str,
+        *,
+        task: dict[str, Any] | None = None,
+        is_retry: bool = False,
+    ) -> tuple[dict[str, str], str]:
         system_prompt = _build_system_prompt(_prompt_mode())
         if is_retry:
             system_prompt = (
@@ -92,15 +119,30 @@ class WebTemplateGenerator:
                 "RETRY MODE:\n"
                 "Return pure JSON only; no markdown fences, comments, or explanation text."
             )
-        raw = self.llm_client.generate(prompt, system_prompt=system_prompt)
-        parsed = _parse_llm_response(raw)
-        source = parsed.get("files") if isinstance(parsed, dict) and isinstance(parsed.get("files"), dict) else parsed
-        files = _normalize_files(source)
-        missing = [name for name in REQUIRED_WEB_FILES if name not in files]
-        if missing:
-            raise ValueError(f"missing required files from llm: {','.join(missing)}")
-        theme = _normalize_theme(parsed.get("theme") if isinstance(parsed, dict) else None, prompt)
-        return files, theme
+        observation = None
+        cache_cursor = 0
+        raw = ""
+        if task is not None:
+            observation = ensure_task_observability(task, engine=str(task.get("_agentEngine", "")).strip())
+            cache_cursor = self.llm_client.cache_event_cursor()
+        try:
+            raw = self.llm_client.generate(prompt, system_prompt=system_prompt)
+            parsed = _parse_llm_response(raw)
+            source = parsed.get("files") if isinstance(parsed, dict) and isinstance(parsed.get("files"), dict) else parsed
+            files = _normalize_files(source)
+            missing = [name for name in REQUIRED_WEB_FILES if name not in files]
+            if missing:
+                raise ValueError(f"missing required files from llm: {','.join(missing)}")
+            theme = _normalize_theme(parsed.get("theme") if isinstance(parsed, dict) else None, prompt)
+            return files, theme
+        finally:
+            if observation is not None:
+                self.llm_client.record_cache_metrics(
+                    observation,
+                    stage="WebTemplateGenerator",
+                    backend=self.llm_client.settings.backend,
+                    since_sequence=cache_cursor,
+                )
 
 
 def _parse_llm_response(raw: str) -> Any:

@@ -1,0 +1,19 @@
+{
+  "plugin_id": "builtin.diff-risk-reviewer",
+  "version": "0.1.0",
+  "plugin_type": "reviewer",
+  "entrypoint": "diff_risk_reviewer_agent.py",
+  "class_name": "DiffRiskReviewerAgent",
+  "enabled": true,
+  "priority": 10,
+  "capabilities": ["reviewer", "diff-risk-scan"],
+  "supported_intents": ["code_change"],
+  "supported_assistants": ["ai-agent", "web"],
+  "timeout_seconds": 5,
+  "permissions": {
+    "workspace_read": true,
+    "workspace_write": false,
+    "sandbox_exec": false,
+    "network_access": false
+  }
+}

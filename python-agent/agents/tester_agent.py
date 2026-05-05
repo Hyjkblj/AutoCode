@@ -6,7 +6,10 @@ from typing import Any
 
 from agents.planner_agent import PlanResult
 from client.control_plane_client import ControlPlaneClient
+from plugins.contracts import PluginContext
+from plugins.registry import PluginRegistry
 from tools.exec_tool import ExecResult, ExecTool
+from utils.circuit_breaker import CircuitBreakerOpenError
 
 
 @dataclass(frozen=True)
@@ -22,9 +25,15 @@ class TesterResult:
 
 
 class TesterAgent:
-    def __init__(self, exec_tool: ExecTool | None = None, max_retries: int = 3) -> None:
+    def __init__(
+        self,
+        exec_tool: ExecTool | None = None,
+        max_retries: int = 3,
+        plugin_registry: PluginRegistry | None = None,
+    ) -> None:
         self.exec_tool = exec_tool or ExecTool()
         self.max_retries = max(0, min(max_retries, 3))
+        self.plugin_registry = plugin_registry or PluginRegistry()
 
     def execute(
         self,
@@ -34,7 +43,7 @@ class TesterAgent:
         publish_event: EventPublisher,
     ) -> TesterResult:
         prompt = str(task.get("prompt", "")).strip()
-        command = _resolve_test_command(task)
+        command = self._resolve_test_command(task, client, plan, publish_event)
         last_result: ExecResult | None = None
         last_error: Exception | None = None
 
@@ -162,6 +171,76 @@ class TesterAgent:
             trace_id=None,
             run_id=None,
         )
+
+    def _resolve_test_command(
+        self,
+        task: dict[str, Any],
+        client: ControlPlaneClient,
+        plan: PlanResult,
+        publish_event: EventPublisher,
+    ) -> str:
+        explicit = str(task.get("testCommand", "")).strip()
+        if explicit:
+            return explicit
+
+        task.setdefault("intent", "test")
+        plugin_context = PluginContext(task=task, client=client, plan=plan, publish_event=publish_event)
+        plugins = self.plugin_registry.resolve_tester_plugins(plugin_context)
+        for plugin in plugins:
+            manifest = plugin.manifest
+            task["_activeTesterPlugin"] = manifest.plugin_id
+            breaker_state = self.plugin_registry.plugin_state(manifest.plugin_id)
+            publish_event(
+                {
+                    "stage": "TesterPlugin",
+                    "message": "Executing tester plugin.",
+                    "pluginId": manifest.plugin_id,
+                    "pluginVersion": manifest.version,
+                    "breakerStatus": breaker_state.get("status"),
+                    "failureCount": breaker_state.get("failureCount"),
+                    "permissions": {
+                        "workspaceRead": manifest.permissions.workspace_read,
+                        "workspaceWrite": manifest.permissions.workspace_write,
+                        "sandboxExec": manifest.permissions.sandbox_exec,
+                        "networkAccess": manifest.permissions.network_access,
+                    },
+                }
+            )
+            try:
+                command = str(
+                    self.plugin_registry.execute_plugin(
+                        manifest.plugin_id,
+                        lambda: plugin.resolve_command(plugin_context),
+                    )
+                ).strip()
+                if command:
+                    task["testCommand"] = command
+                    return command
+            except CircuitBreakerOpenError:
+                breaker_state = self.plugin_registry.plugin_state(manifest.plugin_id)
+                publish_event(
+                    {
+                        "stage": "TesterPlugin",
+                        "message": "Plugin skipped due to circuit breaker, falling back to built-in implementation.",
+                        "pluginId": manifest.plugin_id,
+                        "breakerStatus": breaker_state.get("status"),
+                        "failureCount": breaker_state.get("failureCount"),
+                    }
+                )
+            except Exception as exc:  # noqa: BLE001
+                breaker_state = self.plugin_registry.plugin_state(manifest.plugin_id)
+                publish_event(
+                    {
+                        "stage": "TesterPlugin",
+                        "message": "Tester plugin failed, falling back to built-in command resolution.",
+                        "pluginId": manifest.plugin_id,
+                        "breakerStatus": breaker_state.get("status"),
+                        "failureCount": breaker_state.get("failureCount"),
+                        "error": str(exc),
+                    }
+                )
+        task.pop("_activeTesterPlugin", None)
+        return _resolve_test_command(task)
 
 
 class EventPublisher:

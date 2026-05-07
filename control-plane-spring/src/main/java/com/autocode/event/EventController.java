@@ -8,7 +8,9 @@ import com.autocode.controlplane.api.AgentEventRequest;
 import com.autocode.controlplane.api.ApiResponse;
 import com.autocode.controlplane.service.AgentRegistryService;
 import com.autocode.controlplane.service.TaskService;
-import com.autocode.protocol.model.TaskSummary;
+import com.autocode.controlplane.service.observability.ControlPlaneMetrics;
+import com.autocode.protocol.model.AckErrorCode;
+import com.autocode.protocol.model.EventAckResponse;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
@@ -30,28 +32,25 @@ import java.util.Optional;
 @Validated
 public class EventController {
     private static final Logger log = LoggerFactory.getLogger(EventController.class);
-    
-    // Redis key prefix for event deduplication
-    private static final String DEDUP_KEY_PREFIX = "event:dedup:";
-    
-    // TTL for deduplication entries (24 hours)
-    private static final Duration DEDUP_TTL = Duration.ofHours(24);
-    
+
     private final TaskService taskService;
     private final StringRedisTemplate redisTemplate;
     private final EventDeduplicationService deduplicationService;
     private final AgentRegistryService agentRegistryService;
+    private final ControlPlaneMetrics metrics;
 
     @Autowired
     public EventController(
-            TaskService taskService, 
+            TaskService taskService,
             StringRedisTemplate redisTemplate,
             EventDeduplicationService deduplicationService,
-            AgentRegistryService agentRegistryService) {
+            AgentRegistryService agentRegistryService,
+            ControlPlaneMetrics metrics) {
         this.taskService = taskService;
         this.redisTemplate = redisTemplate;
         this.deduplicationService = deduplicationService;
         this.agentRegistryService = agentRegistryService;
+        this.metrics = metrics;
     }
 
     /**
@@ -60,15 +59,15 @@ public class EventController {
      */
     @PostMapping("/ingest")
     public ResponseEntity<ApiResponse<EventAckResponse>> ingestEventWithAck(
-            @RequestParam("taskId") 
+            @RequestParam("taskId")
             @NotBlank(message = "taskId must not be blank")
             @Size(max = 64, message = "taskId size must be between 0 and 64")
             String taskId,
-            
+
             @RequestParam(value = "nodeId", required = false)
             @Size(max = 64, message = "nodeId size must be between 0 and 64")
             String nodeId,
-            
+
             @Valid @RequestBody AgentEventRequest request
     ) {
         try {
@@ -77,112 +76,79 @@ public class EventController {
             if (nodeId != null) {
                 normalizedNodeId = nodeId.trim();
                 if (normalizedNodeId.isEmpty()) {
-                    EventAckResponse ackResponse = new EventAckResponse(
-                        0L, false, false, "INVALID_NODE_ID"
-                    );
+                    metrics.ackFailures.increment();
                     return ResponseEntity.badRequest()
-                            .body(ApiResponse.ok(ackResponse));
+                            .body(ApiResponse.ok(EventAckResponse.rejected(AckErrorCode.INVALID_NODE_ID)));
                 }
                 if (!agentRegistryService.isNodeRegistered(normalizedNodeId)) {
-                    EventAckResponse ackResponse = new EventAckResponse(
-                        0L, false, false, "NODE_NOT_REGISTERED"
-                    );
+                    metrics.ackFailures.increment();
                     return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                            .body(ApiResponse.ok(ackResponse));
+                            .body(ApiResponse.ok(EventAckResponse.rejected(AckErrorCode.NODE_NOT_REGISTERED)));
                 }
             }
 
             String eventId = request.getEvent().getEventId();
             if (eventId == null || eventId.isBlank()) {
-                EventAckResponse ackResponse = new EventAckResponse(
-                    0L, false, false, "MISSING_EVENT_ID"
-                );
+                metrics.ackFailures.increment();
                 return ResponseEntity.badRequest()
-                        .body(ApiResponse.ok(ackResponse));
+                        .body(ApiResponse.ok(EventAckResponse.rejected(AckErrorCode.MISSING_EVENT_ID)));
             }
 
-            // Check for duplicate event
+            // Check for duplicate event via Redis (fast path)
             boolean isDuplicate = deduplicationService.isDuplicate(eventId);
             if (isDuplicate) {
-                log.debug("Duplicate event detected: {}", eventId);
-                
-                // For duplicates, we still need to return an ACK with the original sequence
+                log.debug("Duplicate event detected via Redis: {}", eventId);
                 Long originalSeq = deduplicationService.getOriginalSequence(eventId);
-                EventAckResponse ackResponse = new EventAckResponse(
-                    originalSeq != null ? originalSeq : 0L,
-                    true,  // accepted (was already processed)
-                    true,  // duplicate
-                    null   // no error
-                );
-                
-                return ResponseEntity.ok(ApiResponse.ok(ackResponse));
+                metrics.duplicateEvents.increment();
+                return ResponseEntity.ok(ApiResponse.ok(
+                        EventAckResponse.duplicate(originalSeq != null ? originalSeq : 0L)));
             }
 
-            // Process the event
-            Optional<TaskSummary> result = taskService.ingestAgentEvent(taskId, request.getEvent(), normalizedNodeId);
-            
+            // Process the event — TaskService handles DB-level dedup
+            Optional<TaskService.IngestResult> result = taskService.ingestAgentEvent(taskId, request.getEvent(), normalizedNodeId);
+
             if (result.isEmpty()) {
-                EventAckResponse ackResponse = new EventAckResponse(
-                    0L,
-                    false,  // not accepted
-                    false,  // not duplicate
-                    "TASK_NOT_FOUND"
-                );
+                metrics.ackFailures.increment();
                 return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                        .body(ApiResponse.ok(ackResponse));
+                        .body(ApiResponse.ok(EventAckResponse.rejected(AckErrorCode.TASK_NOT_FOUND)));
             }
 
-            // Mark as processed and store sequence for future duplicate detection
-            long sequenceNumber = request.getEvent().getSeq();
-            deduplicationService.markProcessed(eventId, sequenceNumber);
+            TaskService.IngestResult ingestResult = result.get();
 
-            // Return successful ACK
-            EventAckResponse ackResponse = new EventAckResponse(
-                sequenceNumber,
-                true,   // accepted
-                false,  // not duplicate
-                null    // no error
-            );
+            // If TaskService detected a DB-level duplicate, mark in Redis and return duplicate ACK
+            if (ingestResult.duplicate()) {
+                deduplicationService.markProcessed(eventId, ingestResult.assignedSeq());
+                metrics.duplicateEvents.increment();
+                return ResponseEntity.ok(ApiResponse.ok(EventAckResponse.duplicate(ingestResult.assignedSeq())));
+            }
 
-            log.debug("Event processed successfully: {} with seq: {}", eventId, sequenceNumber);
-            return ResponseEntity.ok(ApiResponse.ok(ackResponse));
+            // Mark as processed and store assigned sequence for future duplicate detection
+            long assignedSeq = ingestResult.assignedSeq();
+            deduplicationService.markProcessed(eventId, assignedSeq);
+
+            log.debug("Event processed successfully: {} with seq: {}", eventId, assignedSeq);
+            return ResponseEntity.ok(ApiResponse.ok(EventAckResponse.accepted(assignedSeq)));
 
         } catch (AccessDeniedException e) {
             log.warn("Access denied while processing event for task {}: {}", taskId, e.getMessage());
-
-            EventAckResponse ackResponse = new EventAckResponse(
-                0L,
-                false,
-                false,
-                "ACCESS_DENIED"
-            );
-
+            metrics.ackFailures.increment();
             return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                    .body(ApiResponse.ok(ackResponse));
+                    .body(ApiResponse.ok(EventAckResponse.rejected(AckErrorCode.ACCESS_DENIED)));
+        } catch (IllegalStateException e) {
+            log.warn("Illegal state transition for task {}: {}", taskId, e.getMessage());
+            metrics.ackFailures.increment();
+            return ResponseEntity.status(HttpStatus.CONFLICT)
+                    .body(ApiResponse.ok(EventAckResponse.rejected(AckErrorCode.ILLEGAL_STATE_TRANSITION)));
         } catch (IllegalArgumentException e) {
             log.warn("Invalid event request for task {}: {}", taskId, e.getMessage());
-
-            EventAckResponse ackResponse = new EventAckResponse(
-                0L,
-                false,
-                false,
-                "INVALID_EVENT"
-            );
-
+            metrics.ackFailures.increment();
             return ResponseEntity.badRequest()
-                    .body(ApiResponse.ok(ackResponse));
+                    .body(ApiResponse.ok(EventAckResponse.rejected(AckErrorCode.INVALID_EVENT)));
         } catch (Exception e) {
             log.error("Error processing event for task {}: {}", taskId, e.getMessage(), e);
-            
-            EventAckResponse ackResponse = new EventAckResponse(
-                0L,
-                false,  // not accepted
-                false,  // not duplicate
-                "PROCESSING_ERROR"
-            );
-            
+            metrics.ackFailures.increment();
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(ApiResponse.ok(ackResponse));
+                    .body(ApiResponse.ok(EventAckResponse.rejected(AckErrorCode.PROCESSING_ERROR)));
         }
     }
 
@@ -195,7 +161,7 @@ public class EventController {
             // Test Redis connectivity
             redisTemplate.opsForValue().set("health:check", "ok", Duration.ofSeconds(10));
             String result = redisTemplate.opsForValue().get("health:check");
-            
+
             if ("ok".equals(result)) {
                 return ResponseEntity.ok(ApiResponse.ok("Event processing healthy"));
             } else {

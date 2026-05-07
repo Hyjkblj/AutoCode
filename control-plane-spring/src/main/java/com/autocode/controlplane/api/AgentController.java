@@ -7,7 +7,7 @@ import com.autocode.controlplane.model.AgentNode;
 import com.autocode.controlplane.service.AgentRegistryService;
 import com.autocode.controlplane.service.TaskService;
 import com.autocode.event.EventController;
-import com.autocode.event.EventAckResponse;
+import com.autocode.protocol.model.EventAckResponse;
 import com.autocode.protocol.model.ApprovalDecision;
 import com.autocode.protocol.model.TaskSummary;
 import jakarta.validation.Valid;

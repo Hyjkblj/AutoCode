@@ -15,6 +15,19 @@ from uuid import uuid4
 from utils.circuit_breaker import CircuitBreaker, CircuitBreakerOpenError
 from utils.observability import TaskObservability
 
+# ACK error codes — must stay in sync with shared-protocol AckErrorCode enum.
+# Non-retryable errors: agent should NOT re-attempt delivery.
+NON_RETRYABLE_ACK_ERRORS: frozenset[str] = frozenset({
+    "INVALID_NODE_ID",
+    "NODE_NOT_REGISTERED",
+    "MISSING_EVENT_ID",
+    "TASK_NOT_FOUND",
+    "ACCESS_DENIED",
+    "INVALID_EVENT",
+    "ILLEGAL_STATE_TRANSITION",
+})
+
+
 
 class ControlPlaneRequestError(RuntimeError):
     def __init__(self, message: str, *, retryable: bool, status_code: int | None = None) -> None:
@@ -230,17 +243,8 @@ class ControlPlaneClient:
                     if not ack_response["accepted"]:
                         error_code = ack_response.get("errorCode", "UNKNOWN_ERROR")
                         
-                        # Determine if error is retryable
-                        non_retryable_errors = {
-                            "INVALID_NODE_ID",
-                            "NODE_NOT_REGISTERED", 
-                            "MISSING_EVENT_ID",
-                            "TASK_NOT_FOUND",
-                            "ACCESS_DENIED",
-                            "INVALID_EVENT",
-                        }
-                        
-                        retryable = error_code not in non_retryable_errors
+                        # Determine if error is retryable (synced with AckErrorCode enum)
+                        retryable = error_code not in NON_RETRYABLE_ACK_ERRORS
                         
                         raise ControlPlaneRequestError(
                             f"Event not accepted by Control Plane: {error_code}",

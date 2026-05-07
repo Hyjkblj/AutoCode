@@ -20,6 +20,7 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
+import java.util.Map;
 import java.util.Objects;
 
 /**
@@ -42,7 +43,13 @@ public class SandboxHttpServer {
     public SandboxHttpServer(String host, int port, SandboxExecutionService service) {
         String normalizedHost = readHost(host, LOCALHOST);
         if (!LOCALHOST.equals(normalizedHost)) {
-            throw new IllegalArgumentException("sandbox host must be 127.0.0.1");
+            throw new IllegalArgumentException(
+                    "sandbox host must be 127.0.0.1, got: " + normalizedHost
+                            + ". Remote sandbox is not supported in this version.");
+        }
+        if (port < 1 || port > 65535) {
+            throw new IllegalArgumentException(
+                    "sandbox port must be between 1 and 65535, got: " + port);
         }
         this.host = normalizedHost;
         this.port = port;
@@ -65,9 +72,16 @@ public class SandboxHttpServer {
         String requestedHost = readHost(System.getenv(ENV_HOST), LOCALHOST);
         String host = LOCALHOST;
         if (!LOCALHOST.equals(requestedHost)) {
-            log.warn("{}={} ignored; sandbox server is localhost-only (127.0.0.1)", ENV_HOST, requestedHost);
+            log.warn("{}={} ignored; sandbox server is localhost-only (127.0.0.1). "
+                            + "Remote sandbox requires network_mode decoupling — see docs/升级2.0/sandbox-network-model.md",
+                    ENV_HOST, requestedHost);
         }
         int port = parsePort(readEnv(ENV_PORT, "18080"), 18080);
+
+        SecurityPolicyValidator validator = new SecurityPolicyValidator(config);
+        Map<String, Object> policies = validator.validateAll();
+        log.info("sandbox security policy validation: {}", policies.get("overallStatus"));
+
         return new SandboxHttpServer(host, port, new SandboxExecutionService(apiClient, config));
     }
 
@@ -98,7 +112,7 @@ public class SandboxHttpServer {
         });
         httpServer.start();
         server = httpServer;
-        log.info("Sandbox HTTP server started on {}:{}", host, port);
+        log.info("Sandbox HTTP server started on {}:{} (localhost-only, endpoints: /sandbox/health, /sandbox/tools, /sandbox/execute)", host, port);
     }
 
     public synchronized void stop() {

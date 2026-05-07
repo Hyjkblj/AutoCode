@@ -28,8 +28,33 @@ class ExecTool:
     def __init__(self, base_url: str | None = None, timeout_seconds: int | None = None) -> None:
         self.base_url = (base_url or os.getenv("MVP_SANDBOX_BASE_URL", "http://127.0.0.1:18080")).rstrip("/")
         self.timeout_seconds = timeout_seconds if timeout_seconds is not None else _read_timeout_seconds()
+        self._health_checked = False
+
+    def check_sandbox_health(self) -> bool:
+        """Verify sandbox is reachable. Returns True if healthy, raises RuntimeError otherwise."""
+        url = f"{self.base_url}/sandbox/health"
+        req = request.Request(url, method="GET", headers={
+            "Accept": "application/json",
+            "User-Agent": "AutoCode-Python-Agent/exec-tool",
+        })
+        try:
+            with request.urlopen(req, timeout=5) as resp:  # noqa: S310
+                if resp.status == 200:
+                    self._health_checked = True
+                    return True
+                raise RuntimeError(f"sandbox health check failed: HTTP {resp.status}")
+        except URLError as exc:
+            raise RuntimeError(
+                f"sandbox unreachable at {self.base_url}. "
+                f"Verify: (1) pc-agent-java container is running, "
+                f"(2) python-agent uses network_mode: 'service:pc-agent-java', "
+                f"(3) MVP_SANDBOX_PORT matches the Java agent's port. "
+                f"Original error: {exc.reason}"
+            ) from exc
 
     def execute(self, task: dict[str, Any], command: str, *, prompt: str = "", intent: str = "deploy") -> ExecResult:
+        if not self._health_checked:
+            self.check_sandbox_health()
         task_id = str(task.get("taskId", "")).strip()
         if not task_id:
             raise ValueError("task.taskId is required")

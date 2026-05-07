@@ -6,6 +6,8 @@ import com.autocode.controlplane.artifacts.ports.ArtifactsPort;
 import com.autocode.controlplane.artifacts.application.ArtifactNotFoundException;
 import com.autocode.controlplane.persistence.entity.ArtifactEntity;
 import com.autocode.controlplane.persistence.repo.ArtifactEntityRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -23,9 +25,12 @@ import java.time.Instant;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.UUID;
+import java.util.stream.Stream;
 
 @Component
 public class LocalFileArtifactsAdapter implements ArtifactsPort {
+    private static final Logger log = LoggerFactory.getLogger(LocalFileArtifactsAdapter.class);
+
     private final ArtifactEntityRepository artifactRepository;
     private final Path baseDir;
 
@@ -99,6 +104,61 @@ public class LocalFileArtifactsAdapter implements ArtifactsPort {
         } catch (IOException ex) {
             throw new IllegalStateException("failed to open artifact", ex);
         }
+    }
+
+    @Override
+    @Transactional
+    public String deleteFile(String taskId, String artifactId) {
+        ArtifactEntity entity = artifactRepository.findById(artifactId)
+                .filter(e -> taskId.equals(e.getTaskId()))
+                .orElse(null);
+        if (entity == null) {
+            return null;
+        }
+        String storagePath = entity.getStoragePath();
+        try {
+            Files.deleteIfExists(Path.of(storagePath));
+        } catch (IOException ex) {
+            log.warn("failed to delete artifact file {}: {}", storagePath, ex.getMessage());
+        }
+        artifactRepository.delete(entity);
+        return storagePath;
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<ArtifactRecord> findExpiredByAge(Instant cutoff) {
+        return artifactRepository.findByCreatedAtBefore(cutoff).stream()
+                .map(this::toRecord)
+                .toList();
+    }
+
+    @Override
+    public int cleanStaleTmpFiles() {
+        int cleaned = 0;
+        if (!Files.exists(baseDir)) {
+            return 0;
+        }
+        try (Stream<Path> taskDirs = Files.list(baseDir)) {
+            for (Path taskDir : taskDirs.toList()) {
+                if (!Files.isDirectory(taskDir)) continue;
+                try (Stream<Path> files = Files.list(taskDir)) {
+                    for (Path file : files.toList()) {
+                        if (file.getFileName().toString().endsWith(".tmp")) {
+                            try {
+                                Files.deleteIfExists(file);
+                                cleaned++;
+                            } catch (IOException ex) {
+                                log.debug("failed to delete stale tmp file {}: {}", file, ex.getMessage());
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (IOException ex) {
+            log.warn("failed to scan for stale tmp files: {}", ex.getMessage());
+        }
+        return cleaned;
     }
 
     private ArtifactRecord toRecord(ArtifactEntity entity) {

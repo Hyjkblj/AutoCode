@@ -89,3 +89,6 @@ artifacts:
     shared-token: ${MVP_ARTIFACTS_DOWNLOAD_SHARED_TOKEN:}
     # When true, authenticated users who already passed task-level ACL can preview/download without shared token.
     allow-authenticated-without-shared-token: ${MVP_ARTIFACTS_ALLOW_AUTHENTICATED_WITHOUT_SHARED_TOKEN:true}
+  cleanup:
+    enabled: ${MVP_ARTIFACTS_CLEANUP_ENABLED:true}
+    retention-days: ${MVP_ARTIFACTS_CLEANUP_RETENTION_DAYS:30}

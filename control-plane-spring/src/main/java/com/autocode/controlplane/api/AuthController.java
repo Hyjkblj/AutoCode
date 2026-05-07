@@ -1,5 +1,6 @@
 package com.autocode.controlplane.api;
 
+import com.autocode.controlplane.security.AuthProperties;
 import com.autocode.controlplane.security.JwtAuthProperties;
 import com.autocode.controlplane.persistence.entity.UserEntity;
 import com.autocode.controlplane.persistence.repo.UserEntityRepository;
@@ -29,20 +30,23 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 @ConditionalOnProperty(prefix = "mvp.auth", name = "mode", havingValue = "jwt")
 public class AuthController {
     private final JwtEncoder jwtEncoder;
-    private final JwtAuthProperties props;
+    private final JwtAuthProperties jwtProps;
+    private final AuthProperties authProps;
     private final UserEntityRepository userRepository;
     private final UserRoleEntityRepository userRoleRepository;
     private final PasswordEncoder passwordEncoder;
 
     public AuthController(
             JwtEncoder jwtEncoder,
-            JwtAuthProperties props,
+            JwtAuthProperties jwtProps,
+            AuthProperties authProps,
             UserEntityRepository userRepository,
             UserRoleEntityRepository userRoleRepository,
             PasswordEncoder passwordEncoder
     ) {
         this.jwtEncoder = jwtEncoder;
-        this.props = props;
+        this.jwtProps = jwtProps;
+        this.authProps = authProps;
         this.userRepository = userRepository;
         this.userRoleRepository = userRoleRepository;
         this.passwordEncoder = passwordEncoder;
@@ -80,7 +84,7 @@ public class AuthController {
         JwtClaimsSet claims = JwtClaimsSet.builder()
                 .subject(user.getUsername())
                 .issuedAt(now)
-                .expiresAt(now.plusSeconds(props.getAccessTtlSeconds()))
+                .expiresAt(now.plusSeconds(jwtProps.getAccessTtlSeconds()))
                 .claim("roles", roles)
                 .build();
         JwsHeader jwsHeader = JwsHeader.with(MacAlgorithm.HS256).build();
@@ -88,7 +92,51 @@ public class AuthController {
         return ApiResponse.ok(Map.of(
                 "accessToken", token,
                 "tokenType", "Bearer",
-                "expiresInSeconds", props.getAccessTtlSeconds()
+                "expiresInSeconds", jwtProps.getAccessTtlSeconds()
+        ));
+    }
+
+    /**
+     * Issue a short-lived JWT for an agent, authenticated by static X-Agent-Token.
+     *
+     * <p>This endpoint enables agents to transition from static token auth to JWT.
+     * The agent presents its static token and receives a short-lived JWT with ROLE_AGENT.</p>
+     *
+     * <p>Once all agents use this endpoint, {@link JwtAgentTokenAuthAdapterFilter} and
+     * the static agent token config can be removed.</p>
+     */
+    public record AgentTokenRequest(String agentToken) {
+    }
+
+    @PostMapping("/agent/token")
+    public ApiResponse<Map<String, Object>> agentToken(@RequestBody AgentTokenRequest request) {
+        if (request == null || request.agentToken() == null || request.agentToken().isBlank()) {
+            return ApiResponse.error("agentToken is required");
+        }
+
+        String token = request.agentToken().trim();
+        if (authProps.revokedTokenList().contains(token)) {
+            return ApiResponse.error("agent token revoked");
+        }
+        if (!authProps.agentTokenList().contains(token)) {
+            return ApiResponse.error("invalid agent token");
+        }
+
+        Instant now = Instant.now();
+        long ttlSeconds = Math.min(jwtProps.getAccessTtlSeconds(), 3600);
+        JwtClaimsSet claims = JwtClaimsSet.builder()
+                .subject("agent")
+                .issuedAt(now)
+                .expiresAt(now.plusSeconds(ttlSeconds))
+                .claim("roles", List.of("AGENT"))
+                .claim("tokenType", "agent")
+                .build();
+        JwsHeader jwsHeader = JwsHeader.with(MacAlgorithm.HS256).build();
+        String jwt = jwtEncoder.encode(JwtEncoderParameters.from(jwsHeader, claims)).getTokenValue();
+        return ApiResponse.ok(Map.of(
+                "accessToken", jwt,
+                "tokenType", "Bearer",
+                "expiresInSeconds", ttlSeconds
         ));
     }
 }

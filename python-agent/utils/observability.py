@@ -1,10 +1,18 @@
 from __future__ import annotations
 
+import logging
 from collections import defaultdict
 from contextlib import contextmanager
 from time import monotonic
 from typing import Any, Iterator
 from uuid import uuid4
+
+from utils.metrics import PipelineMetrics
+
+_logger = logging.getLogger(__name__)
+
+# Module-level singleton; safe because prometheus_client is process-global.
+_pipeline_metrics = PipelineMetrics()
 
 
 class TaskObservability:
@@ -36,15 +44,23 @@ class TaskObservability:
             normalized_attributes.setdefault("error", str(exc))
             raise
         finally:
+            duration_s = max(0.0, monotonic() - started_at)
+            safe_name = _safe_text(name, fallback="unknown_span")
+            safe_stage = _safe_text(stage, fallback="unknown_stage")
             self._spans.append(
                 {
-                    "name": _safe_text(name, fallback="unknown_span"),
-                    "stage": _safe_text(stage, fallback="unknown_stage"),
+                    "name": safe_name,
+                    "stage": safe_stage,
                     "status": status,
-                    "durationMs": max(0, int((monotonic() - started_at) * 1000)),
+                    "durationMs": max(0, int(duration_s * 1000)),
                     "attributes": normalized_attributes,
                 }
             )
+            # Emit Prometheus metrics for this stage
+            try:
+                _pipeline_metrics.record_stage(safe_stage, status, duration_s)
+            except Exception:  # noqa: BLE001 — never break the caller over metrics
+                pass
 
     def record_metric(self, name: str, value: float = 1, *, unit: str = "count", **tags: Any) -> None:
         metric_name = _safe_text(name, fallback="unknown_metric")
@@ -253,3 +269,73 @@ def _copy_summary(summary: dict[str, Any]) -> dict[str, Any]:
     output["spans"] = [dict(item) for item in summary.get("spans", []) if isinstance(item, dict)]
     output["metrics"] = [dict(item) for item in summary.get("metrics", []) if isinstance(item, dict)]
     return output
+
+
+# ---------------------------------------------------------------------------
+# Prometheus metric helpers (called from orchestrator / workflow)
+# ---------------------------------------------------------------------------
+
+def record_input_language(language: str) -> None:
+    """Record detected input language for a task (e.g. 'python', 'javascript', 'unknown')."""
+    try:
+        _pipeline_metrics.record_input_language(language)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def record_failure_class(error_class: str) -> None:
+    """Record a failure by error taxonomy class (llm, sandbox, validation, protocol, plugin)."""
+    try:
+        _pipeline_metrics.record_failure_class(error_class)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def log_fix_loop_attempt(
+    task: dict[str, Any],
+    *,
+    attempt: int,
+    max_attempts: int,
+    success: bool,
+    error: str = "",
+) -> None:
+    """Log a fix-loop iteration and record observability metrics."""
+    observation = ensure_task_observability(task, engine=str(task.get("_agentEngine", "")).strip())
+    status = "success" if success else "failed"
+    observation.record_metric(
+        "fix_loop_attempt_total",
+        1,
+        unit="count",
+        status=status,
+        attempt=str(attempt),
+        engine=observation.engine,
+    )
+    _logger.info(
+        "fix_loop_attempt task_id=%s attempt=%d/%d success=%s error=%s",
+        observation.task_id,
+        attempt,
+        max_attempts,
+        success,
+        error,
+    )
+
+
+def log_structured(
+    task: dict[str, Any],
+    *,
+    level: str,
+    message: str,
+    **extra: Any,
+) -> None:
+    """Emit a structured log entry enriched with task context."""
+    observation = ensure_task_observability(task, engine=str(task.get("_agentEngine", "")).strip())
+    log_fn = getattr(_logger, level, _logger.info)
+    fields = " ".join(f"{k}={v}" for k, v in extra.items())
+    log_fn(
+        "%s task_id=%s trace_id=%s run_id=%s %s",
+        message,
+        observation.task_id,
+        observation.trace_id,
+        observation.run_id,
+        fields,
+    )

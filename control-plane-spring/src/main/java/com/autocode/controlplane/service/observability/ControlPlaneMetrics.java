@@ -11,6 +11,9 @@ public class ControlPlaneMetrics {
     public final Counter tasksCreated;
     public final Counter tasksPolled;
     public final Counter taskEventsIngested;
+    public final Counter duplicateEvents;
+    public final Counter illegalStateTransitions;
+    public final Counter ackFailures;
     public final Counter leaseRequeued;
     public final Timer pollDuration;
 
@@ -19,6 +22,9 @@ public class ControlPlaneMetrics {
         this.tasksCreated = registry.counter("mvp_tasks_created_total");
         this.tasksPolled = registry.counter("mvp_tasks_polled_total");
         this.taskEventsIngested = registry.counter("mvp_task_events_ingested_total");
+        this.duplicateEvents = registry.counter("mvp_task_events_duplicate_total");
+        this.illegalStateTransitions = registry.counter("mvp_task_illegal_transition_total");
+        this.ackFailures = registry.counter("mvp_task_ack_failures_total");
         this.leaseRequeued = registry.counter("mvp_task_lease_requeued_total");
         this.pollDuration = registry.timer("mvp_task_poll_duration");
     }

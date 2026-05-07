@@ -480,13 +480,18 @@ public class TaskService {
     }
 
     /**
+     * Ingest result carrying the task summary, assigned seq, and whether the event was a duplicate.
+     */
+    public record IngestResult(TaskSummary summary, long assignedSeq, boolean duplicate) {}
+
+    /**
      * 摄取 Agent 上报事件：去重、分配 seq、驱动状态机、落库并通过 WS 广播。
      */
     public Optional<TaskSummary> ingestAgentEvent(String taskId, TaskEvent event) {
-        return ingestAgentEvent(taskId, event, null);
+        return ingestAgentEvent(taskId, event, null).map(IngestResult::summary);
     }
 
-    public Optional<TaskSummary> ingestAgentEvent(String taskId, TaskEvent event, String nodeId) {
+    public Optional<IngestResult> ingestAgentEvent(String taskId, TaskEvent event, String nodeId) {
         taskEventValidator.validateOrThrow(event);
         // Lock task row to make seq allocation and status folding stable under concurrent ingest.
         TaskEntity task = taskRepository.findOptionalByIdForUpdate(taskId).orElse(null);
@@ -497,7 +502,12 @@ public class TaskService {
         validateAssignedNodeForIngest(task, nodeId);
         ensureEventId(event);
         if (taskEventRepository.existsById(event.getEventId())) {
-            return Optional.of(modelMapper.toSummary(task));
+            metrics.duplicateEvents.increment();
+            // For duplicates, look up the original seq from the persisted event
+            long originalSeq = taskEventRepository.findById(event.getEventId())
+                    .map(TaskEventEntity::getSeqNum)
+                    .orElse(0L);
+            return Optional.of(new IngestResult(modelMapper.toSummary(task), originalSeq, true));
         }
 
         // 规范化事件（补齐 task/session/assistant/timestamp，并分配 seq）
@@ -527,7 +537,7 @@ public class TaskService {
         ));
         metrics.taskEventsIngested.increment();
 
-        return Optional.of(modelMapper.toSummary(task));
+        return Optional.of(new IngestResult(modelMapper.toSummary(task), event.getSeq(), false));
     }
 
     private void validateAssignedNodeForIngest(TaskEntity task, String nodeId) {
@@ -570,6 +580,28 @@ public class TaskService {
 
     private void updateTaskStateFromEvent(TaskEntity task, TaskEvent event) {
         task.setUpdatedAt(Instant.now());
+
+        // Validate state transition legality before applying any changes
+        if (isTerminal(task.getStatus()) && !isAllowedFromTerminal(event.getType())) {
+            metrics.illegalStateTransitions.increment();
+            auditService.log(task.getTaskId(), "control-plane", "event.rejected.terminal_state", Map.of(
+                    "eventType", event.getType().name(),
+                    "currentStatus", task.getStatus().name(),
+                    "reason", "event_not_allowed_in_terminal_state"
+            ));
+            throw new IllegalStateException(
+                    "Cannot process " + event.getType() + " in terminal state " + task.getStatus());
+        }
+        if (!isLegalTransition(task.getStatus(), event.getType())) {
+            metrics.illegalStateTransitions.increment();
+            auditService.log(task.getTaskId(), "control-plane", "event.rejected.illegal_transition", Map.of(
+                    "eventType", event.getType().name(),
+                    "currentStatus", task.getStatus().name(),
+                    "reason", "illegal_state_transition"
+            ));
+            throw new IllegalStateException(
+                    "Illegal state transition: " + task.getStatus() + " + " + event.getType());
+        }
         if (event.getType() == EventType.APPROVAL_REQUIRED) {
             String approvalId = extractOrCreateApprovalId(event);
             task.setApprovalId(approvalId);
@@ -1061,6 +1093,50 @@ public class TaskService {
 
     private boolean isTerminal(TaskStatus status) {
         return status == TaskStatus.DONE || status == TaskStatus.FAILED || status == TaskStatus.CANCELED;
+    }
+
+    /**
+     * Determines whether an event type is allowed when the task is in a terminal state.
+     * Only HEARTBEAT is permitted (for liveness signals); all others must be rejected.
+     */
+    private boolean isAllowedFromTerminal(EventType eventType) {
+        return eventType == EventType.HEARTBEAT;
+    }
+
+    /**
+     * Validates legal state transitions. Returns true if the (currentStatus, eventType) pair
+     * may lead to a valid new state. Events that don't change status (informational events)
+     * are allowed from any non-terminal active state.
+     */
+    private boolean isLegalTransition(TaskStatus current, EventType eventType) {
+        // Informational events: allowed from any active (non-terminal) state
+        if (isInformationalEvent(eventType)) {
+            return true;
+        }
+
+        // State-changing events: check the transition table
+        return switch (eventType) {
+            case TASK_STARTED -> current == TaskStatus.QUEUED;
+            case TASK_DONE -> current == TaskStatus.RUNNING;
+            case TASK_FAILED -> current == TaskStatus.RUNNING || current == TaskStatus.WAITING_APPROVAL;
+            case APPROVAL_REQUIRED -> current == TaskStatus.RUNNING;
+            case APPROVAL_RESULT -> current == TaskStatus.WAITING_APPROVAL;
+            case DEPLOY_PLAN -> current == TaskStatus.RUNNING || current == TaskStatus.WAITING_APPROVAL;
+            case DEPLOY_RESULT -> current == TaskStatus.RUNNING;
+            default -> true; // Allow unknown event types to pass (forward compatibility)
+        };
+    }
+
+    /**
+     * Informational events carry data but don't trigger status transitions.
+     */
+    private boolean isInformationalEvent(EventType eventType) {
+        return switch (eventType) {
+            case ASSISTANT_OUTPUT, TOOL_START, TOOL_END, FILE_PATCH_PREVIEW,
+                 SPEC_PROPOSED, BUILD_STARTED, BUILD_LOG, BUILD_DONE,
+                 ARTIFACT_READY, HEARTBEAT -> true;
+            default -> false;
+        };
     }
 
     private String randomId() {

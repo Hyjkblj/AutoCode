@@ -6,6 +6,8 @@ package com.autocode.controlplane.api;
 import com.autocode.controlplane.model.AgentNode;
 import com.autocode.controlplane.service.AgentRegistryService;
 import com.autocode.controlplane.service.TaskService;
+import com.autocode.event.EventController;
+import com.autocode.protocol.model.EventAckResponse;
 import com.autocode.protocol.model.ApprovalDecision;
 import com.autocode.protocol.model.TaskSummary;
 import jakarta.validation.Valid;
@@ -25,10 +27,12 @@ import java.util.Map;
 public class AgentController {
     private final AgentRegistryService agentRegistryService;
     private final TaskService taskService;
+    private final EventController eventController;
 
-    public AgentController(AgentRegistryService agentRegistryService, TaskService taskService) {
+    public AgentController(AgentRegistryService agentRegistryService, TaskService taskService, EventController eventController) {
         this.agentRegistryService = agentRegistryService;
         this.taskService = taskService;
+        this.eventController = eventController;
     }
 
     @PostMapping("/register")
@@ -64,27 +68,15 @@ public class AgentController {
     }
 
     @PostMapping("/tasks/{taskId}/events")
-    public ResponseEntity<ApiResponse<TaskSummary>> ingestEvent(
+    public ResponseEntity<ApiResponse<EventAckResponse>> ingestEvent(
             @PathVariable("taskId") String taskId,
             @RequestParam(value = "nodeId", required = false)
             @Size(max = 64, message = "nodeId size must be between 0 and 64")
             String nodeId,
             @Valid @RequestBody AgentEventRequest request
     ) {
-        String normalizedNodeId = null;
-        if (nodeId != null) {
-            normalizedNodeId = nodeId.trim();
-            if (normalizedNodeId.isEmpty()) {
-                throw new IllegalArgumentException("nodeId must not be blank");
-            }
-            if (!agentRegistryService.isNodeRegistered(normalizedNodeId)) {
-                return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                        .body(ApiResponse.error("node not registered"));
-            }
-        }
-        return taskService.ingestAgentEvent(taskId, request.getEvent(), normalizedNodeId)
-                .map(summary -> ResponseEntity.ok(ApiResponse.ok(summary)))
-                .orElseGet(() -> ResponseEntity.notFound().build());
+        // Delegate to the new EventController for ACK protocol compliance
+        return eventController.ingestEventWithAck(taskId, nodeId, request);
     }
 
     @GetMapping("/tasks/{taskId}/approval")

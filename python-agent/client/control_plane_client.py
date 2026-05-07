@@ -53,7 +53,9 @@ class ControlPlaneClient:
         self.agent_version = agent_version.strip() or "0.1.0"
         self.timeout_seconds = timeout_seconds if timeout_seconds > 0 else 15
         self.user_agent = f"AutoCode-Python-Agent/{self.agent_version}"
-        
+        self._jwt_token: str | None = None
+        self._jwt_expires_at: float = 0.0
+
         # Initialize circuit breaker for event delivery
         self._event_circuit_breaker = CircuitBreaker(
             name="control_plane_events",
@@ -601,7 +603,7 @@ class ControlPlaneClient:
             files={"file": (file_name, file_bytes, mime)},
         )
         headers = {
-            "X-Agent-Token": self.agent_token,
+            **self._get_auth_header(),
             "User-Agent": self.user_agent,
             "Accept": "application/json",
             "Content-Type": f"multipart/form-data; boundary={boundary}",
@@ -633,6 +635,47 @@ class ControlPlaneClient:
                 status_code=exc.code,
             ) from exc
 
+    def _obtain_jwt(self) -> str | None:
+        """Request a short-lived JWT from the control plane using the static agent token."""
+        url = f"{self.base_url}/api/v1/auth/agent/token"
+        body = json.dumps({"agentToken": self.agent_token}).encode("utf-8")
+        req = request.Request(
+            url=url,
+            method="POST",
+            data=body,
+            headers={
+                "Content-Type": "application/json; charset=utf-8",
+                "Accept": "application/json",
+                "User-Agent": self.user_agent,
+            },
+        )
+        try:
+            with request.urlopen(req, timeout=5) as resp:  # noqa: S310
+                raw = resp.read().decode("utf-8").strip()
+                if not raw:
+                    return None
+                data = json.loads(raw)
+                payload = data.get("payload", data)
+                jwt = payload.get("accessToken")
+                expires_in = int(payload.get("expiresInSeconds", 900))
+                if jwt:
+                    self._jwt_token = jwt
+                    self._jwt_expires_at = time.time() + expires_in - 30  # 30s safety margin
+                return jwt
+        except Exception:
+            return None
+
+    def _get_auth_header(self) -> dict[str, str]:
+        """Return auth header, preferring JWT over static token."""
+        now = time.time()
+        if self._jwt_token and now < self._jwt_expires_at:
+            return {"Authorization": f"Bearer {self._jwt_token}"}
+        # Try to refresh JWT (non-blocking: fall back to static token on failure)
+        jwt = self._obtain_jwt()
+        if jwt:
+            return {"Authorization": f"Bearer {jwt}"}
+        return {"X-Agent-Token": self.agent_token}
+
     def _post_json(self, path: str, body: dict[str, Any]) -> dict[str, Any] | None:
         data = self._request_json("POST", path, body=body)
         return _extract_payload(data) if data is not None else None
@@ -647,7 +690,7 @@ class ControlPlaneClient:
         url = _build_url(self.base_url, path, query)
         data_bytes = None
         headers = {
-            "X-Agent-Token": self.agent_token,
+            **self._get_auth_header(),
             "User-Agent": self.user_agent,
             "Accept": "application/json",
         }

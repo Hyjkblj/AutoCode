@@ -64,6 +64,10 @@ class ValidationGate:
                         "backend/models.py",
                         "requirements.txt",
                         "README.generated.md",
+                        "docker-compose.yml",
+                        "Dockerfile.backend",
+                        "nginx.conf",
+                        ".env.example",
                     ],
                 )
             )
@@ -76,7 +80,10 @@ class ValidationGate:
             errors.extend(_validate_backend_sources(workspace / "backend" / "app.py"))
             errors.extend(_validate_requirements_txt(workspace / "requirements.txt"))
             errors.extend(_validate_backend_runtime(workspace))
-            
+            errors.extend(_validate_docker_compose(workspace / "docker-compose.yml"))
+            errors.extend(_validate_dockerfile(workspace / "Dockerfile.backend"))
+            errors.extend(_validate_nginx_conf(workspace / "nginx.conf"))
+
             # Check for package.json if present
             package_json = workspace / "frontend" / "package.json"
             if package_json.exists():
@@ -413,3 +420,60 @@ def _is_environment_dependency_error(error_message: str) -> bool:
         "aiosqlite",
     )
     return any(dep in normalized for dep in known_runtime_dependencies)
+
+
+def _validate_docker_compose(file_path: Path) -> list[str]:
+    """Validate docker-compose.yml has required structure."""
+    if not file_path.exists():
+        return []
+
+    errors: list[str] = []
+    try:
+        text = file_path.read_text(encoding="utf-8")
+        if "services:" not in text:
+            errors.append("docker-compose.yml: missing 'services' key")
+        if "backend:" not in text:
+            errors.append("docker-compose.yml: missing 'backend' service")
+        if "frontend:" not in text:
+            errors.append("docker-compose.yml: missing 'frontend' service")
+    except Exception as exc:
+        errors.append(f"docker-compose.yml reading error: {str(exc)}")
+    return errors
+
+
+def _validate_dockerfile(file_path: Path) -> list[str]:
+    """Validate Dockerfile has required structure."""
+    if not file_path.exists():
+        return []
+
+    errors: list[str] = []
+    try:
+        text = file_path.read_text(encoding="utf-8")
+        if not re.search(r"^FROM\s+\S+", text, re.MULTILINE):
+            errors.append(f"{file_path.name}: missing FROM instruction")
+        if "COPY" not in text:
+            errors.append(f"{file_path.name}: missing COPY instruction")
+        if "CMD" not in text and "ENTRYPOINT" not in text:
+            errors.append(f"{file_path.name}: missing CMD/ENTRYPOINT instruction")
+    except Exception as exc:
+        errors.append(f"{file_path.name} reading error: {str(exc)}")
+    return errors
+
+
+def _validate_nginx_conf(file_path: Path) -> list[str]:
+    """Validate nginx.conf has required structure."""
+    if not file_path.exists():
+        return []
+
+    errors: list[str] = []
+    try:
+        text = file_path.read_text(encoding="utf-8")
+        if "server" not in text:
+            errors.append("nginx.conf: missing 'server' block")
+        if "listen" not in text:
+            errors.append("nginx.conf: missing 'listen' directive")
+        if "location" not in text:
+            errors.append("nginx.conf: missing 'location' block")
+    except Exception as exc:
+        errors.append(f"nginx.conf reading error: {str(exc)}")
+    return errors

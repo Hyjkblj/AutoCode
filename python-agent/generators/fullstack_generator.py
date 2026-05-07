@@ -280,10 +280,11 @@ This is a complete fullstack application with:
 │   └── api-config.js       # API endpoint configuration
 ├── backend/
 │   ├── app.py              # Flask application with CRUD endpoints
-│   ├── models.py           # SQLAlchemy data models
-│   └── database.py         # Database configuration
+│   └── models.py           # Resource configuration constants
 ├── requirements.txt        # Python dependencies
 ├── docker-compose.yml      # Docker deployment configuration
+├── Dockerfile.backend      # Backend container image
+├── nginx.conf              # Frontend web server config
 ├── .env.example            # Environment variables template
 └── README.generated.md     # This file
 ```
@@ -416,7 +417,7 @@ To change the backend URL, update:
 
 ### Backend Development
 
-The backend uses Flask with SQLAlchemy ORM:
+The backend uses Flask with SQLite:
 
 - **Hot reload**: Set `FLASK_DEBUG=1` in `.env`
 - **Database reset**: Delete `backend/database.db` and restart

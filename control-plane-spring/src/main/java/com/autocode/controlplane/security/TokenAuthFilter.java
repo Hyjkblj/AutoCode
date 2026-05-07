@@ -1,5 +1,8 @@
 /**
  * Simple token auth filter for separating operator vs agent API calls.
+ *
+ * @deprecated Use {@link JwtSecurityConfig} with {@link JwtAgentTokenAuthAdapterFilter} instead.
+ *             Token mode will be removed in a future release.
  */
 package com.autocode.controlplane.security;
 
@@ -19,7 +22,8 @@ import java.io.IOException;
 import java.util.List;
 
 @Component
-@ConditionalOnProperty(prefix = "mvp.auth", name = "mode", havingValue = "token", matchIfMissing = true)
+@ConditionalOnProperty(prefix = "mvp.auth", name = "mode", havingValue = "token")
+@Deprecated(since = "2.0", forRemoval = true)
 public class TokenAuthFilter extends OncePerRequestFilter {
     private final AuthProperties authProperties;
 

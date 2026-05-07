@@ -17,7 +17,19 @@ import java.util.List;
 /**
  * In JWT mode, adapts legacy X-Agent-Token calls to an authenticated ROLE_AGENT context.
  *
- * This keeps Python agent traffic working without forcing the agent to mint JWT itself.
+ * <p>This keeps Python/Java agent traffic working without forcing the agent to mint JWT itself.
+ * The adapter reads {@code X-Agent-Token} from the request header, validates it against
+ * {@link AuthProperties#agentTokenList()}, and sets {@code ROLE_AGENT} authentication
+ * if no JWT-based authentication is already present.</p>
+ *
+ * <h3>Deprecation plan</h3>
+ * <p>This adapter is a <strong>temporary compatibility bridge</strong>. The target state is:</p>
+ * <ol>
+ *   <li>Agents obtain short-lived JWT via {@code POST /api/v1/auth/agent/token} (to be added)</li>
+ *   <li>Agents send {@code Authorization: Bearer <jwt>} instead of {@code X-Agent-Token}</li>
+ *   <li>This filter and the static agent token config are removed</li>
+ * </ol>
+ * <p>Until the agent JWT endpoint exists, this filter remains the supported path for agent auth.</p>
  */
 @Component
 @ConditionalOnProperty(prefix = "mvp.auth", name = "mode", havingValue = "jwt")

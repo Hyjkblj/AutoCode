@@ -17,9 +17,13 @@ import java.util.List;
 
 /**
  * Enforces token + deviceId on STOMP CONNECT in token auth mode.
+ *
+ * @deprecated Use {@link JwtWebSocketAuthInterceptor} (mvp.auth.mode=jwt) instead.
+ *             Token mode will be removed in a future release.
  */
 @Component
-@ConditionalOnProperty(prefix = "mvp.auth", name = "mode", havingValue = "token", matchIfMissing = true)
+@ConditionalOnProperty(prefix = "mvp.auth", name = "mode", havingValue = "token")
+@Deprecated(since = "2.0", forRemoval = true)
 public class TokenWebSocketAuthInterceptor implements ChannelInterceptor {
 
     private final AuthProperties authProperties;

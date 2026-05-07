@@ -317,6 +317,7 @@ docker compose --profile fullstack down
 
 - [后端架构详细设计](docs/backend-architecture-java-security-python-agent.md)
 - [开发路线图](docs/roadmap.md)
+- [升级 2.0 系统完善整体方案](docs/升级2.0/系统完善整体方案-2026-05.md)
 
 ## 技术栈
 

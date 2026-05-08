@@ -9,6 +9,7 @@ import com.autocode.controlplane.api.ApiResponse;
 import com.autocode.controlplane.service.AgentRegistryService;
 import com.autocode.controlplane.service.TaskService;
 import com.autocode.controlplane.service.observability.ControlPlaneMetrics;
+import com.autocode.controlplane.service.protocol.EventIngressService;
 import com.autocode.protocol.model.AckErrorCode;
 import com.autocode.protocol.model.EventAckResponse;
 import jakarta.validation.Valid;
@@ -34,6 +35,7 @@ public class EventController {
     private static final Logger log = LoggerFactory.getLogger(EventController.class);
 
     private final TaskService taskService;
+    private final EventIngressService eventIngressService;
     private final StringRedisTemplate redisTemplate;
     private final EventDeduplicationService deduplicationService;
     private final AgentRegistryService agentRegistryService;
@@ -42,11 +44,13 @@ public class EventController {
     @Autowired
     public EventController(
             TaskService taskService,
+            EventIngressService eventIngressService,
             StringRedisTemplate redisTemplate,
             EventDeduplicationService deduplicationService,
             AgentRegistryService agentRegistryService,
             ControlPlaneMetrics metrics) {
         this.taskService = taskService;
+        this.eventIngressService = eventIngressService;
         this.redisTemplate = redisTemplate;
         this.deduplicationService = deduplicationService;
         this.agentRegistryService = agentRegistryService;
@@ -104,8 +108,8 @@ public class EventController {
                         EventAckResponse.duplicate(originalSeq != null ? originalSeq : 0L)));
             }
 
-            // Process the event — TaskService handles DB-level dedup
-            Optional<TaskService.IngestResult> result = taskService.ingestAgentEvent(taskId, request.getEvent(), normalizedNodeId);
+            // Process the event via EventIngressService boundary
+            Optional<TaskService.IngestResult> result = eventIngressService.ingest(taskId, request.getEvent(), normalizedNodeId);
 
             if (result.isEmpty()) {
                 metrics.ackFailures.increment();

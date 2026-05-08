@@ -54,3 +54,69 @@ groups:
         annotations:
           summary: Control Plane heap usage is high
           description: Heap utilization has been above 85% for 10 minutes.
+
+  - name: autocode-pipeline
+    rules:
+      - alert: PipelineStageHighFailureRate
+        expr: |
+          (
+            sum by (stage) (rate(pipeline_stage_total{status="failed"}[5m]))
+            /
+            clamp_min(sum by (stage) (rate(pipeline_stage_total[5m])), 1)
+          ) > 0.10
+        for: 5m
+        labels:
+          severity: warning
+          service: python-agent
+        annotations:
+          summary: "Pipeline stage {{ $labels.stage }} failure rate > 10%"
+          description: "Stage {{ $labels.stage }} has a failure rate above 10% for 5 minutes."
+
+      - alert: PipelineStageSlowP95
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (le, stage) (rate(pipeline_stage_duration_seconds_bucket[5m]))
+          ) > 30
+        for: 10m
+        labels:
+          severity: warning
+          service: python-agent
+        annotations:
+          summary: "Pipeline stage {{ $labels.stage }} P95 > 30s"
+          description: "Stage {{ $labels.stage }} P95 latency has exceeded 30 seconds for 10 minutes."
+
+      - alert: AgentDown
+        expr: up{job="python-agent"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          service: python-agent
+        annotations:
+          summary: Python Agent unavailable
+          description: Python Agent has not been reachable for more than 2 minutes.
+
+      - alert: GenerationHighFailureRate
+        expr: |
+          (
+            sum(rate(generation_total{result="failed"}[5m]))
+            /
+            clamp_min(sum(rate(generation_total[5m])), 1)
+          ) > 0.15
+        for: 5m
+        labels:
+          severity: warning
+          service: python-agent
+        annotations:
+          summary: Generation failure rate > 15%
+          description: Code generation failure rate has been above 15% for 5 minutes.
+
+      - alert: ValidationFailureSpike
+        expr: sum(rate(validation_failure_total[5m])) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          service: python-agent
+        annotations:
+          summary: Validation failure rate elevated
+          description: Validation failure rate has been above 0.1/s for 5 minutes.

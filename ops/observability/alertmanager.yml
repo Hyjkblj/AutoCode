@@ -10,6 +10,13 @@ route:
   group_wait: 30s
   group_interval: 5m
   repeat_interval: 4h
+  routes:
+    - receiver: pipeline-alerts
+      match:
+        service: python-agent
+      group_wait: 30s
+      repeat_interval: 2h
 
 receivers:
   - name: default-drop
+  - name: pipeline-alerts

@@ -325,17 +325,20 @@ def log_structured(
     *,
     level: str,
     message: str,
+    stage: str = "",
     **extra: Any,
 ) -> None:
     """Emit a structured log entry enriched with task context."""
     observation = ensure_task_observability(task, engine=str(task.get("_agentEngine", "")).strip())
     log_fn = getattr(_logger, level, _logger.info)
     fields = " ".join(f"{k}={v}" for k, v in extra.items())
+    stage_part = f" stage={stage}" if stage else ""
     log_fn(
-        "%s task_id=%s trace_id=%s run_id=%s %s",
+        "%s task_id=%s trace_id=%s run_id=%s%s %s",
         message,
         observation.task_id,
         observation.trace_id,
         observation.run_id,
+        stage_part,
         fields,
     )

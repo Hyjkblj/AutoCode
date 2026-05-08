@@ -8,7 +8,7 @@ from typing import Any
 from uuid import uuid4
 
 from client.control_plane_client import ControlPlaneClient
-from utils.observability import enrich_payload, ensure_task_observability, record_event_publish
+from utils.observability import enrich_payload, ensure_task_observability, log_structured, record_event_publish
 
 
 class BaseAgent(ABC):
@@ -33,6 +33,7 @@ class BaseAgent(ABC):
         if not task_id:
             raise ValueError("task.taskId is required")
         ensure_task_observability(task, engine=str(task.get("_agentEngine", "")).strip())
+        log_structured(task, level="info", message="publishing event", stage="event_publish", eventType=event_type)
         self._flush_outbox(task, client)
         event = self._build_event(
             task=task,
@@ -78,20 +79,27 @@ class BaseAgent(ABC):
 
     def _deliver_event(self, task: dict[str, Any], event: dict[str, Any], client: ControlPlaneClient) -> None:
         task_id = str(task.get("taskId", "")).strip()
+        event_type = str(event.get("type", "")).strip()
         attempts = 1
         publish_with_retry_result = getattr(client, "publish_event_with_retry_result", None)
         if callable(publish_with_retry_result):
             result = publish_with_retry_result(task_id, event)
             attempts = max(1, int(getattr(result, "attempts", 1)))
-            record_event_publish(task, str(event.get("type", "")).strip(), attempts=attempts)
+            record_event_publish(task, event_type, attempts=attempts)
+            log_structured(task, level="info", message="event delivered", stage="event_delivery",
+                           eventType=event_type, attempts=attempts)
             return
         publish_with_retry = getattr(client, "publish_event_with_retry", None)
         if callable(publish_with_retry):
             publish_with_retry(task_id, event)
-            record_event_publish(task, str(event.get("type", "")).strip(), attempts=attempts)
+            record_event_publish(task, event_type, attempts=attempts)
+            log_structured(task, level="info", message="event delivered", stage="event_delivery",
+                           eventType=event_type, attempts=attempts)
             return
         client.publish_event(task_id, event)
-        record_event_publish(task, str(event.get("type", "")).strip(), attempts=attempts)
+        record_event_publish(task, event_type, attempts=attempts)
+        log_structured(task, level="info", message="event delivered", stage="event_delivery",
+                       eventType=event_type)
 
     def _enqueue_outbox(self, task_id: str, event: dict[str, Any]) -> None:
         with self._outbox_lock:

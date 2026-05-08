@@ -113,6 +113,11 @@ class ControlPlaneClient:
             ACK payload from Control Plane, or None if no response
         """
         safe_task_id = parse.quote(task_id, safe="")
+        self._logger.info("publishing event", extra={
+            "taskId": task_id,
+            "eventType": event.get("type", "unknown"),
+            "stage": "event_publish",
+        })
         return self._post_json(f"/api/v1/agent/tasks/{safe_task_id}/events", {"event": event})
 
     def publish_event_with_retry(

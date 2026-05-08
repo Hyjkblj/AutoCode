@@ -492,7 +492,6 @@ public class TaskService {
     }
 
     public Optional<IngestResult> ingestAgentEvent(String taskId, TaskEvent event, String nodeId) {
-        taskEventValidator.validateOrThrow(event);
         // Lock task row to make seq allocation and status folding stable under concurrent ingest.
         TaskEntity task = taskRepository.findOptionalByIdForUpdate(taskId).orElse(null);
         if (task == null) {

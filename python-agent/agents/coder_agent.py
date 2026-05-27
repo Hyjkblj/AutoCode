@@ -13,7 +13,9 @@ from generators.fullstack_generator import FullstackGenerator
 from llm.llm_client import LLMClient
 from plugins.contracts import PluginContext
 from plugins.registry import PluginRegistry
+from tools.code_index import CodeIndex
 from tools.file_tool import FileTool
+from tools.git_tool import GitTool
 from tools.search_tool import SearchTool
 from utils.circuit_breaker import CircuitBreaker, CircuitBreakerOpenError
 from utils.observability import ensure_task_observability
@@ -31,6 +33,8 @@ class CoderAgent:
         llm_client: LLMClient | None = None,
         circuit_breaker: CircuitBreaker | None = None,
         plugin_registry: PluginRegistry | None = None,
+        code_index: CodeIndex | None = None,
+        git_tool: GitTool | None = None,
     ) -> None:
         self.file_tool = file_tool or FileTool()
         self.search_tool = search_tool or SearchTool()
@@ -43,6 +47,8 @@ class CoderAgent:
         self.llm_client = llm_client or LLMClient()
         self.circuit_breaker = circuit_breaker or CircuitBreaker(name="coder-llm")
         self.plugin_registry = plugin_registry or PluginRegistry()
+        self.code_index = code_index
+        self.git_tool = git_tool
 
     def execute(
         self,
@@ -454,6 +460,46 @@ class CoderAgent:
         if not text:
             raise ValueError("empty coder llm response")
         return text if text.endswith("\n") else f"{text}\n"
+
+    def _resolve_target_files(self, task: dict[str, Any], plan) -> list:
+        from pathlib import Path
+        if self.code_index and self.code_index._files:
+            prompt = str(task.get("prompt", ""))
+            context = self.code_index.to_context_summary()
+            user_msg = (
+                f"Project structure:\n{context}\n\n"
+                f"Task: {prompt}\n\n"
+                f"List the files that need to be modified, one per line. Only list files that exist."
+            )
+            try:
+                response = self.llm_client.generate(user_msg, system_prompt="You are a code navigation assistant. List only file paths.")
+                files = [Path(line.strip()) for line in response.strip().split("\n") if line.strip() and not line.startswith("#")]
+                return [f for f in files if (self.code_index.workspace / f).exists()]
+            except Exception:
+                pass
+        target = self._choose_target_file(task, plan)
+        return [target] if target else []
+
+    def _apply_incremental_edit(self, file_path, prompt: str, workspace) -> str:
+        from pathlib import Path
+        full_path = Path(workspace) / file_path
+        existing_content = ""
+        if full_path.exists():
+            existing_content = full_path.read_text(encoding="utf-8", errors="replace")
+        context_summary = ""
+        if self.code_index:
+            context_summary = self.code_index.to_context_summary(max_files=20)
+        user_msg = (
+            f"File: {file_path}\n"
+            f"Existing content:\n```\n{existing_content[:4000]}\n```\n\n"
+            f"Project context:\n{context_summary[:2000]}\n\n"
+            f"Modification request: {prompt}\n\n"
+            f"Return the COMPLETE modified file content. No explanations."
+        )
+        return self.llm_client.generate(
+            user_msg,
+            system_prompt="You are a precise code editor. Return only the file content."
+        )
 
     @staticmethod
     def _should_use_llm_for_edit(*, prompt: str, task: dict[str, Any], target_file: Path) -> bool:

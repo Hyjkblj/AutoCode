@@ -109,6 +109,48 @@ class RedisMemory:
             self._redis = None
             self._redis_enabled = False
 
+    def store_code_knowledge(self, project_key: str, knowledge: dict) -> None:
+        key = f"{self.namespace}:{project_key}:knowledge"
+        if self._redis:
+            import json
+            self._redis.hset(key, mapping={k: json.dumps(v) if isinstance(v, (dict, list)) else str(v) for k, v in knowledge.items()})
+
+    def get_code_knowledge(self, project_key: str) -> dict:
+        key = f"{self.namespace}:{project_key}:knowledge"
+        if self._redis:
+            raw = self._redis.hgetall(key)
+            return {k.decode(): v.decode() for k, v in raw.items()} if raw else {}
+        return {}
+
+    def store_file_summary(self, project_key: str, file_path: str, summary: str) -> None:
+        key = f"{self.namespace}:{project_key}:file_summaries"
+        if self._redis:
+            self._redis.hset(key, file_path, summary)
+
+    def get_file_summaries(self, project_key: str) -> dict[str, str]:
+        key = f"{self.namespace}:{project_key}:file_summaries"
+        if self._redis:
+            raw = self._redis.hgetall(key)
+            return {k.decode(): v.decode() for k, v in raw.items()}
+        return {}
+
+    def store_error_pattern(self, project_key: str, error: str, fix: str) -> None:
+        import hashlib
+        error_hash = hashlib.md5(error.encode()).hexdigest()[:12]
+        key = f"{self.namespace}:{project_key}:error_fixes"
+        if self._redis:
+            self._redis.hset(key, error_hash, f"{error}\n---\n{fix}")
+
+    def get_error_fixes(self, project_key: str, error: str) -> list[str]:
+        key = f"{self.namespace}:{project_key}:error_fixes"
+        if self._redis:
+            import hashlib
+            error_hash = hashlib.md5(error.encode()).hexdigest()[:12]
+            raw = self._redis.hget(key, error_hash)
+            if raw:
+                return [raw.decode().split("\n---\n", 1)[-1]]
+        return []
+
     def _key(self, project_key: str) -> str:
         normalized = _normalize_project_key(project_key)
         return f"{self.namespace}:{normalized}"

@@ -14,9 +14,17 @@ if _env_file.exists():
 
 import argparse
 
+from agents.dialogue_manager import DialogueManager
 from client.control_plane_client import ControlPlaneClient
+from generators.test_generator import TestGenerator
+from llm.llm_client import LLMClient
+from memory.knowledge_extractor import KnowledgeExtractor
 from orchestrator.agent_orchestrator import AgentOrchestrator
+from plugins.human_gate import HumanGate
 from runner import AgentRunner, RunnerConfig
+from tools.code_index import CodeIndex
+from tools.git_tool import GitTool
+from tools.repo_bootstrap import RepoBootstrap
 
 
 def _read_int_env(key: str, default: int) -> int:
@@ -64,7 +72,30 @@ def main() -> int:
         agent_token=config.agent_token,
         agent_version=config.agent_version,
     )
-    runner = AgentRunner(client=client, config=config, agent=AgentOrchestrator())
+
+    # Super Individual components
+    llm_client = LLMClient()
+    git_tool = GitTool(use_local_git=True)
+    code_index = CodeIndex(workspace=".")
+    dialogue_manager = DialogueManager(llm_client=llm_client)
+    repo_bootstrap = RepoBootstrap(git_tool=git_tool)
+    human_gate = HumanGate(client=client)
+    knowledge_extractor = KnowledgeExtractor(llm_client=llm_client)
+    test_generator = TestGenerator(llm_client=llm_client)
+
+    runner = AgentRunner(
+        client=client,
+        config=config,
+        agent=AgentOrchestrator(
+            git_tool=git_tool,
+            code_index=code_index,
+            dialogue_manager=dialogue_manager,
+            repo_bootstrap=repo_bootstrap,
+            human_gate=human_gate,
+            knowledge_extractor=knowledge_extractor,
+            test_generator=test_generator,
+        ),
+    )
     if args.once:
         runner.tick()
         return 0

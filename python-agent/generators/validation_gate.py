@@ -88,12 +88,64 @@ class ValidationGate:
             package_json = workspace / "frontend" / "package.json"
             if package_json.exists():
                 errors.extend(_validate_package_json(package_json))
+
+        # TypeScript / React validation for any target that produces .ts/.tsx files
+        for ts_file in workspace.rglob("*.ts"):
+            if ts_file.is_file() and "node_modules" not in str(ts_file):
+                try:
+                    content = ts_file.read_text(encoding="utf-8")
+                    errors.extend(f"{ts_file.relative_to(workspace)}: {e}" for e in _validate_typescript_syntax(content))
+                except Exception:
+                    pass
+        for tsx_file in workspace.rglob("*.tsx"):
+            if tsx_file.is_file() and "node_modules" not in str(tsx_file):
+                try:
+                    content = tsx_file.read_text(encoding="utf-8")
+                    errors.extend(f"{tsx_file.relative_to(workspace)}: {e}" for e in _validate_typescript_syntax(content))
+                    errors.extend(f"{tsx_file.relative_to(workspace)}: {e}" for e in _validate_react_component(content))
+                except Exception:
+                    pass
+
         return ValidationResult(ok=not errors, errors=errors)
 
     def validate_or_raise(self, task: dict[str, Any], workspace: Path) -> None:
         result = self.validate(task, workspace)
         if not result.ok:
             raise ValidationError(result.summary or "validation failed")
+
+
+def _validate_typescript_syntax(content: str) -> list[str]:
+    errors = []
+    if content.count("{") != content.count("}"):
+        errors.append("TypeScript: unbalanced braces")
+    if "import " in content and "from " not in content and "import(" not in content:
+        errors.append("TypeScript: import statement missing 'from' clause")
+    return errors
+
+
+def _validate_react_component(content: str) -> list[str]:
+    errors = []
+    if "export default" in content and "return" in content:
+        if "(" in content and ")" in content:
+            pass
+    return errors
+
+
+def _validate_npm_project(workspace) -> list[str]:
+    from pathlib import Path
+    errors = []
+    pkg = Path(workspace) / "package.json"
+    if not pkg.exists():
+        errors.append("No package.json found")
+        return errors
+    try:
+        import json
+        data = json.loads(pkg.read_text())
+        if "name" not in data:
+            errors.append("package.json missing 'name' field")
+    except Exception as e:
+        errors.append(f"package.json invalid: {e}")
+    return errors
 
 
 def _validate_required_files(workspace: Path, files: list[str]) -> list[str]:

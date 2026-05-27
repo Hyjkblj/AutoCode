@@ -101,7 +101,8 @@ class TestGitToolLocalMode:
 
 
 class TestGitToolExecMode:
-    def test_clone_delegates_to_exec(self):
+    def test_exec_tool_stored_for_future_use(self):
         exec_tool = MagicMock()
-        exec_tool.execute.return_value = MagicMock(ok=True, output="cloned", exit_code=0)
         tool = GitTool(exec_tool=exec_tool)
+        assert tool.exec_tool is exec_tool
+        assert tool.use_local_git is False

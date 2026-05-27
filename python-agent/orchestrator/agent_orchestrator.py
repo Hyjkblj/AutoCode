@@ -7,19 +7,26 @@ from typing import Any
 
 from agents.base_agent import BaseAgent
 from agents.coder_agent import CoderAgent
+from agents.dialogue_manager import DialogueManager
 from agents.intent_agent import IntentAgent
 from agents.planner_agent import PlanResult, PlannerAgent
 from agents.reviewer_agent import ReviewResult, ReviewerAgent
 from agents.tester_agent import TesterAgent, TesterResult
 from client.control_plane_client import ControlPlaneClient
+from generators.test_generator import TestGenerator
 from generators.validation_gate import ValidationGate
+from memory.knowledge_extractor import KnowledgeExtractor
 from memory.redis_memory import RedisMemory
 from orchestrator.dag_scheduler import DagNode, DagScheduler
 from orchestrator.distributed_lock import DistributedTaskLock
 from orchestrator.langgraph_runtime import LangGraphExecutionResult, LangGraphRuntime
 from plugins.contracts import PluginContext
+from plugins.human_gate import HumanGate
 from plugins.registry import PluginRegistry
+from tools.code_index import CodeIndex
 from tools.exec_tool import ExecResult, ExecTool
+from tools.git_tool import GitTool
+from tools.repo_bootstrap import RepoBootstrap
 from utils.artifact_utils import ArtifactBundle, build_export_zip
 from utils.circuit_breaker import CircuitBreakerOpenError
 from utils.observability import (
@@ -46,6 +53,13 @@ class AgentOrchestrator(BaseAgent):
         langgraph_runtime: LangGraphRuntime | None = None,
         plugin_registry: PluginRegistry | None = None,
         engine: str | None = None,
+        git_tool: GitTool | None = None,
+        code_index: CodeIndex | None = None,
+        dialogue_manager: DialogueManager | None = None,
+        repo_bootstrap: RepoBootstrap | None = None,
+        human_gate: HumanGate | None = None,
+        knowledge_extractor: KnowledgeExtractor | None = None,
+        test_generator: TestGenerator | None = None,
     ) -> None:
         super().__init__()
         resolved_exec_tool = exec_tool or ExecTool()
@@ -63,6 +77,13 @@ class AgentOrchestrator(BaseAgent):
         self.langgraph_runtime = langgraph_runtime or LangGraphRuntime()
         self.plugin_registry = resolved_plugin_registry
         self.engine = _resolve_agent_engine(engine)
+        self.git_tool = git_tool
+        self.code_index = code_index
+        self.dialogue_manager = dialogue_manager
+        self.repo_bootstrap = repo_bootstrap
+        self.human_gate = human_gate
+        self.knowledge_extractor = knowledge_extractor
+        self.test_generator = test_generator
 
     def handle_task(self, task: dict[str, Any], client: ControlPlaneClient) -> None:
         working_task = dict(task)
@@ -101,6 +122,35 @@ class AgentOrchestrator(BaseAgent):
             lease.release()
 
     def _handle_task_locked(self, task: dict[str, Any], client: ControlPlaneClient) -> None:
+        workspace = _resolve_workspace(task)
+        prompt = str(task.get("prompt", "")).strip()
+
+        # --- Super Individual: Repo Bootstrap ---
+        repo_url = str(task.get("repoUrl", "")).strip()
+        if repo_url and self.repo_bootstrap:
+            pub = self._publisher(task, client)
+            pub("REPO_BOOTSTRAP_STARTED", {"repoUrl": repo_url})
+            bootstrap_result = self.repo_bootstrap.bootstrap(repo_url, str(workspace))
+            if not bootstrap_result.ok:
+                payload = self._terminal_payload(task, {"error": bootstrap_result.error}, task_status="TASK_FAILED", reason="repo bootstrap failed")
+                client.push_event(task["taskId"], "TASK_FAILED", payload)
+                return
+            pub("REPO_BOOTSTRAP_DONE", {"repoDir": bootstrap_result.repo_dir, "fileCount": bootstrap_result.file_count})
+            workspace = Path(bootstrap_result.repo_dir)
+
+            if self.code_index:
+                from tools.code_index import CodeIndex as CI
+                self.code_index = CI(workspace)
+                self.code_index.scan()
+                pub("CODE_INDEX_BUILT", {"fileCount": len(self.code_index._files), "symbolCount": len(self.code_index._symbol_index)})
+
+        # --- Super Individual: Dialogue Clarification ---
+        if self.dialogue_manager:
+            clarification = self.dialogue_manager.needs_clarification(prompt, stage="plan", context={"workspace": str(workspace)})
+            if clarification:
+                pub = self._publisher(task, client)
+                pub("CLARIFICATION_REQUESTED", {"question": clarification.question, "options": clarification.options})
+
         with observe_task_span(task, "memory_context", stage="Memory"):
             project_key = self.memory_store.project_key_for_task(task)
             history = self.memory_store.recent(project_key, limit=5)
@@ -122,7 +172,6 @@ class AgentOrchestrator(BaseAgent):
                 },
             )
 
-        prompt = str(task.get("prompt", "")).strip()
         observation = ensure_task_observability(task, engine=self.engine)
         with observe_task_span(task, "intent_inference", stage="IntentAgent"):
             decision = self._infer_intent(task, prompt, observation)

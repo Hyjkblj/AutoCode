@@ -1134,7 +1134,11 @@ public class TaskService {
         return switch (eventType) {
             case ASSISTANT_OUTPUT, TOOL_START, TOOL_END, FILE_PATCH_PREVIEW,
                  SPEC_PROPOSED, BUILD_STARTED, BUILD_LOG, BUILD_DONE,
-                 ARTIFACT_READY, HEARTBEAT -> true;
+                 ARTIFACT_READY, HEARTBEAT,
+                 CLARIFICATION_REQUESTED, CLARIFICATION_ANSWERED,
+                 REPO_BOOTSTRAP_STARTED, REPO_BOOTSTRAP_DONE,
+                 CODE_INDEX_BUILT, PLAN_APPROVAL_REQUESTED,
+                 TEST_GENERATED, KNOWLEDGE_WRITEBACK -> true;
             default -> false;
         };
     }

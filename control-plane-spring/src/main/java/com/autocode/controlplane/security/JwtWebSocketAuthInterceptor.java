@@ -1,6 +1,5 @@
 package com.autocode.controlplane.security;
 
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageChannel;
 import org.springframework.messaging.simp.stomp.StompCommand;
@@ -20,10 +19,9 @@ import java.util.Collection;
 import java.util.List;
 
 /**
- * Enforces JWT auth on STOMP CONNECT in JWT mode.
+ * Enforces JWT auth on STOMP CONNECT.
  */
 @Component
-@ConditionalOnProperty(prefix = "mvp.auth", name = "mode", havingValue = "jwt")
 public class JwtWebSocketAuthInterceptor implements ChannelInterceptor {
 
     private final JwtDecoder jwtDecoder;

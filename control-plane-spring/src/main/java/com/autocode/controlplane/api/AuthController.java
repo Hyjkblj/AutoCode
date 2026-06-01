@@ -5,7 +5,6 @@ import com.autocode.controlplane.security.JwtAuthProperties;
 import com.autocode.controlplane.persistence.entity.UserEntity;
 import com.autocode.controlplane.persistence.repo.UserEntityRepository;
 import com.autocode.controlplane.persistence.repo.UserRoleEntityRepository;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
 import org.springframework.security.oauth2.jwt.JwtClaimsSet;
 import org.springframework.security.oauth2.jwt.JwtEncoder;
@@ -27,7 +26,6 @@ import org.springframework.security.crypto.password.PasswordEncoder;
  */
 @RestController
 @RequestMapping("/api/v1/auth")
-@ConditionalOnProperty(prefix = "mvp.auth", name = "mode", havingValue = "jwt")
 public class AuthController {
     private final JwtEncoder jwtEncoder;
     private final JwtAuthProperties jwtProps;

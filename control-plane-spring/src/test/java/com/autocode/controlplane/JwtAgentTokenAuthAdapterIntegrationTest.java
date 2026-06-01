@@ -15,7 +15,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @SpringBootTest(properties = {
-        "mvp.auth.mode=jwt",
         "mvp.auth.jwt.secret=01234567890123456789012345678901",
         "mvp.auth.agent-tokens=ag-a,ag-b",
         "mvp.auth.revoked-tokens=ag-b"

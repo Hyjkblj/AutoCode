@@ -39,7 +39,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @SpringBootTest(properties = {
-        "mvp.auth.mode=token",
         "artifacts.download.shared-token=test-download-token",
         "artifacts.download.allow-authenticated-without-shared-token=false",
         "artifacts.storage.base-dir=./build/test-artifacts",
@@ -65,8 +64,7 @@ class ArtifactsIntegrationTest {
 
     @BeforeEach
     void setup() {
-        // Test fixture: enable method-security authorization in token mode by seeding a user + membership.
-        // TokenAuthFilter sets principal name to "operator" for operator bearer tokens.
+        // Test fixture: seed a user + membership for authorization.
         UserEntity user = userRepository.findByUsername("operator").orElseGet(() -> {
             UserEntity u = new UserEntity();
             u.setUserId("usr_operator");

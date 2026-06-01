@@ -1,0 +1,42 @@
+{
+  "version": "2.0",
+  "basedOn": "stitch/current-ui-design",
+  "createdAt": "2026-05-27",
+  "description": "Upgraded UI designs incorporating Super Individual pipeline features",
+  "changes": [
+    "4-tab navigation (Chat, Assets, Status, Settings) instead of 5-tab",
+    "Conversational chat interface with embedded task cards",
+    "9-step pipeline stepper (Bootstrap, Index, Clarify, Intent, Plan, Code, Review, Test, Knowledge)",
+    "Interactive clarification cards with option buttons",
+    "Plan approval cards with approve/reject actions",
+    "Code index summary cards",
+    "Real-time event timeline",
+    "Test result cards",
+    "Knowledge writeback indicators",
+    "Status monitoring dashboard with resource utilization",
+    "System health indicators"
+  ],
+  "screens": [
+    {
+      "file": "screens/chat-with-pipeline.html",
+      "title": "对话界面 - 流水线集成",
+      "description": "Chat-centric interface with embedded pipeline stepper, code index summary, event timeline, clarification cards, plan approval cards, and test results",
+      "theme": "light",
+      "features": ["pipeline-stepper", "code-index", "clarification", "plan-approval", "test-results", "knowledge-writeback", "event-timeline"]
+    },
+    {
+      "file": "screens/task-detail-pipeline.html",
+      "title": "任务详情 - 9步流水线",
+      "description": "Task detail view with 9-step pipeline stepper, real-time log console, file change preview, and agent status",
+      "theme": "dark",
+      "features": ["9-step-pipeline", "real-time-logs", "file-changes", "agent-status"]
+    },
+    {
+      "file": "screens/status-monitor.html",
+      "title": "状态监控 - 系统仪表盘",
+      "description": "System monitoring dashboard with active tasks, statistics, resource utilization, recent events, and health indicators",
+      "theme": "dark",
+      "features": ["active-tasks", "statistics", "resource-utilization", "event-feed", "system-health"]
+    }
+  ]
+}

@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html class="light" lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Amber Intelligence - 对话</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700;900&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<script>
+tailwind.config = {
+  darkMode: "class",
+  theme: {
+    extend: {
+      colors: {
+        "primary": "#855300",
+        "primary-container": "#f59e0b",
+        "on-primary": "#ffffff",
+        "on-primary-container": "#2a1700",
+        "surface": "#fff8f4",
+        "surface-container": "#fbebdd",
+        "surface-container-high": "#f5e6d7",
+        "on-surface": "#221a12",
+        "on-surface-variant": "#534434",
+        "secondary-container": "#e9e1dd",
+        "on-secondary-container": "#686361",
+        "tertiary": "#00658b",
+        "tertiary-container": "#c5e7ff",
+        "on-tertiary-container": "#004966",
+        "error": "#ba1a1a",
+        "error-container": "#ffdad6",
+        "outline": "#867461",
+        "outline-variant": "#d8c3ad",
+      },
+      fontFamily: { sans: ['Public Sans', 'sans-serif'] },
+    }
+  }
+}
+</script>
+<style>
+  .material-symbols-outlined {
+    font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+  }
+  .filled { font-variation-settings: 'FILL' 1; }
+  body { font-family: 'Public Sans', sans-serif; }
+  .chat-scroll::-webkit-scrollbar { width: 4px; }
+  .chat-scroll::-webkit-scrollbar-thumb { background: #d8c3ad; border-radius: 2px; }
+</style>
+</head>
+<body class="bg-surface min-h-screen pb-20">
+
+<!-- Header -->
+<header class="sticky top-0 z-40 bg-surface/95 backdrop-blur-sm border-b border-outline-variant/30 px-4 py-3">
+  <div class="flex items-center justify-between">
+    <div class="flex items-center gap-3">
+      <div class="w-9 h-9 rounded-full bg-primary-container flex items-center justify-center">
+        <span class="material-symbols-outlined filled text-on-primary-container text-xl">smart_toy</span>
+      </div>
+      <div>
+        <h1 class="text-base font-semibold text-on-surface">AI Agent</h1>
+        <div class="flex items-center gap-1.5">
+          <div class="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></div>
+          <span class="text-[11px] text-on-surface-variant">在线</span>
+        </div>
+      </div>
+    </div>
+    <div class="flex items-center gap-2">
+      <button class="w-9 h-9 rounded-full hover:bg-surface-container flex items-center justify-center transition-colors">
+        <span class="material-symbols-outlined text-on-surface-variant">history</span>
+      </button>
+      <button class="w-9 h-9 rounded-full hover:bg-surface-container flex items-center justify-center transition-colors">
+        <span class="material-symbols-outlined text-on-surface-variant">more_vert</span>
+      </button>
+    </div>
+  </div>
+</header>
+
+<!-- Chat Messages -->
+<main class="chat-scroll overflow-y-auto px-4 py-4 space-y-4" style="height: calc(100vh - 140px);">
+
+  <!-- System Message -->
+  <div class="flex justify-center">
+    <span class="text-[11px] text-on-surface-variant bg-surface-container px-3 py-1 rounded-full">今天 10:30</span>
+  </div>
+
+  <!-- Agent Welcome Message -->
+  <div class="flex gap-3 max-w-[85%]">
+    <div class="w-8 h-8 rounded-full bg-primary-container flex-shrink-0 flex items-center justify-center">
+      <span class="material-symbols-outlined filled text-on-primary-container text-sm">smart_toy</span>
+    </div>
+    <div class="bg-surface-container rounded-2xl rounded-tl-md p-4 space-y-2">
+      <p class="text-sm text-on-surface leading-relaxed">你好！我是 AutoCode AI Agent。我可以帮你：</p>
+      <ul class="text-sm text-on-surface-variant space-y-1 ml-1">
+        <li class="flex items-center gap-2">
+          <span class="material-symbols-outlined text-primary-container text-base">code</span>
+          <span>生成和修改代码</span>
+        </li>
+        <li class="flex items-center gap-2">
+          <span class="material-symbols-outlined text-primary-container text-base">bug_report</span>
+          <span>自动测试和修复</span>
+        </li>
+        <li class="flex items-center gap-2">
+          <span class="material-symbols-outlined text-primary-container text-base">rocket_launch</span>
+          <span>一键部署上线</span>
+        </li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- User Message -->
+  <div class="flex gap-3 max-w-[85%] ml-auto flex-row-reverse">
+    <div class="w-8 h-8 rounded-full bg-tertiary flex-shrink-0 flex items-center justify-center">
+      <span class="material-symbols-outlined filled text-white text-sm">person</span>
+    </div>
+    <div class="bg-tertiary rounded-2xl rounded-tr-md p-4">
+      <p class="text-sm text-white leading-relaxed">给文章列表中的每篇文章加一个收藏数徽章</p>
+    </div>
+  </div>
+
+  <!-- Agent: Task Created Card -->
+  <div class="flex gap-3 max-w-[85%]">
+    <div class="w-8 h-8 rounded-full bg-primary-container flex-shrink-0 flex items-center justify-center">
+      <span class="material-symbols-outlined filled text-on-primary-container text-sm">smart_toy</span>
+    </div>
+    <div class="space-y-3 flex-1">
+      <!-- Pipeline Stepper -->
+      <div class="bg-surface-container rounded-2xl rounded-tl-md p-4">
+        <div class="flex items-center gap-2 mb-3">
+          <span class="material-symbols-outlined text-primary-container text-base">account_tree</span>
+          <span class="text-xs font-semibold text-on-surface uppercase tracking-wider">Pipeline 执行中</span>
+        </div>
+        <div class="flex items-center justify-between">
+          <div class="flex flex-col items-center">
+            <div class="w-8 h-8 rounded-full bg-primary-container flex items-center justify-center">
+              <span class="material-symbols-outlined filled text-on-primary-container text-sm">check</span>
+            </div>
+            <span class="text-[10px] text-on-surface-variant mt-1">Bootstrap</span>
+          </div>
+          <div class="flex-1 h-0.5 bg-primary-container mx-1"></div>
+          <div class="flex flex-col items-center">
+            <div class="w-8 h-8 rounded-full bg-primary-container flex items-center justify-center">
+              <span class="material-symbols-outlined filled text-on-primary-container text-sm">check</span>
+            </div>
+            <span class="text-[10px] text-on-surface-variant mt-1">索引</span>
+          </div>
+          <div class="flex-1 h-0.5 bg-primary-container mx-1"></div>
+          <div class="flex flex-col items-center">
+            <div class="w-8 h-8 rounded-full bg-primary-container flex items-center justify-center animate-pulse">
+              <span class="material-symbols-outlined text-on-primary-container text-sm">code</span>
+            </div>
+            <span class="text-[10px] text-primary font-semibold mt-1">编码</span>
+          </div>
+          <div class="flex-1 h-0.5 bg-outline-variant mx-1"></div>
+          <div class="flex flex-col items-center">
+            <div class="w-8 h-8 rounded-full bg-outline-variant flex items-center justify-center">
+              <span class="material-symbols-outlined text-on-surface-variant text-sm">pending</span>
+            </div>
+            <span class="text-[10px] text-on-surface-variant mt-1">审查</span>
+          </div>
+          <div class="flex-1 h-0.5 bg-outline-variant mx-1"></div>
+          <div class="flex flex-col items-center">
+            <div class="w-8 h-8 rounded-full bg-outline-variant flex items-center justify-center">
+              <span class="material-symbols-outlined text-on-surface-variant text-sm">pending</span>
+            </div>
+            <span class="text-[10px] text-on-surface-variant mt-1">测试</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Code Index Summary -->
+      <div class="bg-surface-container rounded-2xl p-3 border-l-4 border-primary-container">
+        <div class="flex items-center gap-2 mb-2">
+          <span class="material-symbols-outlined text-primary text-sm">analytics</span>
+          <span class="text-xs font-semibold text-on-surface">代码索引完成</span>
+        </div>
+        <div class="grid grid-cols-3 gap-2 text-center">
+          <div class="bg-surface rounded-lg p-2">
+            <div class="text-lg font-bold text-primary">24</div>
+            <div class="text-[10px] text-on-surface-variant">文件</div>
+          </div>
+          <div class="bg-surface rounded-lg p-2">
+            <div class="text-lg font-bold text-primary">156</div>
+            <div class="text-[10px] text-on-surface-variant">符号</div>
+          </div>
+          <div class="bg-surface rounded-lg p-2">
+            <div class="text-lg font-bold text-primary">8</div>
+            <div class="text-[10px] text-on-surface-variant">组件</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Event Timeline -->
+      <div class="bg-surface-container rounded-2xl p-4">
+        <div class="flex items-center gap-2 mb-3">
+          <span class="material-symbols-outlined text-primary text-base">timeline</span>
+          <span class="text-xs font-semibold text-on-surface">事件流</span>
+        </div>
+        <div class="space-y-2">
+          <div class="flex items-center gap-3 text-xs">
+            <div class="w-2 h-2 rounded-full bg-green-500"></div>
+            <span class="text-on-surface-variant">10:30:15</span>
+            <span class="text-on-surface">仓库克隆完成 <span class="text-primary">128 files</span></span>
+          </div>
+          <div class="flex items-center gap-3 text-xs">
+            <div class="w-2 h-2 rounded-full bg-green-500"></div>
+            <span class="text-on-surface-variant">10:30:18</span>
+            <span class="text-on-surface">代码索引构建 <span class="text-primary">156 symbols</span></span>
+          </div>
+          <div class="flex items-center gap-3 text-xs">
+            <div class="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></div>
+            <span class="text-on-surface-variant">10:30:20</span>
+            <span class="text-on-surface">CoderAgent 修改 ArticleList.tsx...</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Agent: Clarification Request -->
+  <div class="flex gap-3 max-w-[85%]">
+    <div class="w-8 h-8 rounded-full bg-primary-container flex-shrink-0 flex items-center justify-center">
+      <span class="material-symbols-outlined filled text-on-primary-container text-sm">smart_toy</span>
+    </div>
+    <div class="bg-tertiary-container rounded-2xl rounded-tl-md p-4 space-y-3 border-l-4 border-tertiary">
+      <div class="flex items-center gap-2">
+        <span class="material-symbols-outlined text-tertiary text-base">help_outline</span>
+        <span class="text-xs font-semibold text-on-tertiary-container uppercase tracking-wider">需要澄清</span>
+      </div>
+      <p class="text-sm text-on-tertiary-container leading-relaxed">你希望收藏数徽章显示在什么位置？</p>
+      <div class="space-y-2">
+        <button class="w-full text-left px-4 py-2.5 bg-surface rounded-xl text-sm text-on-surface hover:bg-surface-container-high transition-colors border border-outline-variant/50">
+          文章标题右侧
+        </button>
+        <button class="w-full text-left px-4 py-2.5 bg-surface rounded-xl text-sm text-on-surface hover:bg-surface-container-high transition-colors border border-outline-variant/50">
+          文章卡片底部
+        </button>
+        <button class="w-full text-left px-4 py-2.5 bg-surface rounded-xl text-sm text-on-surface hover:bg-surface-container-high transition-colors border border-outline-variant/50">
+          文章预览图上方
+        </button>
+      </div>
+      <div class="flex gap-2">
+        <input type="text" placeholder="自定义回答..." class="flex-1 px-3 py-2 bg-surface rounded-xl text-sm text-on-surface border border-outline-variant/50 focus:outline-none focus:border-primary placeholder:text-outline">
+        <button class="px-4 py-2 bg-primary text-on-primary rounded-xl text-sm font-medium hover:bg-primary/90 transition-colors">
+          发送
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- User Reply -->
+  <div class="flex gap-3 max-w-[85%] ml-auto flex-row-reverse">
+    <div class="w-8 h-8 rounded-full bg-tertiary flex-shrink-0 flex items-center justify-center">
+      <span class="material-symbols-outlined filled text-white text-sm">person</span>
+    </div>
+    <div class="bg-tertiary rounded-2xl rounded-tr-md p-4">
+      <p class="text-sm text-white leading-relaxed">文章标题右侧</p>
+    </div>
+  </div>
+
+  <!-- Agent: Plan Approval Card -->
+  <div class="flex gap-3 max-w-[85%]">
+    <div class="w-8 h-8 rounded-full bg-primary-container flex-shrink-0 flex items-center justify-center">
+      <span class="material-symbols-outlined filled text-on-primary-container text-sm">smart_toy</span>
+    </div>
+    <div class="bg-error-container/30 rounded-2xl rounded-tl-md p-4 space-y-3 border-l-4 border-error">
+      <div class="flex items-center gap-2">
+        <span class="material-symbols-outlined text-error text-base">approval</span>
+        <span class="text-xs font-semibold text-on-surface uppercase tracking-wider">方案待审批</span>
+      </div>
+      <p class="text-sm text-on-surface leading-relaxed">修改 ArticleList 和 ArticlePreview 组件，在标题右侧添加收藏数徽章</p>
+      <div class="space-y-2">
+        <div class="flex items-start gap-2 text-sm">
+          <span class="w-5 h-5 rounded-full bg-error/10 flex items-center justify-center text-error text-xs font-bold flex-shrink-0 mt-0.5">1</span>
+          <span class="text-on-surface">修改 <code class="bg-surface px-1 rounded text-xs">ArticlePreview.tsx</code> 添加 HeartIcon 组件</span>
+        </div>
+        <div class="flex items-start gap-2 text-sm">
+          <span class="w-5 h-5 rounded-full bg-error/10 flex items-center justify-center text-error text-xs font-bold flex-shrink-0 mt-0.5">2</span>
+          <span class="text-on-surface">在标题 flex 容器中插入收藏数显示</span>
+        </div>
+        <div class="flex items-start gap-2 text-sm">
+          <span class="w-5 h-5 rounded-full bg-error/10 flex items-center justify-center text-error text-xs font-bold flex-shrink-0 mt-0.5">3</span>
+          <span class="text-on-surface">添加 favoritesCount 样式和动画</span>
+        </div>
+      </div>
+      <div class="flex gap-2 pt-1">
+        <button class="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-error text-on-error rounded-xl text-sm font-medium hover:bg-error/90 transition-colors">
+          <span class="material-symbols-outlined text-base">check</span>
+          批准
+        </button>
+        <button class="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-surface text-on-surface rounded-xl text-sm font-medium hover:bg-surface-container transition-colors border border-outline-variant">
+          <span class="material-symbols-outlined text-base">close</span>
+          拒绝
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Agent: Test Results -->
+  <div class="flex gap-3 max-w-[85%]">
+    <div class="w-8 h-8 rounded-full bg-primary-container flex-shrink-0 flex items-center justify-center">
+      <span class="material-symbols-outlined filled text-on-primary-container text-sm">smart_toy</span>
+    </div>
+    <div class="bg-surface-container rounded-2xl rounded-tl-md p-4 space-y-3">
+      <div class="flex items-center gap-2">
+        <span class="material-symbols-outlined text-green-600 text-base">verified</span>
+        <span class="text-xs font-semibold text-on-surface">测试通过</span>
+      </div>
+      <div class="grid grid-cols-2 gap-2">
+        <div class="bg-surface rounded-lg p-3 text-center">
+          <div class="text-2xl font-bold text-green-600">12</div>
+          <div class="text-[11px] text-on-surface-variant">通过</div>
+        </div>
+        <div class="bg-surface rounded-lg p-3 text-center">
+          <div class="text-2xl font-bold text-error">0</div>
+          <div class="text-[11px] text-on-surface-variant">失败</div>
+        </div>
+      </div>
+      <div class="flex items-center gap-2 text-xs text-on-surface-variant">
+        <span class="material-symbols-outlined text-sm">science</span>
+        <span>jest · ArticleList.test.tsx · 0.8s</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Agent: Knowledge Writeback -->
+  <div class="flex gap-3 max-w-[85%]">
+    <div class="w-8 h-8 rounded-full bg-primary-container flex-shrink-0 flex items-center justify-center">
+      <span class="material-symbols-outlined filled text-on-primary-container text-sm">smart_toy</span>
+    </div>
+    <div class="bg-surface-container rounded-2xl rounded-tl-md p-3 border-l-4 border-primary-container">
+      <div class="flex items-center gap-2">
+        <span class="material-symbols-outlined text-primary text-sm">school</span>
+        <span class="text-xs text-on-surface">知识回写 · <span class="text-primary">6 文件摘要 + 2 错误模式</span></span>
+      </div>
+    </div>
+  </div>
+
+</main>
+
+<!-- Input Area -->
+<div class="fixed bottom-16 left-0 right-0 z-40 px-4 pb-3">
+  <div class="flex items-center gap-2 bg-surface-container-high rounded-2xl px-4 py-2 shadow-lg border border-outline-variant/30">
+    <button class="w-9 h-9 rounded-full hover:bg-surface-container flex items-center justify-center transition-colors">
+      <span class="material-symbols-outlined text-on-surface-variant">add</span>
+    </button>
+    <input type="text" placeholder="输入任务描述..." class="flex-1 bg-transparent text-sm text-on-surface focus:outline-none placeholder:text-outline">
+    <button class="w-9 h-9 rounded-full bg-primary-container hover:bg-primary-container/80 flex items-center justify-center transition-colors">
+      <span class="material-symbols-outlined filled text-on-primary-container text-lg">arrow_upward</span>
+    </button>
+  </div>
+</div>
+
+<!-- Bottom Navigation -->
+<nav class="fixed bottom-0 left-0 w-full z-50 flex justify-around items-center px-2 py-3 bg-[#FFFBEB] border-t border-stone-200 shadow-[0_-4px_12px_rgba(245,158,11,0.05)]">
+  <a class="flex flex-col items-center justify-center bg-amber-100 text-amber-700 rounded-lg px-3 py-1 transition-transform active:scale-90 duration-150" href="#">
+    <span class="material-symbols-outlined mb-1 filled" data-icon="chat_bubble">chat_bubble</span>
+    <span class="font-['Public_Sans'] text-[11px] font-bold">对话</span>
+  </a>
+  <a class="flex flex-col items-center justify-center text-stone-500 px-3 py-1 hover:bg-stone-50 transition-transform active:scale-90 duration-150" href="#">
+    <span class="material-symbols-outlined mb-1" data-icon="inventory_2">inventory_2</span>
+    <span class="font-['Public_Sans'] text-[11px] font-medium">资产</span>
+  </a>
+  <a class="flex flex-col items-center justify-center text-stone-500 px-3 py-1 hover:bg-stone-50 transition-transform active:scale-90 duration-150" href="#">
+    <span class="material-symbols-outlined mb-1" data-icon="monitoring">monitoring</span>
+    <span class="font-['Public_Sans'] text-[11px] font-medium">状态</span>
+  </a>
+  <a class="flex flex-col items-center justify-center text-stone-500 px-3 py-1 hover:bg-stone-50 transition-transform active:scale-90 duration-150" href="#">
+    <span class="material-symbols-outlined mb-1" data-icon="settings">settings</span>
+    <span class="font-['Public_Sans'] text-[11px] font-medium">设置</span>
+  </a>
+</nav>
+
+</body>
+</html>

@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html class="dark" lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Amber Intelligence - 状态监控</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700;900&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<script>
+tailwind.config = {
+  darkMode: "class",
+  theme: {
+    extend: {
+      colors: {
+        "primary": "#ffc174",
+        "primary-container": "#f59e0b",
+        "on-primary": "#462a00",
+        "on-primary-container": "#ffddb8",
+        "background": "#161311",
+        "surface": "#1e1b18",
+        "surface-container": "#292524",
+        "surface-container-high": "#352f2d",
+        "on-surface": "#e9e1dd",
+        "on-surface-variant": "#d8c3ad",
+        "tertiary": "#7fd0ff",
+        "tertiary-container": "#004966",
+        "on-tertiary-container": "#c5e7ff",
+        "error": "#ffb4ab",
+        "outline": "#a08d7a",
+        "outline-variant": "#534434",
+      },
+      fontFamily: { sans: ['Public Sans', 'sans-serif'] },
+    }
+  }
+}
+</script>
+<style>
+  .material-symbols-outlined {
+    font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+  }
+  .filled { font-variation-settings: 'FILL' 1; }
+  body { font-family: 'Public Sans', sans-serif; }
+  .glass-panel {
+    background: rgba(41,37,36,0.7);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255,255,255,0.05);
+  }
+  .amber-glow { box-shadow: 0 0 20px rgba(245,158,11,0.15); }
+</style>
+</head>
+<body class="bg-background min-h-screen pb-20">
+
+<!-- Header -->
+<header class="sticky top-0 z-40 bg-background/95 backdrop-blur-sm border-b border-white/5 px-4 py-3">
+  <div class="flex items-center justify-between">
+    <h1 class="text-lg font-semibold text-on-surface">状态监控</h1>
+    <div class="flex items-center gap-2">
+      <div class="flex items-center gap-1.5 px-3 py-1 bg-green-500/10 rounded-full">
+        <div class="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></div>
+        <span class="text-[11px] text-green-400 font-medium">系统正常</span>
+      </div>
+    </div>
+  </div>
+</header>
+
+<main class="px-4 py-4 space-y-4">
+
+  <!-- Active Tasks Overview -->
+  <div class="glass-panel rounded-2xl p-4 amber-glow">
+    <div class="flex items-center gap-2 mb-4">
+      <span class="material-symbols-outlined text-primary-container text-lg">pending_actions</span>
+      <span class="text-sm font-semibold text-on-surface">活跃任务</span>
+      <span class="ml-auto px-2 py-0.5 bg-primary-container/20 text-primary rounded-full text-xs font-medium">3</span>
+    </div>
+    <div class="space-y-3">
+      <!-- Task 1 -->
+      <div class="bg-surface rounded-xl p-3">
+        <div class="flex items-center justify-between mb-2">
+          <span class="text-sm text-on-surface font-medium">文章收藏数徽章</span>
+          <span class="text-[11px] text-primary">编码中</span>
+        </div>
+        <div class="flex items-center gap-1">
+          <div class="flex-1 h-1 rounded-full bg-primary-container"></div>
+          <div class="flex-1 h-1 rounded-full bg-primary-container"></div>
+          <div class="flex-1 h-1 rounded-full bg-primary-container animate-pulse"></div>
+          <div class="flex-1 h-1 rounded-full bg-outline-variant"></div>
+          <div class="flex-1 h-1 rounded-full bg-outline-variant"></div>
+        </div>
+        <div class="flex items-center justify-between mt-1.5">
+          <span class="text-[10px] text-on-surface-variant">CoderAgent · 2m 30s</span>
+          <span class="text-[10px] text-on-surface-variant">60%</span>
+        </div>
+      </div>
+      <!-- Task 2 -->
+      <div class="bg-surface rounded-xl p-3">
+        <div class="flex items-center justify-between mb-2">
+          <span class="text-sm text-on-surface font-medium">注册邮箱校验</span>
+          <span class="text-[11px] text-tertiary">审查中</span>
+        </div>
+        <div class="flex items-center gap-1">
+          <div class="flex-1 h-1 rounded-full bg-tertiary"></div>
+          <div class="flex-1 h-1 rounded-full bg-tertiary"></div>
+          <div class="flex-1 h-1 rounded-full bg-tertiary"></div>
+          <div class="flex-1 h-1 rounded-full bg-tertiary animate-pulse"></div>
+          <div class="flex-1 h-1 rounded-full bg-outline-variant"></div>
+        </div>
+        <div class="flex items-center justify-between mt-1.5">
+          <span class="text-[10px] text-on-surface-variant">ReviewerAgent · 1m 15s</span>
+          <span class="text-[10px] text-on-surface-variant">80%</span>
+        </div>
+      </div>
+      <!-- Task 3 -->
+      <div class="bg-surface rounded-xl p-3">
+        <div class="flex items-center justify-between mb-2">
+          <span class="text-sm text-on-surface font-medium">热门标签侧边栏</span>
+          <span class="text-[11px] text-green-400">测试中</span>
+        </div>
+        <div class="flex items-center gap-1">
+          <div class="flex-1 h-1 rounded-full bg-green-500"></div>
+          <div class="flex-1 h-1 rounded-full bg-green-500"></div>
+          <div class="flex-1 h-1 rounded-full bg-green-500"></div>
+          <div class="flex-1 h-1 rounded-full bg-green-500"></div>
+          <div class="flex-1 h-1 rounded-full bg-green-500 animate-pulse"></div>
+        </div>
+        <div class="flex items-center justify-between mt-1.5">
+          <span class="text-[10px] text-on-surface-variant">TesterAgent · 4m 02s</span>
+          <span class="text-[10px] text-on-surface-variant">95%</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Statistics Cards -->
+  <div class="grid grid-cols-2 gap-3">
+    <div class="glass-panel rounded-2xl p-4 text-center">
+      <div class="text-3xl font-bold text-primary mb-1">87%</div>
+      <div class="text-xs text-on-surface-variant">成功率</div>
+      <div class="flex items-center justify-center gap-1 mt-1">
+        <span class="material-symbols-outlined text-green-400 text-sm">trending_up</span>
+        <span class="text-[10px] text-green-400">+5%</span>
+      </div>
+    </div>
+    <div class="glass-panel rounded-2xl p-4 text-center">
+      <div class="text-3xl font-bold text-tertiary mb-1">2.4<span class="text-lg">m</span></div>
+      <div class="text-xs text-on-surface-variant">平均执行时间</div>
+      <div class="flex items-center justify-center gap-1 mt-1">
+        <span class="material-symbols-outlined text-green-400 text-sm">trending_down</span>
+        <span class="text-[10px] text-green-400">-12s</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Resource Utilization -->
+  <div class="glass-panel rounded-2xl p-4">
+    <div class="flex items-center gap-2 mb-4">
+      <span class="material-symbols-outlined text-tertiary text-base">memory</span>
+      <span class="text-sm font-semibold text-on-surface">资源使用</span>
+    </div>
+    <div class="space-y-3">
+      <div>
+        <div class="flex items-center justify-between mb-1">
+          <span class="text-xs text-on-surface-variant">CPU</span>
+          <span class="text-xs text-on-surface">34%</span>
+        </div>
+        <div class="w-full bg-surface-container rounded-full h-2">
+          <div class="bg-tertiary h-2 rounded-full" style="width: 34%"></div>
+        </div>
+      </div>
+      <div>
+        <div class="flex items-center justify-between mb-1">
+          <span class="text-xs text-on-surface-variant">内存</span>
+          <span class="text-xs text-on-surface">62%</span>
+        </div>
+        <div class="w-full bg-surface-container rounded-full h-2">
+          <div class="bg-primary-container h-2 rounded-full" style="width: 62%"></div>
+        </div>
+      </div>
+      <div>
+        <div class="flex items-center justify-between mb-1">
+          <span class="text-xs text-on-surface-variant">磁盘</span>
+          <span class="text-xs text-on-surface">45%</span>
+        </div>
+        <div class="w-full bg-surface-container rounded-full h-2">
+          <div class="bg-green-500 h-2 rounded-full" style="width: 45%"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Recent Events -->
+  <div class="glass-panel rounded-2xl p-4">
+    <div class="flex items-center gap-2 mb-4">
+      <span class="material-symbols-outlined text-primary text-base">timeline</span>
+      <span class="text-sm font-semibold text-on-surface">最近事件</span>
+    </div>
+    <div class="space-y-3">
+      <div class="flex items-start gap-3">
+        <div class="w-8 h-8 rounded-full bg-green-500/20 flex items-center justify-center flex-shrink-0">
+          <span class="material-symbols-outlined text-green-400 text-sm">check_circle</span>
+        </div>
+        <div class="flex-1">
+          <div class="flex items-center justify-between">
+            <span class="text-sm text-on-surface">TASK_DONE</span>
+            <span class="text-[10px] text-on-surface-variant">2m ago</span>
+          </div>
+          <p class="text-xs text-on-surface-variant">热门标签侧边栏 · 12 tests passed</p>
+        </div>
+      </div>
+      <div class="flex items-start gap-3">
+        <div class="w-8 h-8 rounded-full bg-amber-500/20 flex items-center justify-center flex-shrink-0">
+          <span class="material-symbols-outlined text-amber-400 text-sm">approval</span>
+        </div>
+        <div class="flex-1">
+          <div class="flex items-center justify-between">
+            <span class="text-sm text-on-surface">PLAN_APPROVAL_REQUESTED</span>
+            <span class="text-[10px] text-on-surface-variant">5m ago</span>
+          </div>
+          <p class="text-xs text-on-surface-variant">注册邮箱校验 · 等待审批</p>
+        </div>
+      </div>
+      <div class="flex items-start gap-3">
+        <div class="w-8 h-8 rounded-full bg-tertiary/20 flex items-center justify-center flex-shrink-0">
+          <span class="material-symbols-outlined text-tertiary text-sm">code</span>
+        </div>
+        <div class="flex-1">
+          <div class="flex items-center justify-between">
+            <span class="text-sm text-on-surface">FILE_PATCH_PREVIEW</span>
+            <span class="text-[10px] text-on-surface-variant">8m ago</span>
+          </div>
+          <p class="text-xs text-on-surface-variant">ArticleList.tsx · +12 -3 lines</p>
+        </div>
+      </div>
+      <div class="flex items-start gap-3">
+        <div class="w-8 h-8 rounded-full bg-primary-container/20 flex items-center justify-center flex-shrink-0">
+          <span class="material-symbols-outlined text-primary text-sm">school</span>
+        </div>
+        <div class="flex-1">
+          <div class="flex items-center justify-between">
+            <span class="text-sm text-on-surface">KNOWLEDGE_WRITEBACK</span>
+            <span class="text-[10px] text-on-surface-variant">12m ago</span>
+          </div>
+          <p class="text-xs text-on-surface-variant">6 文件摘要 + 2 错误模式</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- System Health -->
+  <div class="glass-panel rounded-2xl p-4">
+    <div class="flex items-center gap-2 mb-4">
+      <span class="material-symbols-outlined text-green-400 text-base">health_and_safety</span>
+      <span class="text-sm font-semibold text-on-surface">系统健康</span>
+    </div>
+    <div class="grid grid-cols-2 gap-3">
+      <div class="flex items-center gap-2 bg-surface rounded-xl px-3 py-2">
+        <div class="w-2 h-2 rounded-full bg-green-500"></div>
+        <span class="text-xs text-on-surface">Control Plane</span>
+      </div>
+      <div class="flex items-center gap-2 bg-surface rounded-xl px-3 py-2">
+        <div class="w-2 h-2 rounded-full bg-green-500"></div>
+        <span class="text-xs text-on-surface">Python Agent</span>
+      </div>
+      <div class="flex items-center gap-2 bg-surface rounded-xl px-3 py-2">
+        <div class="w-2 h-2 rounded-full bg-green-500"></div>
+        <span class="text-xs text-on-surface">Event Service</span>
+      </div>
+      <div class="flex items-center gap-2 bg-surface rounded-xl px-3 py-2">
+        <div class="w-2 h-2 rounded-full bg-amber-500"></div>
+        <span class="text-xs text-on-surface">Redis</span>
+      </div>
+    </div>
+  </div>
+
+</main>
+
+<!-- Bottom Navigation -->
+<nav class="fixed bottom-0 left-0 w-full z-50 flex justify-around items-center px-2 py-3 bg-stone-900/90 backdrop-blur-lg rounded-t-2xl border-t border-white/10">
+  <a class="flex flex-col items-center justify-center text-stone-500 hover:bg-white/5 rounded-xl px-3 py-1 transition-transform active:scale-90 duration-150" href="#">
+    <span class="material-symbols-outlined mb-1" data-icon="chat_bubble">chat_bubble</span>
+    <span class="font-['Public_Sans'] text-[11px] font-medium">对话</span>
+  </a>
+  <a class="flex flex-col items-center justify-center text-stone-500 hover:bg-white/5 rounded-xl px-3 py-1 transition-transform active:scale-90 duration-150" href="#">
+    <span class="material-symbols-outlined mb-1" data-icon="inventory_2">inventory_2</span>
+    <span class="font-['Public_Sans'] text-[11px] font-medium">资产</span>
+  </a>
+  <a class="flex flex-col items-center justify-center bg-amber-500/10 text-amber-500 rounded-xl px-3 py-1 transition-transform active:scale-90 duration-150" href="#">
+    <span class="material-symbols-outlined mb-1 filled" data-icon="monitoring">monitoring</span>
+    <span class="font-['Public_Sans'] text-[11px] font-bold">状态</span>
+  </a>
+  <a class="flex flex-col items-center justify-center text-stone-500 hover:bg-white/5 rounded-xl px-3 py-1 transition-transform active:scale-90 duration-150" href="#">
+    <span class="material-symbols-outlined mb-1" data-icon="settings">settings</span>
+    <span class="font-['Public_Sans'] text-[11px] font-medium">设置</span>
+  </a>
+</nav>
+
+</body>
+</html>

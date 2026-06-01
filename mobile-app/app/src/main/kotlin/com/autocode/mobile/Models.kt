@@ -141,3 +141,48 @@ data class ApprovalRequest(
     val timeoutSeconds: Int = 120,
     val createdAtMillis: Long = System.currentTimeMillis(),
 )
+
+// ── Super-Individual event payload models ──────────────────────────
+
+data class ClarificationRequest(
+    val question: String,
+    val options: List<String>?,
+    val context: String?,
+    val stage: String?,
+)
+
+data class ClarificationAnswer(
+    val answer: String,
+    val originalQuestion: String?,
+)
+
+data class RepoBootstrapInfo(
+    val repoUrl: String,
+    val repoDir: String?,
+    val fileCount: Int,
+    val dependenciesInstalled: Boolean,
+)
+
+data class CodeIndexInfo(
+    val fileCount: Int,
+    val symbolCount: Int,
+    val summary: String?,
+)
+
+data class PlanApprovalRequest(
+    val planSummary: String,
+    val steps: List<String>?,
+    val estimatedImpact: String?,
+)
+
+data class TestGeneratedInfo(
+    val testFile: String,
+    val testCount: Int,
+    val framework: String?,
+)
+
+data class KnowledgeWritebackInfo(
+    val projectKey: String,
+    val filesSummarized: Int,
+    val errorPatternsStored: Int,
+)

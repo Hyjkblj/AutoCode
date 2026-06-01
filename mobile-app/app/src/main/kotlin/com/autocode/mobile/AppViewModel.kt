@@ -30,10 +30,17 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.autocode.mobile.network.AgentNodeDto
 import com.autocode.mobile.network.ArtifactListItem
+import com.autocode.mobile.network.CLARIFICATION_REQUESTED
+import com.autocode.mobile.network.CODE_INDEX_BUILT
 import com.autocode.mobile.network.ControlPlaneClient
+import com.autocode.mobile.network.KNOWLEDGE_WRITEBACK
+import com.autocode.mobile.network.PLAN_APPROVAL_REQUESTED
 import com.autocode.mobile.network.ProjectSummaryDto
+import com.autocode.mobile.network.REPO_BOOTSTRAP_DONE
+import com.autocode.mobile.network.REPO_BOOTSTRAP_STARTED
 import com.autocode.mobile.network.TaskEventDto
 import com.autocode.mobile.network.TaskSummaryDto
+import com.autocode.mobile.network.TEST_GENERATED
 import com.autocode.mobile.network.WebSocketClient
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -1456,6 +1463,37 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 val reason = stringValue(payload, "reason", "message", "error")
                 if (reason.isNullOrBlank()) "任务失败" else "任务失败：$reason"
             }
+            CLARIFICATION_REQUESTED -> {
+                val question = stringValue(payload, "question") ?: "需要澄清"
+                "需求澄清：$question"
+            }
+            CLARIFICATION_ANSWERED -> {
+                val answer = stringValue(payload, "answer") ?: "已回答"
+                "澄清回复：$answer"
+            }
+            REPO_BOOTSTRAP_STARTED -> "仓库初始化中…"
+            REPO_BOOTSTRAP_DONE -> {
+                val fileCount = longValue(payload, "fileCount") ?: 0L
+                "仓库初始化完成（${fileCount} 个文件）"
+            }
+            CODE_INDEX_BUILT -> {
+                val fileCount = longValue(payload, "fileCount") ?: 0L
+                val symbolCount = longValue(payload, "symbolCount") ?: 0L
+                "代码索引构建完成（${fileCount} 文件，${symbolCount} 符号）"
+            }
+            PLAN_APPROVAL_REQUESTED -> {
+                val summary = stringValue(payload, "planSummary") ?: "执行计划待审批"
+                "计划审批：$summary"
+            }
+            TEST_GENERATED -> {
+                val testFile = stringValue(payload, "testFile") ?: "测试文件"
+                val testCount = longValue(payload, "testCount") ?: 0L
+                "测试生成：$testFile（${testCount} 个用例）"
+            }
+            KNOWLEDGE_WRITEBACK -> {
+                val filesSummarized = longValue(payload, "filesSummarized") ?: 0L
+                "知识回写完成（${filesSummarized} 个文件已摘要）"
+            }
             else -> event.type ?: "EVENT"
         }
     }
@@ -1598,6 +1636,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     }
                     lastRemoteStatusByTaskId[taskId] = "failed"
                 }
+                PLAN_APPROVAL_REQUESTED -> {
+                    val summary =
+                        stringValue(event.payload, "planSummary", "summary")
+                            ?: "任务 $taskId 有执行计划待审批。"
+                    if (rememberNotificationKey("plan_approval:$eventKey")) {
+                        taskNotificationCenter.notifyApprovalRequired(taskId = taskId, message = summary)
+                    }
+                }
             }
         }
     }
@@ -1624,6 +1670,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         when (event.type?.uppercase()) {
             "TASK_STARTED" -> TaskStatus.RUNNING to 15
             "APPROVAL_REQUIRED" -> TaskStatus.RUNNING to 78
+            REPO_BOOTSTRAP_STARTED -> TaskStatus.RUNNING to 20
+            REPO_BOOTSTRAP_DONE -> TaskStatus.RUNNING to 30
+            CODE_INDEX_BUILT -> TaskStatus.RUNNING to 40
+            CLARIFICATION_REQUESTED -> TaskStatus.RUNNING to 45
+            PLAN_APPROVAL_REQUESTED -> TaskStatus.RUNNING to 65
+            TEST_GENERATED -> TaskStatus.RUNNING to 75
+            KNOWLEDGE_WRITEBACK -> TaskStatus.RUNNING to 90
             "DEPLOY_PLAN" -> TaskStatus.RUNNING to 88
             "DEPLOY_RESULT" -> {
                 when (normalizePublishStatus(stringValue(event.payload, "status"))) {

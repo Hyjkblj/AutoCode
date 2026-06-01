@@ -158,16 +158,19 @@ class FixLoop:
     
     MAX_ITERATIONS = 3
     
-    def __init__(self, llm_client: LLMClient | None = None) -> None:
+    def __init__(self, llm_client: LLMClient | None = None, *, knowledge_store: Any | None = None) -> None:
         """
         Initialize the fix loop.
-        
+
         Args:
             llm_client: Optional LLM client for context-aware fixes.
                        If None, only rule-based fixes will be attempted.
+            knowledge_store: Optional knowledge store (e.g. RedisMemory) that
+                            provides ``get_error_fixes`` for known-fix lookup.
         """
         self.validation_gate = ValidationGate()
         self.llm_client = llm_client
+        self.knowledge_store = knowledge_store
         self._attempts: list[FixAttempt] = []
         self._stats = _global_error_stats
     
@@ -447,6 +450,18 @@ class FixLoop:
         max_count, category = max(counts, key=lambda x: x[0])
         return category if max_count > 0 else ErrorCategory.UNKNOWN
     
+    def _try_known_fix(self, error: str, content: str, project_key: str = "") -> str | None:
+        """Look up a previously-recorded fix for this error pattern.
+
+        Returns the fix content if found, otherwise ``None``.
+        """
+        if not self.knowledge_store or not project_key:
+            return None
+        fixes = self.knowledge_store.get_error_fixes(project_key, error)
+        if fixes:
+            return fixes[0]  # Return first known fix
+        return None
+
     def _apply_fix_strategy(
         self,
         task: dict[str, Any],
@@ -457,17 +472,26 @@ class FixLoop:
     ) -> tuple[bool, list[str], str]:
         """
         Apply appropriate fix strategy based on error category.
-        
+
         Args:
             task: Task dictionary
             workspace: Workspace path
             errors: List of error messages
             category: Error category
             iteration: Current iteration number
-        
+
         Returns:
             Tuple of (success, fixed_files, strategy_name)
         """
+        # Try known-fix lookup from knowledge store before anything else
+        project_key = str(task.get("projectId") or task.get("project") or "").strip()
+        if self.knowledge_store and project_key and errors:
+            for error_msg in errors:
+                known_fix = self._try_known_fix(error_msg, "", project_key)
+                if known_fix:
+                    logger.info(f"Applying known fix from knowledge store for: {error_msg[:80]}")
+                    return True, [], "known_fix_from_knowledge"
+
         # Try rule-based fixes first (fast and deterministic)
         if category == ErrorCategory.STRUCTURE:
             return self._fix_structure_errors(task, workspace, errors)

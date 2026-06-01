@@ -17,6 +17,7 @@ import com.autocode.controlplane.service.audit.AuditService;
 import com.autocode.controlplane.service.mapper.ModelMapper;
 import com.autocode.controlplane.service.observability.ControlPlaneMetrics;
 import com.autocode.controlplane.service.protocol.TaskEventValidator;
+import com.autocode.controlplane.service.protocol.TaskStateMachine;
 import com.autocode.controlplane.service.queue.TaskQueuePort;
 import com.autocode.controlplane.service.queue.TaskQueueMessage;
 import com.autocode.controlplane.service.ws.TaskEventPublisher;
@@ -59,6 +60,7 @@ public class TaskService {
     private final ObjectMapper objectMapper;
     private final AuditService auditService;
     private final TaskEventValidator taskEventValidator;
+    private final TaskStateMachine stateMachine;
     private final ControlPlaneMetrics metrics;
     private final TaskEventPublisher taskEventPublisher;
     private final long leaseSeconds;
@@ -76,6 +78,7 @@ public class TaskService {
             ObjectMapper objectMapper,
             AuditService auditService,
             TaskEventValidator taskEventValidator,
+            TaskStateMachine stateMachine,
             ControlPlaneMetrics metrics,
             TaskEventPublisher taskEventPublisher,
             @Value("${mvp.queue.lease-seconds:60}") long leaseSeconds,
@@ -92,6 +95,7 @@ public class TaskService {
         this.objectMapper = objectMapper;
         this.auditService = auditService;
         this.taskEventValidator = taskEventValidator;
+        this.stateMachine = stateMachine;
         this.metrics = metrics;
         this.taskEventPublisher = taskEventPublisher;
         this.leaseSeconds = leaseSeconds;
@@ -492,7 +496,6 @@ public class TaskService {
     }
 
     public Optional<IngestResult> ingestAgentEvent(String taskId, TaskEvent event, String nodeId) {
-        taskEventValidator.validateOrThrow(event);
         // Lock task row to make seq allocation and status folding stable under concurrent ingest.
         TaskEntity task = taskRepository.findOptionalByIdForUpdate(taskId).orElse(null);
         if (task == null) {
@@ -581,26 +584,19 @@ public class TaskService {
     private void updateTaskStateFromEvent(TaskEntity task, TaskEvent event) {
         task.setUpdatedAt(Instant.now());
 
-        // Validate state transition legality before applying any changes
-        if (isTerminal(task.getStatus()) && !isAllowedFromTerminal(event.getType())) {
+        // Validate state transition legality via TaskStateMachine
+        TaskStateMachine.TransitionResult transition = stateMachine.validate(task.getStatus(), event.getType());
+        if (!transition.isAllowed()) {
             metrics.illegalStateTransitions.increment();
-            auditService.log(task.getTaskId(), "control-plane", "event.rejected.terminal_state", Map.of(
+            String auditEvent = stateMachine.isTerminal(task.getStatus())
+                    ? "event.rejected.terminal_state"
+                    : "event.rejected.illegal_transition";
+            auditService.log(task.getTaskId(), "control-plane", auditEvent, Map.of(
                     "eventType", event.getType().name(),
                     "currentStatus", task.getStatus().name(),
-                    "reason", "event_not_allowed_in_terminal_state"
+                    "reason", transition.rejectionReason()
             ));
-            throw new IllegalStateException(
-                    "Cannot process " + event.getType() + " in terminal state " + task.getStatus());
-        }
-        if (!isLegalTransition(task.getStatus(), event.getType())) {
-            metrics.illegalStateTransitions.increment();
-            auditService.log(task.getTaskId(), "control-plane", "event.rejected.illegal_transition", Map.of(
-                    "eventType", event.getType().name(),
-                    "currentStatus", task.getStatus().name(),
-                    "reason", "illegal_state_transition"
-            ));
-            throw new IllegalStateException(
-                    "Illegal state transition: " + task.getStatus() + " + " + event.getType());
+            throw new IllegalStateException(transition.rejectionReason());
         }
         if (event.getType() == EventType.APPROVAL_REQUIRED) {
             String approvalId = extractOrCreateApprovalId(event);
@@ -884,7 +880,7 @@ public class TaskService {
     }
 
     private void applyDeployResultStatus(TaskEntity task, Map<String, Object> payload) {
-        if (isTerminalStatus(task.getStatus())) {
+        if (isTerminal(task.getStatus())) {
             return;
         }
         String status = asNonBlankString(payload == null ? null : payload.get("status"), "")
@@ -898,10 +894,6 @@ public class TaskService {
                 // Keep existing status for unknown values to avoid accidental regressions.
             }
         }
-    }
-
-    private boolean isTerminalStatus(TaskStatus status) {
-        return status == TaskStatus.DONE || status == TaskStatus.FAILED || status == TaskStatus.CANCELED;
     }
 
     private void markFailed(TaskEntity task) {

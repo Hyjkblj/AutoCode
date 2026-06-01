@@ -69,6 +69,19 @@ mvp:
     jwt:
       secret: ${MVP_JWT_SECRET:autocode-dev-jwt-secret-which-is-at-least-32bytes}
       access-ttl-seconds: ${MVP_JWT_ACCESS_TTL_SECONDS:900}
+      refresh-ttl-seconds: ${MVP_JWT_REFRESH_TTL_SECONDS:2592000}
+    oauth:
+      google:
+        client-id: ${GOOGLE_CLIENT_ID:}
+        client-secret: ${GOOGLE_CLIENT_SECRET:}
+        redirect-uri: ${GOOGLE_REDIRECT_URI:http://localhost:8058/api/v1/auth/oauth/google/callback}
+      github:
+        client-id: ${GITHUB_CLIENT_ID:}
+        client-secret: ${GITHUB_CLIENT_SECRET:}
+        redirect-uri: ${GITHUB_REDIRECT_URI:http://localhost:8058/api/v1/auth/oauth/github/callback}
+    email:
+      smtp-host: ${SMTP_HOST:}
+      from-address: ${SMTP_FROM:noreply@autocode.dev}
   mtls:
     required-for-agent: ${MVP_MTLS_REQUIRED_FOR_AGENT:false}
   queue:

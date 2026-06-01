@@ -76,6 +76,9 @@ private object PrefsKeys {
     val AGENT_PROFILE = stringPreferencesKey("agent_profile")
     val PUBLISH_HISTORY_JSON = stringPreferencesKey("publish_history_json")
     val NOTIFICATIONS_ENABLED = booleanPreferencesKey("notifications_enabled")
+    val EMAIL = stringPreferencesKey("email")
+    val AVATAR_URL = stringPreferencesKey("avatar_url")
+    val PROVIDER = stringPreferencesKey("auth_provider")
 }
 
 data class UiState(
@@ -191,8 +194,23 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             if (rawHistory.isNullOrBlank()) emptyList()
             else runCatching { json.decodeFromString(publishHistorySerializer, rawHistory) }.getOrDefault(emptyList())
 
+        val email = prefs[PrefsKeys.EMAIL].orEmpty()
+        val avatarUrl = prefs[PrefsKeys.AVATAR_URL].orEmpty()
+        val providerRaw = prefs[PrefsKeys.PROVIDER].orEmpty()
+        val provider = when (providerRaw) {
+            "github" -> AuthProvider.GITHUB
+            "google" -> AuthProvider.GOOGLE
+            "email" -> AuthProvider.EMAIL
+            else -> AuthProvider.LOCAL
+        }
         val session =
-            if (token.isNotBlank() && display.isNotBlank()) Session(accessToken = token, displayName = display)
+            if (token.isNotBlank() && display.isNotBlank()) Session(
+                accessToken = token,
+                displayName = display,
+                email = email.ifBlank { null },
+                avatarUrl = avatarUrl.ifBlank { null },
+                provider = provider,
+            )
             else null
 
         val initialProjects = deriveProjectsFromTasks(tasks = tasks, selectedProjectId = projectId)
@@ -243,9 +261,20 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             if (sess != null) {
                 p[PrefsKeys.TOKEN] = sess.accessToken
                 p[PrefsKeys.DISPLAY] = sess.displayName
+                p[PrefsKeys.EMAIL] = sess.email ?: ""
+                p[PrefsKeys.AVATAR_URL] = sess.avatarUrl ?: ""
+                p[PrefsKeys.PROVIDER] = when (sess.provider) {
+                    AuthProvider.GITHUB -> "github"
+                    AuthProvider.GOOGLE -> "google"
+                    AuthProvider.EMAIL -> "email"
+                    AuthProvider.LOCAL -> "local"
+                }
             } else {
                 p.remove(PrefsKeys.TOKEN)
                 p.remove(PrefsKeys.DISPLAY)
+                p.remove(PrefsKeys.EMAIL)
+                p.remove(PrefsKeys.AVATAR_URL)
+                p.remove(PrefsKeys.PROVIDER)
             }
             val pid = s.selectedProjectId
             if (pid != null) p[PrefsKeys.PROJECT] = pid else p.remove(PrefsKeys.PROJECT)
@@ -532,8 +561,81 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 p.remove(PrefsKeys.PROJECT)
                 p.remove(PrefsKeys.TASKS_JSON)
                 p.remove(PrefsKeys.PUBLISH_HISTORY_JSON)
+                p.remove(PrefsKeys.EMAIL)
+                p.remove(PrefsKeys.AVATAR_URL)
+                p.remove(PrefsKeys.PROVIDER)
             }
         }
+    }
+
+    fun loginWithOAuth(provider: AuthProvider, token: String, displayName: String, email: String?, avatarUrl: String?) {
+        viewModelScope.launch {
+            val session = Session(
+                accessToken = token,
+                displayName = displayName,
+                email = email,
+                avatarUrl = avatarUrl,
+                provider = provider,
+            )
+            val projectId = _uiState.value.selectedProjectId ?: mockProjects.first().id
+            _uiState.update {
+                it.copy(session = session, selectedProjectId = projectId, errorMessage = null)
+            }
+            persistAll()
+            refreshProjectsInternal()
+            refreshTasksInternal()
+            refreshAgentNodesInternal()
+            refreshPublishHistoryInternal()
+        }
+    }
+
+    fun loginWithEmail(email: String, code: String) {
+        val e = email.trim()
+        val c = code.trim()
+        if (e.isEmpty() || c.isEmpty()) {
+            _uiState.update { it.copy(errorMessage = "请输入邮箱和验证码") }
+            return
+        }
+        viewModelScope.launch {
+            val base = _uiState.value.baseUrl.trim()
+            if (base.isNotEmpty()) {
+                try {
+                    val result = ControlPlaneClient.loginWithEmail(base, e, c)
+                    if (result.isSuccess) {
+                        val token = result.getOrThrow()
+                        loginWithOAuth(AuthProvider.EMAIL, token, e.split("@").first(), e, null)
+                    } else {
+                        _uiState.update { it.copy(errorMessage = result.exceptionOrNull()?.message ?: "验证失败") }
+                    }
+                } catch (ex: Exception) {
+                    _uiState.update { it.copy(errorMessage = ex.message ?: "网络错误") }
+                }
+            } else {
+                loginWithOAuth(AuthProvider.EMAIL, "mock.${System.currentTimeMillis()}", e.split("@").first(), e, null)
+            }
+        }
+    }
+
+    fun sendVerificationCode(email: String) {
+        val e = email.trim()
+        if (e.isEmpty()) {
+            _uiState.update { it.copy(errorMessage = "请输入邮箱") }
+            return
+        }
+        viewModelScope.launch {
+            val base = _uiState.value.baseUrl.trim()
+            if (base.isNotEmpty()) {
+                try {
+                    ControlPlaneClient.sendVerificationCode(base, e)
+                } catch (ex: Exception) {
+                    _uiState.update { it.copy(errorMessage = ex.message ?: "发送失败") }
+                }
+            }
+        }
+    }
+
+    fun switchAccount() {
+        logout()
     }
 
     fun selectProject(projectId: String) {

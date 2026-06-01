@@ -7,7 +7,22 @@ import kotlinx.serialization.Serializable
 data class Session(
     val accessToken: String,
     val displayName: String,
+    val email: String? = null,
+    val avatarUrl: String? = null,
+    val provider: AuthProvider = AuthProvider.LOCAL,
 )
+
+@Serializable
+enum class AuthProvider {
+    @SerialName("local")
+    LOCAL,
+    @SerialName("github")
+    GITHUB,
+    @SerialName("google")
+    GOOGLE,
+    @SerialName("email")
+    EMAIL,
+}
 
 /** 生成目标（PR-1）：写入创建任务时的 assistant 字段，供控制面区分 Web / 小程序等。 */
 @Serializable

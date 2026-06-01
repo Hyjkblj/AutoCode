@@ -76,7 +76,7 @@ internal fun SettingsScreen(vm: AppViewModel) {
         // System Info
         SystemInfoCard()
 
-        // Logout
+        // Logout & Switch Account
         if (uiState.session != null) {
             OutlinedButton(
                 onClick = { vm.logout() },
@@ -88,6 +88,15 @@ internal fun SettingsScreen(vm: AppViewModel) {
                 Icon(Icons.Outlined.Logout, contentDescription = null)
                 Spacer(modifier = Modifier.width(8.dp))
                 Text("退出登录")
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            OutlinedButton(
+                onClick = { vm.switchAccount() },
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Icon(Icons.Outlined.SwitchAccount, contentDescription = null)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("切换账号")
             }
         }
 

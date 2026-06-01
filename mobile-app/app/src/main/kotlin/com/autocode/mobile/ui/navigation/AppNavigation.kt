@@ -37,7 +37,7 @@ import com.autocode.mobile.ui.screens.SettingsScreen
 import com.autocode.mobile.ui.screens.ArtifactDetailScreen
 import com.autocode.mobile.ui.screens.ArtifactsForTaskScreen
 import com.autocode.mobile.ui.screens.ArtifactsHubTab
-import com.autocode.mobile.ui.screens.LoginRoute
+import com.autocode.mobile.ui.screens.LoginScreen
 import com.autocode.mobile.ui.screens.PublishHistoryScreen
 import com.autocode.mobile.ui.screens.StatusScreen
 import com.autocode.mobile.ui.screens.TaskDetailTab
@@ -72,7 +72,7 @@ fun AutoCodeApp() {
 
     NavHost(navController = nav, startDestination = start) {
         composable("login") {
-            LoginRoute(vm = vm)
+            LoginScreen(vm = vm)
         }
         composable("shell") {
             MainShell(vm = vm)

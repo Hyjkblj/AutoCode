@@ -65,6 +65,46 @@ object ControlPlaneClient {
             }
         }
 
+    suspend fun loginWithEmail(baseUrl: String, email: String, code: String): Result<String> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val body =
+                    buildJsonObject {
+                        put("email", email.trim())
+                        put("code", code.trim())
+                    }.toString()
+                val req =
+                    Request.Builder()
+                        .url(buildUrl(baseUrl, "/api/v1/auth/email/verify"))
+                        .post(body.toRequestBody(mediaJson))
+                        .build()
+                client.newCall(req).execute().use { resp ->
+                    val text = resp.body?.string().orEmpty()
+                    if (!resp.isSuccessful) error("验证失败（HTTP ${resp.code}）：${text.take(200)}")
+                    parseAccessToken(text)
+                }
+            }
+        }
+
+    suspend fun sendVerificationCode(baseUrl: String, email: String) =
+        withContext(Dispatchers.IO) {
+            val body =
+                buildJsonObject {
+                    put("email", email.trim())
+                }.toString()
+            val req =
+                Request.Builder()
+                    .url(buildUrl(baseUrl, "/api/v1/auth/email/send-code"))
+                    .post(body.toRequestBody(mediaJson))
+                    .build()
+            client.newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) {
+                    val text = resp.body?.string().orEmpty()
+                    error("发送失败（HTTP ${resp.code}）：${text.take(200)}")
+                }
+            }
+        }
+
     suspend fun createTask(
         baseUrl: String,
         bearerToken: String,

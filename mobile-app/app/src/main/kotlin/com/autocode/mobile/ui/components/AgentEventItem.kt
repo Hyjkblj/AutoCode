@@ -28,6 +28,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.autocode.mobile.network.TaskEventDto
+import com.autocode.mobile.ui.components.events.*
 import com.mikepenz.markdown.coil3.Coil3ImageTransformerImpl
 import com.mikepenz.markdown.compose.components.markdownComponents
 import com.mikepenz.markdown.compose.elements.highlightedCodeBlock
@@ -352,101 +353,22 @@ internal fun AgentEventItem(event: TaskEventDto, fallbackLine: String) {
             }
         }
         "CLARIFICATION_REQUESTED" -> {
-            val question = payloadText(payload, "question") ?: "需要澄清"
+            val question = payloadText(payload, "question")
             val options = payloadTextList(payload, "options")
-            val context = payloadText(payload, "context")
-            val stage = payloadText(payload, "stage")
-            Card(
-                colors =
-                    CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.tertiaryContainer,
-                    ),
-            ) {
-                Column(Modifier.padding(12.dp)) {
-                    Text("需求澄清", style = MaterialTheme.typography.titleSmall)
-                    Text(header, style = MaterialTheme.typography.labelSmall)
-                    Spacer(Modifier.height(6.dp))
-                    Text(question)
-                    if (options.isNotEmpty()) {
-                        Spacer(Modifier.height(6.dp))
-                        Text("可选回答：", style = MaterialTheme.typography.labelMedium)
-                        options.forEach { opt ->
-                            Text("- $opt", style = MaterialTheme.typography.bodySmall)
-                        }
-                    }
-                    context?.let {
-                        Spacer(Modifier.height(4.dp))
-                        Text("背景：$it", style = MaterialTheme.typography.bodySmall)
-                    }
-                    stage?.let {
-                        Spacer(Modifier.height(4.dp))
-                        Text("阶段：$it", style = MaterialTheme.typography.bodySmall)
-                    }
-                }
-            }
+            ClarificationRequestedEvent(question = question, options = options)
         }
         "CLARIFICATION_ANSWERED" -> {
-            val answer = payloadText(payload, "answer") ?: "已回答"
-            val originalQuestion = payloadText(payload, "originalQuestion")
-            Card(
-                colors =
-                    CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                    ),
-            ) {
-                Column(Modifier.padding(12.dp)) {
-                    Text("澄清回复", style = MaterialTheme.typography.titleSmall)
-                    Text(header, style = MaterialTheme.typography.labelSmall)
-                    Spacer(Modifier.height(6.dp))
-                    Text(answer)
-                    originalQuestion?.let {
-                        Spacer(Modifier.height(4.dp))
-                        Text("原问题：$it", style = MaterialTheme.typography.bodySmall)
-                    }
-                }
-            }
+            val answer = payloadText(payload, "answer")
+            ClarificationAnsweredEvent(answer = answer)
         }
         "REPO_BOOTSTRAP_STARTED" -> {
-            val repoUrl = payloadText(payload, "repoUrl") ?: ""
-            Card(
-                colors =
-                    CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                    ),
-            ) {
-                Column(Modifier.padding(12.dp)) {
-                    Text("仓库初始化中", style = MaterialTheme.typography.titleSmall)
-                    Text(header, style = MaterialTheme.typography.labelSmall)
-                    if (repoUrl.isNotBlank()) {
-                        Spacer(Modifier.height(6.dp))
-                        Text("仓库地址：$repoUrl", fontFamily = FontFamily.Monospace)
-                    }
-                    Spacer(Modifier.height(6.dp))
-                    CircularProgressIndicator(modifier = Modifier.height(16.dp))
-                }
-            }
+            val repoUrl = payloadText(payload, "repoUrl")
+            RepoBootstrapStartedEvent(repoUrl = repoUrl)
         }
         "REPO_BOOTSTRAP_DONE" -> {
-            val repoUrl = payloadText(payload, "repoUrl") ?: ""
-            val fileCount = payloadLongValue(payload, "fileCount") ?: 0L
-            val depsInstalled = payloadText(payload, "dependenciesInstalled")?.toBooleanStrictOrNull() ?: false
-            Card(
-                colors =
-                    CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.primaryContainer,
-                    ),
-            ) {
-                Column(Modifier.padding(12.dp)) {
-                    Text("仓库初始化完成", style = MaterialTheme.typography.titleSmall)
-                    Text(header, style = MaterialTheme.typography.labelSmall)
-                    Spacer(Modifier.height(6.dp))
-                    Text("文件数量：$fileCount")
-                    Text("依赖安装：${if (depsInstalled) "已完成" else "未完成"}")
-                    repoUrl.takeIf { it.isNotBlank() }?.let {
-                        Text("仓库：$it", fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
-                    }
-                }
-            }
+            val fileCount = payloadLongValue(payload, "fileCount")?.toInt()
+            val depsInstalled = payloadText(payload, "dependenciesInstalled")?.toBooleanStrictOrNull()
+            RepoBootstrapDoneEvent(fileCount = fileCount, dependenciesInstalled = depsInstalled)
         }
         "CODE_INDEX_BUILT" -> {
             val fileCount = payloadLongValue(payload, "fileCount") ?: 0L
@@ -471,76 +393,20 @@ internal fun AgentEventItem(event: TaskEventDto, fallbackLine: String) {
             }
         }
         "PLAN_APPROVAL_REQUESTED" -> {
-            val planSummary = payloadText(payload, "planSummary") ?: "执行计划待审批"
+            val planSummary = payloadText(payload, "planSummary")
             val steps = payloadTextList(payload, "steps")
-            val estimatedImpact = payloadText(payload, "estimatedImpact")
-            Card(
-                colors =
-                    CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.errorContainer,
-                    ),
-            ) {
-                Column(Modifier.padding(12.dp)) {
-                    Text("计划审批", style = MaterialTheme.typography.titleSmall)
-                    Text(header, style = MaterialTheme.typography.labelSmall)
-                    Spacer(Modifier.height(6.dp))
-                    Text(planSummary)
-                    if (steps.isNotEmpty()) {
-                        Spacer(Modifier.height(6.dp))
-                        Text("执行步骤：", style = MaterialTheme.typography.labelMedium)
-                        steps.forEachIndexed { idx, step ->
-                            Text("${idx + 1}. $step", style = MaterialTheme.typography.bodySmall)
-                        }
-                    }
-                    estimatedImpact?.let {
-                        Spacer(Modifier.height(4.dp))
-                        Text("预计影响：$it", style = MaterialTheme.typography.bodySmall)
-                    }
-                }
-            }
+            PlanApprovalRequestedEvent(planSummary = planSummary, steps = steps)
         }
         "TEST_GENERATED" -> {
-            val testFile = payloadText(payload, "testFile") ?: "测试文件"
-            val testCount = payloadLongValue(payload, "testCount") ?: 0L
+            val testFile = payloadText(payload, "testFile")
+            val testCount = payloadLongValue(payload, "testCount")?.toInt()
             val framework = payloadText(payload, "framework")
-            Card(
-                colors =
-                    CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.primaryContainer,
-                    ),
-            ) {
-                Column(Modifier.padding(12.dp)) {
-                    Text("测试生成", style = MaterialTheme.typography.titleSmall)
-                    Text(header, style = MaterialTheme.typography.labelSmall)
-                    Spacer(Modifier.height(6.dp))
-                    Text("测试文件：$testFile", fontFamily = FontFamily.Monospace)
-                    Text("用例数量：$testCount")
-                    framework?.let {
-                        Text("框架：$it")
-                    }
-                }
-            }
+            TestGeneratedEvent(testFile = testFile, testCount = testCount, framework = framework)
         }
         "KNOWLEDGE_WRITEBACK" -> {
-            val projectKey = payloadText(payload, "projectKey") ?: ""
-            val filesSummarized = payloadLongValue(payload, "filesSummarized") ?: 0L
-            val errorPatternsStored = payloadLongValue(payload, "errorPatternsStored") ?: 0L
-            Card(
-                colors =
-                    CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.tertiaryContainer,
-                    ),
-            ) {
-                Column(Modifier.padding(12.dp)) {
-                    Text("知识回写完成", style = MaterialTheme.typography.titleSmall)
-                    Text(header, style = MaterialTheme.typography.labelSmall)
-                    Spacer(Modifier.height(6.dp))
-                    Text("文件摘要：$filesSummarized  错误模式：$errorPatternsStored")
-                    projectKey.takeIf { it.isNotBlank() }?.let {
-                        Text("项目：$it", style = MaterialTheme.typography.bodySmall)
-                    }
-                }
-            }
+            val filesSummarized = payloadLongValue(payload, "filesSummarized")?.toInt()
+            val errorPatternsStored = payloadLongValue(payload, "errorPatternsStored")?.toInt()
+            KnowledgeWritebackEvent(filesSummarized = filesSummarized, errorPatternsStored = errorPatternsStored)
         }
         else -> {
             Card {

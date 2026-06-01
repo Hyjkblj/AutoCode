@@ -5,11 +5,10 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.List
-import androidx.compose.material.icons.filled.AttachFile
-import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.ChatBubble
+import androidx.compose.material.icons.filled.Inventory2
+import androidx.compose.material.icons.filled.Monitoring
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -38,10 +37,9 @@ import com.autocode.mobile.ui.screens.AccountTab
 import com.autocode.mobile.ui.screens.ArtifactDetailScreen
 import com.autocode.mobile.ui.screens.ArtifactsForTaskScreen
 import com.autocode.mobile.ui.screens.ArtifactsHubTab
-import com.autocode.mobile.ui.screens.HomeTab
 import com.autocode.mobile.ui.screens.LoginRoute
-import com.autocode.mobile.ui.screens.ProjectsTab
 import com.autocode.mobile.ui.screens.PublishHistoryScreen
+import com.autocode.mobile.ui.screens.StatusScreen
 import com.autocode.mobile.ui.screens.TaskDetailTab
 import com.autocode.mobile.ui.screens.TaskListTab
 
@@ -50,11 +48,10 @@ private sealed class Tab(
     val label: String,
     val icon: androidx.compose.ui.graphics.vector.ImageVector,
 ) {
-    data object Home : Tab("home", "首页", Icons.Filled.Home)
-    data object Tasks : Tab("tasks", "任务", Icons.AutoMirrored.Filled.List)
-    data object Projects : Tab("projects", "项目", Icons.Filled.Folder)
-    data object Account : Tab("account", "我的", Icons.Filled.Person)
-    data object Artifacts : Tab("artifacts", "产物", Icons.Filled.AttachFile)
+    data object Chat : Tab("chat", "对话", Icons.Filled.ChatBubble)
+    data object Assets : Tab("assets", "资产", Icons.Filled.Inventory2)
+    data object Status : Tab("status", "状态", Icons.Filled.Monitoring)
+    data object Settings : Tab("settings", "设置", Icons.Filled.Settings)
 }
 
 @Composable
@@ -107,18 +104,17 @@ private fun MainShell(vm: AppViewModel) {
     val showBar =
         current in
             listOf(
-                Tab.Home.route,
-                Tab.Tasks.route,
-                Tab.Projects.route,
-                Tab.Account.route,
-                Tab.Artifacts.route,
+                Tab.Chat.route,
+                Tab.Assets.route,
+                Tab.Status.route,
+                Tab.Settings.route,
             )
 
     Scaffold(
         bottomBar = {
             if (showBar) {
                 NavigationBar {
-                    val tabs = listOf(Tab.Home, Tab.Tasks, Tab.Artifacts, Tab.Projects, Tab.Account)
+                    val tabs = listOf(Tab.Chat, Tab.Assets, Tab.Status, Tab.Settings)
                     tabs.forEach { tab ->
                         val selected = current == tab.route
                         NavigationBarItem(
@@ -142,13 +138,10 @@ private fun MainShell(vm: AppViewModel) {
     ) { padding ->
         NavHost(
             navController = innerNav,
-            startDestination = Tab.Home.route,
+            startDestination = Tab.Chat.route,
             modifier = Modifier.padding(padding),
         ) {
-            composable(Tab.Home.route) {
-                HomeTab(vm)
-            }
-            composable(Tab.Tasks.route) {
+            composable(Tab.Chat.route) {
                 TaskListTab(vm, innerNav)
             }
             composable(
@@ -163,7 +156,7 @@ private fun MainShell(vm: AppViewModel) {
                     innerNav = innerNav,
                 )
             }
-            composable(Tab.Artifacts.route) {
+            composable(Tab.Assets.route) {
                 ArtifactsHubTab(vm, innerNav)
             }
             composable(
@@ -200,10 +193,10 @@ private fun MainShell(vm: AppViewModel) {
                     onBack = { innerNav.popBackStack() },
                 )
             }
-            composable(Tab.Projects.route) {
-                ProjectsTab(vm)
+            composable(Tab.Status.route) {
+                StatusScreen(vm)
             }
-            composable(Tab.Account.route) {
+            composable(Tab.Settings.route) {
                 AccountTab(vm)
             }
         }

@@ -32,7 +32,7 @@ import java.util.List;
 
 @Configuration
 @EnableMethodSecurity
-@EnableConfigurationProperties({JwtAuthProperties.class, MtlsProperties.class, AuthProperties.class})
+@EnableConfigurationProperties({JwtAuthProperties.class, MtlsProperties.class, AuthProperties.class, OAuthProperties.class})
 @ConditionalOnProperty(prefix = "mvp.auth", name = "mode", havingValue = "jwt")
 public class JwtSecurityConfig {
 

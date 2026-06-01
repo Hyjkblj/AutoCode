@@ -14,6 +14,11 @@ public class JwtAuthProperties {
      */
     private long accessTtlSeconds = 900;
 
+    /**
+     * Refresh token TTL seconds (default 30 days).
+     */
+    private long refreshTtlSeconds = 2592000;
+
     public String getSecret() {
         return secret;
     }
@@ -29,5 +34,12 @@ public class JwtAuthProperties {
     public void setAccessTtlSeconds(long accessTtlSeconds) {
         this.accessTtlSeconds = accessTtlSeconds;
     }
-}
 
+    public long getRefreshTtlSeconds() {
+        return refreshTtlSeconds;
+    }
+
+    public void setRefreshTtlSeconds(long refreshTtlSeconds) {
+        this.refreshTtlSeconds = refreshTtlSeconds;
+    }
+}

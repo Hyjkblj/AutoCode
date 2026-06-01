@@ -1,0 +1,53 @@
+{
+  "tasks": [
+    {
+      "name": "Add favorites badge to article list",
+      "prompt": "给文章列表中的每篇文章加一个收藏数徽章",
+      "repoUrl": "https://github.com/gothinkster/react-redux-realworld-example-app",
+      "expectedFiles": ["src/components/ArticleList.js", "src/components/ArticlePreview.js"],
+      "domain": "Articles"
+    },
+    {
+      "name": "Add email validation to register form",
+      "prompt": "注册表单加邮箱格式校验",
+      "repoUrl": "https://github.com/gothinkster/react-redux-realworld-example-app",
+      "expectedFiles": ["src/components/Register.js"],
+      "domain": "Auth"
+    },
+    {
+      "name": "Add reading time estimate",
+      "prompt": "加文章阅读时间估算",
+      "repoUrl": "https://github.com/gothinkster/react-redux-realworld-example-app",
+      "expectedFiles": ["src/components/Article.js"],
+      "domain": "Articles"
+    },
+    {
+      "name": "Add delete button for own comments",
+      "prompt": "给自己的评论加删除按钮",
+      "repoUrl": "https://github.com/gothinkster/react-redux-realworld-example-app",
+      "expectedFiles": ["src/components/Comment.js", "src/components/CommentInput.js"],
+      "domain": "Comments"
+    },
+    {
+      "name": "Add favorited articles tab to profile",
+      "prompt": "个人页加收藏文章 Tab",
+      "repoUrl": "https://github.com/gothinkster/react-redux-realworld-example-app",
+      "expectedFiles": ["src/components/Profile.js"],
+      "domain": "Favorites"
+    },
+    {
+      "name": "Add article count to profile",
+      "prompt": "个人主页显示文章数量",
+      "repoUrl": "https://github.com/gothinkster/react-redux-realworld-example-app",
+      "expectedFiles": ["src/components/Profile.js"],
+      "domain": "Profiles"
+    },
+    {
+      "name": "Add popular tags sidebar",
+      "prompt": "首页加热门标签侧边栏",
+      "repoUrl": "https://github.com/gothinkster/react-redux-realworld-example-app",
+      "expectedFiles": ["src/components/Home/MainView.js", "src/components/Home/Tags.js"],
+      "domain": "Tags"
+    }
+  ]
+}

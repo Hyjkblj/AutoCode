@@ -10,11 +10,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.verticalScroll
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Button
@@ -28,6 +25,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -51,15 +49,25 @@ import com.autocode.mobile.AppViewModel
 import com.autocode.mobile.TaskSource
 import com.autocode.mobile.TaskStatus
 import com.autocode.mobile.network.TaskEventDto
-import com.autocode.mobile.ui.components.AgentEventItem
+import com.autocode.mobile.ui.components.EventStatus
+import com.autocode.mobile.ui.components.EventTimeline
+import com.autocode.mobile.ui.components.LogColor
+import com.autocode.mobile.ui.components.LogConsole
+import com.autocode.mobile.ui.components.LogEntry
 import com.autocode.mobile.ui.components.MobileUiTestTags
-import com.autocode.mobile.ui.components.eventStableKey
+import com.autocode.mobile.ui.components.PipelineStage
+import com.autocode.mobile.ui.components.PipelineStageInfo
+import com autocode.mobile.ui.components.PipelineStepper
+import com.autocode.mobile.ui.components.StageStatus
+import com.autocode.mobile.ui.components.TimelineEventData
+import com.autocode.mobile.ui.components.eventTypeLabel
 import com.autocode.mobile.ui.components.payloadIntValue
 import com.autocode.mobile.ui.components.payloadText
 import com.autocode.mobile.ui.components.taskSourceLabel
 import com.autocode.mobile.ui.components.taskStatusLabel
 import kotlinx.coroutines.delay
 import kotlinx.serialization.json.JsonObject
+import java.time.Instant
 import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -75,16 +83,14 @@ internal fun TaskDetailTab(
     val task = state.tasks.find { it.id == taskId }
     val events = state.taskEvents[taskId].orEmpty().sortedBy { it.seq }
     val fixTimeline = remember(events) { buildFixLoopTimeline(events) }
-    val eventsListState = rememberLazyListState()
     val approvalForTask = pendingApproval?.takeIf { it.taskId == taskId }
+
+    val pipelineStages = remember(events) { buildPipelineStages(events) }
+    val timelineEvents = remember(events) { buildTimelineEvents(events) }
+    val logEntries = remember(events) { buildLogEntries(events) }
 
     LaunchedEffect(taskId, state.baseUrl, state.session?.accessToken) {
         vm.subscribeTaskEvents(taskId)
-    }
-    LaunchedEffect(events.size) {
-        if (events.isNotEmpty()) {
-            runCatching { eventsListState.animateScrollToItem(events.lastIndex) }
-        }
     }
     DisposableEffect(taskId) {
         onDispose { vm.unsubscribeTaskEvents(taskId) }
@@ -113,63 +119,60 @@ internal fun TaskDetailTab(
             }
             return@Scaffold
         }
+        val scrollState = rememberScrollState()
         Column(
             Modifier
                 .padding(pad)
                 .padding(16.dp)
-                .fillMaxSize(),
+                .fillMaxSize()
+                .verticalScroll(scrollState),
         ) {
-            Text(task.prompt, style = MaterialTheme.typography.titleMedium)
-            Spacer(Modifier.height(12.dp))
-            Text("来源：${taskSourceLabel(task.source)}（本地模拟/控制面）")
-            Text("状态：${taskStatusLabel(task.status)}")
-            Text("进度：${task.progress}%")
-            Spacer(Modifier.height(12.dp))
-            LinearProgressIndicator(
-                progress = { task.progress / 100f },
+            // Task prompt card
+            Surface(
                 modifier = Modifier.fillMaxWidth(),
-            )
-            if (fixTimeline.isNotEmpty()) {
-                Spacer(Modifier.height(16.dp))
-                Text("修复进度时间线", style = MaterialTheme.typography.titleSmall)
-                Spacer(Modifier.height(8.dp))
-                FixLoopTimelineCard(points = fixTimeline)
-            }
-            Spacer(Modifier.height(20.dp))
-            Text(
-                if (task.source == TaskSource.REMOTE) "事件流（实时）" else "执行日志（本地模拟）",
-                style = MaterialTheme.typography.titleSmall,
-            )
-            Spacer(Modifier.height(8.dp))
-            LazyColumn(
-                modifier =
-                    Modifier
-                        .weight(1f)
-                        .testTag(MobileUiTestTags.EVENT_STREAM_LIST),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                state = eventsListState,
+                shape = RoundedCornerShape(16.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                tonalElevation = 1.dp,
             ) {
-                if (events.isNotEmpty()) {
-                    items(events, key = { eventStableKey(it) }) { event ->
-                        AgentEventItem(event = event, fallbackLine = vm.eventLine(event))
-                    }
-                } else {
-                    items(task.logs) { line ->
-                        Card(
-                            colors =
-                                CardDefaults.cardColors(
-                                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                                ),
-                        ) {
-                            Text(
-                                text = line,
-                                modifier = Modifier.padding(12.dp),
-                                fontFamily = FontFamily.Monospace,
-                            )
-                        }
-                    }
+                Column(Modifier.padding(16.dp)) {
+                    Text(task.prompt, style = MaterialTheme.typography.titleMedium)
+                    Spacer(Modifier.height(8.dp))
+                    Text("来源：${taskSourceLabel(task.source)}（本地模拟/控制面）")
+                    Text("状态：${taskStatusLabel(task.status)}")
+                    Text("进度：${task.progress}%")
+                    Spacer(Modifier.height(8.dp))
+                    LinearProgressIndicator(
+                        progress = { task.progress / 100f },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
                 }
             }
+
+            // PipelineStepper
+            if (events.isNotEmpty()) {
+                Spacer(Modifier.height(16.dp))
+                PipelineStepper(stages = pipelineStages)
+            }
+
+            // FixLoop timeline
+            if (fixTimeline.isNotEmpty()) {
+                Spacer(Modifier.height(16.dp))
+                FixLoopTimelineCard(points = fixTimeline)
+            }
+
+            // EventTimeline
+            if (timelineEvents.isNotEmpty()) {
+                Spacer(Modifier.height(16.dp))
+                EventTimeline(events = timelineEvents)
+            }
+
+            // LogConsole
+            if (logEntries.isNotEmpty()) {
+                Spacer(Modifier.height(16.dp))
+                LogConsole(entries = logEntries)
+            }
+
+            // View artifacts button
             if (task.status == TaskStatus.SUCCEEDED) {
                 Spacer(Modifier.height(20.dp))
                 TextButton(
@@ -179,6 +182,8 @@ internal fun TaskDetailTab(
                     Text("查看产物")
                 }
             }
+
+            Spacer(Modifier.height(16.dp))
         }
     }
 
@@ -339,6 +344,136 @@ internal fun ApprovalBottomSheet(
         }
     }
 }
+
+// ── Pipeline stage mapping ──────────────────────────────────────────
+
+private data class StageDef(
+    val stage: PipelineStage,
+    val startTypes: Set<String>,
+    val doneTypes: Set<String>,
+)
+
+private fun buildPipelineStages(events: List<TaskEventDto>): List<PipelineStageInfo> {
+    val types = events.map { it.type?.uppercase().orEmpty() }.toSet()
+    val hasFailed = "TASK_FAILED" in types
+    val hasDone = "TASK_DONE" in types
+
+    val stageOrder = listOf(
+        StageDef(PipelineStage.BOOTSTRAP, setOf("REPO_BOOTSTRAP_STARTED"), setOf("REPO_BOOTSTRAP_DONE")),
+        StageDef(PipelineStage.INDEX, setOf("CODE_INDEX_BUILT"), setOf("CODE_INDEX_BUILT")),
+        StageDef(PipelineStage.CLARIFY, setOf("CLARIFICATION_REQUESTED"), setOf("CLARIFICATION_ANSWERED")),
+        StageDef(PipelineStage.INTENT, setOf("TASK_STARTED"), setOf("TASK_STARTED")),
+        StageDef(PipelineStage.PLAN, setOf("SPEC_PROPOSED", "PLAN_APPROVAL_REQUESTED"), setOf("SPEC_PROPOSED", "PLAN_APPROVAL_REQUESTED")),
+        StageDef(PipelineStage.CODE, setOf("FILE_PATCH_PREVIEW"), setOf("FILE_PATCH_PREVIEW")),
+        StageDef(PipelineStage.REVIEW, setOf("BUILD_STARTED"), setOf("BUILD_STARTED")),
+        StageDef(PipelineStage.TEST, setOf("TEST_GENERATED"), setOf("TEST_GENERATED")),
+        StageDef(PipelineStage.KNOWLEDGE, setOf("KNOWLEDGE_WRITEBACK"), setOf("KNOWLEDGE_WRITEBACK")),
+    )
+
+    // Find the last active stage index for FAILED tasks
+    var lastActiveIdx = -1
+    stageOrder.forEachIndexed { idx, def ->
+        if (def.startTypes.intersect(types).isNotEmpty() || def.doneTypes.intersect(types).isNotEmpty()) {
+            lastActiveIdx = idx
+        }
+    }
+
+    return stageOrder.mapIndexed { idx, def ->
+        val stageStatus = when {
+            hasDone -> StageStatus.COMPLETED
+            hasFailed -> when {
+                idx < lastActiveIdx -> StageStatus.COMPLETED
+                idx == lastActiveIdx -> StageStatus.FAILED
+                else -> StageStatus.PENDING
+            }
+            def.doneTypes.intersect(types).isNotEmpty() -> StageStatus.COMPLETED
+            def.startTypes.intersect(types).isNotEmpty() -> StageStatus.ACTIVE
+            else -> StageStatus.PENDING
+        }
+        PipelineStageInfo(
+            stage = def.stage,
+            label = stageLabel(def.stage),
+            status = stageStatus,
+        )
+    }
+}
+
+private fun stageLabel(stage: PipelineStage): String = when (stage) {
+    PipelineStage.BOOTSTRAP -> "仓库初始化"
+    PipelineStage.INDEX -> "代码索引"
+    PipelineStage.CLARIFY -> "需求澄清"
+    PipelineStage.INTENT -> "意图理解"
+    PipelineStage.PLAN -> "方案规划"
+    PipelineStage.CODE -> "代码生成"
+    PipelineStage.REVIEW -> "代码审查"
+    PipelineStage.TEST -> "测试生成"
+    PipelineStage.KNOWLEDGE -> "知识回写"
+}
+
+// ── Timeline event mapping ──────────────────────────────────────────
+
+private fun buildTimelineEvents(events: List<TaskEventDto>): List<TimelineEventData> {
+    return events.mapNotNull { event ->
+        val type = event.type?.uppercase().orEmpty()
+        val status = when (type) {
+            "TASK_DONE" -> EventStatus.SUCCESS
+            "TASK_FAILED" -> EventStatus.FAILED
+            "REPO_BOOTSTRAP_STARTED", "CLARIFICATION_REQUESTED", "BUILD_STARTED" -> EventStatus.ACTIVE
+            else -> EventStatus.SUCCESS
+        }
+        val description = eventTypeLabel(event.type)
+        val timestamp = event.timestamp?.let {
+            runCatching { Instant.parse(it) }.getOrNull()
+        } ?: Instant.now()
+
+        TimelineEventData(
+            timestamp = timestamp,
+            type = event.type ?: "UNKNOWN",
+            description = description,
+            status = status,
+        )
+    }
+}
+
+// ── Log entry mapping ───────────────────────────────────────────────
+
+private fun buildLogEntries(events: List<TaskEventDto>): List<LogEntry> {
+    return events.map { event ->
+        val type = event.type?.uppercase().orEmpty()
+        val time = event.timestamp?.let {
+            runCatching {
+                val instant = Instant.parse(it)
+                val cal = java.util.Calendar.getInstance()
+                cal.timeInMillis = instant.toEpochMilli()
+                String.format(
+                    Locale.getDefault(),
+                    "%02d:%02d:%02d",
+                    cal.get(java.util.Calendar.HOUR_OF_DAY),
+                    cal.get(java.util.Calendar.MINUTE),
+                    cal.get(java.util.Calendar.SECOND),
+                )
+            }.getOrNull()
+        } ?: "--:--:--"
+
+        val (icon, color) = when (type) {
+            "TASK_DONE" -> "✓" to LogColor.SUCCESS
+            "TASK_FAILED" -> "⚡" to LogColor.WARNING
+            "REPO_BOOTSTRAP_STARTED", "CLARIFICATION_REQUESTED", "BUILD_STARTED" -> "⏳" to LogColor.ACTIVE
+            "REPO_BOOTSTRAP_DONE", "CODE_INDEX_BUILT", "CLARIFICATION_ANSWERED",
+            "TEST_GENERATED", "KNOWLEDGE_WRITEBACK" -> "✓" to LogColor.SUCCESS
+            else -> "→" to LogColor.INFO
+        }
+
+        LogEntry(
+            timestamp = time,
+            icon = icon,
+            message = eventTypeLabel(event.type),
+            color = color,
+        )
+    }
+}
+
+// ── FixLoop timeline ────────────────────────────────────────────────
 
 private data class FixLoopPoint(
     val seq: Long,

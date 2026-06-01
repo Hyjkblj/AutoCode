@@ -33,7 +33,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.autocode.mobile.AppViewModel
 import com.autocode.mobile.AppViewModelFactory
-import com.autocode.mobile.ui.screens.AccountTab
+import com.autocode.mobile.ui.screens.SettingsScreen
 import com.autocode.mobile.ui.screens.ArtifactDetailScreen
 import com.autocode.mobile.ui.screens.ArtifactsForTaskScreen
 import com.autocode.mobile.ui.screens.ArtifactsHubTab
@@ -197,7 +197,7 @@ private fun MainShell(vm: AppViewModel) {
                 StatusScreen(vm)
             }
             composable(Tab.Settings.route) {
-                AccountTab(vm)
+                SettingsScreen(vm)
             }
         }
     }

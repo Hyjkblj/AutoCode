@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: control-plane
+  namespace: autocode
+  labels:
+    app: control-plane
+spec:
+  selector:
+    app: control-plane
+  ports:
+    - port: 8058
+      targetPort: 8058
+      protocol: TCP
+  type: ClusterIP

@@ -1,0 +1,58 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gateway-service
+  namespace: autocode
+  labels:
+    app: gateway-service
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: gateway-service
+  template:
+    metadata:
+      labels:
+        app: gateway-service
+    spec:
+      containers:
+        - name: gateway-service
+          image: ghcr.io/hyjkblj/autocode/gateway-service:latest
+          ports:
+            - containerPort: 8080
+          env:
+            - name: SPRING_PROFILES_ACTIVE
+              value: "prod"
+            - name: CONTROL_PLANE_URL
+              value: "http://control-plane:8058"
+            - name: CONTROL_PLANE_WS_URL
+              value: "ws://control-plane:8058"
+            - name: GATEWAY_REDIS_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: autocode-secrets
+                  key: gateway-redis-host
+            - name: GATEWAY_REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: autocode-secrets
+                  key: gateway-redis-password
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8080
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "200m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"

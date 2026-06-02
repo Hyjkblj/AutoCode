@@ -1,0 +1,59 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: event-service
+  namespace: autocode
+  labels:
+    app: event-service
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: event-service
+  template:
+    metadata:
+      labels:
+        app: event-service
+    spec:
+      containers:
+        - name: event-service
+          image: ghcr.io/hyjkblj/autocode/event-service:latest
+          ports:
+            - containerPort: 8082
+          env:
+            - name: SPRING_PROFILES_ACTIVE
+              value: "prod"
+            - name: EVENT_DB_URL
+              valueFrom:
+                secretKeyRef:
+                  name: autocode-secrets
+                  key: event-db-url
+            - name: EVENT_DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: autocode-secrets
+                  key: event-db-user
+            - name: EVENT_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: autocode-secrets
+                  key: event-db-password
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8082
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 8082
+            initialDelaySeconds: 15
+            periodSeconds: 5
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "200m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"

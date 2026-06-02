@@ -1,0 +1,22 @@
+spring:
+  datasource:
+    url: ${ARTIFACT_DB_URL}
+    username: ${ARTIFACT_DB_USER}
+    password: ${ARTIFACT_DB_PASSWORD}
+    hikari:
+      maximum-pool-size: 20
+      minimum-idle: 5
+      connection-timeout: 5000
+
+artifacts:
+  storage:
+    base-dir: ${ARTIFACT_STORAGE_DIR:/data/artifacts}
+
+artifact-service:
+  control-plane:
+    url: ${CONTROL_PLANE_URL}
+
+logging:
+  level:
+    com.autocode.artifact: WARN
+    org.springframework.web: WARN

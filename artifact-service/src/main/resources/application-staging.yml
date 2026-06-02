@@ -1,0 +1,18 @@
+spring:
+  datasource:
+    url: ${ARTIFACT_DB_URL}
+    username: ${ARTIFACT_DB_USER}
+    password: ${ARTIFACT_DB_PASSWORD}
+
+artifacts:
+  storage:
+    base-dir: ${ARTIFACT_STORAGE_DIR:/data/artifacts}
+
+artifact-service:
+  control-plane:
+    url: ${CONTROL_PLANE_URL}
+
+logging:
+  level:
+    com.autocode.artifact: INFO
+    org.springframework.web: WARN

@@ -1,0 +1,312 @@
+# AutoCode Production Deployment
+# Usage:
+#   cp .env.prod.example .env.prod   # 填入真实值
+#   docker compose -f docker-compose.prod.yml --env-file .env.prod up -d
+#   docker compose -f docker-compose.prod.yml --env-file .env.prod ps
+#   docker compose -f docker-compose.prod.yml --env-file .env.prod logs -f
+
+services:
+  # ──────────────────────────────────────────────────────────────
+  # 基础设施
+  # ──────────────────────────────────────────────────────────────
+
+  mysql:
+    image: mysql:8.4
+    container_name: autocode-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: mvp_codeops
+      MYSQL_USER: autocode
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./scripts/backup-mysql.sh:/docker-entrypoint-initdb.d/backup-init.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -uroot -p${MYSQL_ROOT_PASSWORD} --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --max-connections=200
+
+  redis:
+    image: redis:7.4
+    container_name: autocode-redis
+    restart: unless-stopped
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD}", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  # ──────────────────────────────────────────────────────────────
+  # 核心服务
+  # ──────────────────────────────────────────────────────────────
+
+  control-plane:
+    build:
+      context: .
+      dockerfile: control-plane-spring/Dockerfile
+    container_name: autocode-control-plane
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      MVP_DB_URL: jdbc:mysql://mysql:3306/mvp_codeops?useUnicode=true&characterEncoding=utf8&serverTimezone=UTC
+      MVP_DB_USERNAME: autocode
+      MVP_DB_PASSWORD: ${MYSQL_PASSWORD}
+      MVP_REDIS_HOST: redis
+      MVP_REDIS_PORT: "6379"
+      MVP_REDIS_PASSWORD: ${REDIS_PASSWORD}
+      MVP_JWT_SECRET: ${JWT_SECRET}
+      MVP_AUTH_MODE: jwt
+      MVP_ELEVATED_AUTHORITIES: ROLE_ADMIN,ROLE_OPERATOR
+      MVP_MTLS_REQUIRED_FOR_AGENT: "false"
+      MVP_ARTIFACTS_BASE_DIR: /app/data/artifacts
+      MVP_ARTIFACTS_HOSTING_BASE_DIR: /app/data/artifacts-hosted
+      MVP_TASK_MAX_CONCURRENT: "50"
+    ports:
+      - "8058:8058"
+    volumes:
+      - control-plane-data:/app/data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8058/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+  gateway-service:
+    build:
+      context: .
+      dockerfile: gateway-service/Dockerfile
+    container_name: autocode-gateway-service
+    restart: unless-stopped
+    depends_on:
+      control-plane:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      CONTROL_PLANE_URL: http://control-plane:8058
+      CONTROL_PLANE_WS_URL: ws://control-plane:8058
+      GATEWAY_REDIS_HOST: redis
+      GATEWAY_REDIS_PORT: "6379"
+      GATEWAY_REDIS_PASSWORD: ${REDIS_PASSWORD}
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+
+  approval-service:
+    build:
+      context: .
+      dockerfile: approval-service/Dockerfile
+    container_name: autocode-approval-service
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+      control-plane:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      APPROVAL_DB_URL: jdbc:mysql://mysql:3306/approval_db?createDatabaseIfNotExist=true
+      APPROVAL_DB_USER: autocode
+      APPROVAL_DB_PASSWORD: ${MYSQL_PASSWORD}
+      CONTROL_PLANE_URL: http://control-plane:8058
+    ports:
+      - "8064:8064"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8064/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+  artifact-service:
+    build:
+      context: .
+      dockerfile: artifact-service/Dockerfile
+    container_name: autocode-artifact-service
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+      control-plane:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      ARTIFACT_DB_URL: jdbc:mysql://mysql:3306/artifact_db?createDatabaseIfNotExist=true
+      ARTIFACT_DB_USER: autocode
+      ARTIFACT_DB_PASSWORD: ${MYSQL_PASSWORD}
+      CONTROL_PLANE_URL: http://control-plane:8058
+      ARTIFACT_STORAGE_DIR: /data/artifacts
+    ports:
+      - "8081:8081"
+    volumes:
+      - artifact-data:/data/artifacts
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8081/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+  event-service:
+    build:
+      context: .
+      dockerfile: event-service/Dockerfile
+    container_name: autocode-event-service
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+      control-plane:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      EVENT_DB_URL: jdbc:mysql://mysql:3306/event_db?createDatabaseIfNotExist=true
+      EVENT_DB_USER: autocode
+      EVENT_DB_PASSWORD: ${MYSQL_PASSWORD}
+    ports:
+      - "8082:8082"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8082/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+  # ──────────────────────────────────────────────────────────────
+  # Agent
+  # ──────────────────────────────────────────────────────────────
+
+  pc-agent-java:
+    build:
+      context: .
+      dockerfile: pc-agent-java/Dockerfile
+    container_name: autocode-pc-agent-java
+    restart: unless-stopped
+    depends_on:
+      control-plane:
+        condition: service_healthy
+    environment:
+      MVP_BASE_URL: http://control-plane:8058
+      MVP_AGENT_TOKEN: ${AGENT_TOKEN:-agent-prod-token}
+      MVP_NODE_ID: java-sandbox-prod
+      MVP_AGENT_PROFILE: coder
+      MVP_ALLOWED_WORKSPACE_PREFIXES: /workspace
+      MVP_SANDBOX_SERVER_ENABLED: "true"
+      MVP_SANDBOX_PORT: "18080"
+    volumes:
+      - workspace-data:/workspace
+
+  python-agent:
+    build:
+      context: .
+      dockerfile: python-agent/Dockerfile
+    container_name: autocode-python-agent
+    restart: unless-stopped
+    depends_on:
+      control-plane:
+        condition: service_healthy
+      pc-agent-java:
+        condition: service_started
+    network_mode: "service:pc-agent-java"
+    environment:
+      MVP_BASE_URL: http://control-plane:8058
+      MVP_AGENT_TOKEN: ${AGENT_TOKEN:-agent-prod-token}
+      MVP_NODE_ID: py-ai-prod
+      MVP_AGENT_PROFILE: ai-agent
+      MVP_ALLOWED_WORKSPACE_PREFIXES: /workspace
+      MVP_SANDBOX_BASE_URL: http://127.0.0.1:18080
+      MVP_MEMORY_BACKEND: redis
+      MVP_REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      ARK_API_KEY: ${ARK_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      LLM_CONFIG_PATH: ${LLM_CONFIG_PATH:-configs/doubao-seed-2.0-code-high-perf.json}
+    volumes:
+      - workspace-data:/workspace
+
+  # ──────────────────────────────────────────────────────────────
+  # 可观测性
+  # ──────────────────────────────────────────────────────────────
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: autocode-prometheus
+    restart: unless-stopped
+    depends_on:
+      control-plane:
+        condition: service_started
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=15d"
+      - "--web.enable-lifecycle"
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./ops/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./ops/observability/alert_rules.yml:/etc/prometheus/alert_rules.yml:ro
+      - prometheus-data:/prometheus
+
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    container_name: autocode-alertmanager
+    restart: unless-stopped
+    command:
+      - "--config.file=/etc/alertmanager/alertmanager.yml"
+      - "--storage.path=/alertmanager"
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./ops/observability/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+
+  grafana:
+    image: grafana/grafana:11.1.4
+    container_name: autocode-grafana
+    restart: unless-stopped
+    depends_on:
+      prometheus:
+        condition: service_started
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-changeme}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_METRICS_ENABLED: "true"
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./ops/observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./ops/observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+
+volumes:
+  mysql-data:
+  redis-data:
+  control-plane-data:
+  artifact-data:
+  workspace-data:
+  prometheus-data:
+  grafana-data:

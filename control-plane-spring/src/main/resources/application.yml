@@ -1,7 +1,10 @@
 server:
   port: 8058
+  shutdown: graceful
 
 spring:
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
   application:
     name: control-plane-spring
   autoconfigure:
@@ -104,3 +107,21 @@ artifacts:
   cleanup:
     enabled: ${MVP_ARTIFACTS_CLEANUP_ENABLED:true}
     retention-days: ${MVP_ARTIFACTS_CLEANUP_RETENTION_DAYS:30}
+
+mvp:
+  task:
+    max-concurrent: ${MVP_TASK_MAX_CONCURRENT:50}
+
+resilience4j:
+  circuitbreaker:
+    instances:
+      redis:
+        slidingWindowSize: 10
+        failureRateThreshold: 50
+        waitDurationInOpenState: 30s
+        permittedNumberOfCallsInHalfOpenState: 3
+      database:
+        slidingWindowSize: 10
+        failureRateThreshold: 50
+        waitDurationInOpenState: 30s
+        permittedNumberOfCallsInHalfOpenState: 3

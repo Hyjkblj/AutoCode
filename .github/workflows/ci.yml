@@ -42,3 +42,129 @@ jobs:
 
       - name: Compile Python agent
         run: python -m compileall python-agent
+
+  security-scan:
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Trivy vulnerability scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          severity: 'CRITICAL,HIGH'
+          format: 'table'
+          exit-code: '0'
+
+      - name: CodeQL Analysis (Java)
+        uses: github/codeql-action/init@v3
+        with:
+          languages: java
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+
+  build-and-push:
+    needs: verify
+    if: github.ref == 'refs/heads/master' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix:
+        service:
+          - control-plane-spring
+          - pc-agent-java
+          - approval-service
+          - artifact-service
+          - event-service
+          - gateway-service
+        include:
+          - service: control-plane-spring
+            port: "8058"
+          - service: pc-agent-java
+            port: "8059"
+          - service: approval-service
+            port: "8064"
+          - service: artifact-service
+            port: "8081"
+          - service: event-service
+            port: "8082"
+          - service: gateway-service
+            port: "8080"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      - name: Build JAR
+        run: mvn -B -ntp -pl ${{ matrix.service }} -am package -DskipTests
+
+      - name: Log in to GHCR
+        run: echo ${{ secrets.GITHUB_TOKEN }} | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      - name: Build Docker image
+        run: |
+          IMAGE=ghcr.io/${{ github.repository_owner }}/autocode/${{ matrix.service }}
+          docker build -t $IMAGE:${{ github.sha }} -t $IMAGE:latest ./${{ matrix.service }}
+          docker push $IMAGE:${{ github.sha }}
+          docker push $IMAGE:latest
+
+  build-python-agent:
+    needs: verify
+    if: github.ref == 'refs/heads/master' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        run: echo ${{ secrets.GITHUB_TOKEN }} | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      - name: Build and push Python agent image
+        run: |
+          IMAGE=ghcr.io/${{ github.repository_owner }}/autocode/python-agent
+          docker build -t $IMAGE:${{ github.sha }} -t $IMAGE:latest ./python-agent
+          docker push $IMAGE:${{ github.sha }}
+          docker push $IMAGE:latest
+
+  deploy-staging:
+    needs: [build-and-push, build-python-agent]
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy to staging
+        run: |
+          echo "Deploying ${{ github.sha }} to staging..."
+          # kubectl set image deployments/control-plane \
+          #   control-plane=ghcr.io/${{ github.repository_owner }}/autocode/control-plane-spring:${{ github.sha }}
+          # Repeat for each service
+
+      - name: Smoke test staging
+        run: |
+          echo "Running smoke tests against staging..."
+          # curl -f https://staging.autocode.example.com/actuator/health
+
+  deploy-prod:
+    needs: deploy-staging
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy to production
+        run: |
+          echo "Deploying ${{ github.sha }} to production..."
+          # kubectl set image deployments/control-plane \
+          #   control-plane=ghcr.io/${{ github.repository_owner }}/autocode/control-plane-spring:${{ github.sha }}

@@ -120,3 +120,80 @@ groups:
         annotations:
           summary: Validation failure rate elevated
           description: Validation failure rate has been above 0.1/s for 5 minutes.
+
+  - name: autocode-services
+    rules:
+      - alert: GatewayServiceDown
+        expr: up{job="gateway-service"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: gateway-service
+        annotations:
+          summary: Gateway Service is down
+          description: Gateway Service has not been reachable for more than 1 minute.
+
+      - alert: ApprovalServiceDown
+        expr: up{job="approval-service"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: approval-service
+        annotations:
+          summary: Approval Service is down
+          description: Approval Service has not been reachable for more than 1 minute.
+
+      - alert: ArtifactServiceDown
+        expr: up{job="artifact-service"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: artifact-service
+        annotations:
+          summary: Artifact Service is down
+          description: Artifact Service has not been reachable for more than 1 minute.
+
+      - alert: EventServiceDown
+        expr: up{job="event-service"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: event-service
+        annotations:
+          summary: Event Service is down
+          description: Event Service has not been reachable for more than 1 minute.
+
+      - alert: GatewayHigh5xxRate
+        expr: |
+          (
+            sum(rate(http_server_requests_seconds_count{job="gateway-service",status=~"5.."}[5m]))
+            /
+            clamp_min(sum(rate(http_server_requests_seconds_count{job="gateway-service"}[5m])), 1)
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          service: gateway-service
+        annotations:
+          summary: Gateway 5xx rate is elevated
+          description: The Gateway 5xx response ratio has been above 5% for 5 minutes.
+
+      - alert: HighApprovalTimeoutRate
+        expr: rate(approval_timeout_total[5m]) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          service: approval-service
+        annotations:
+          summary: High approval timeout rate detected
+          description: Approval timeout rate has been above 0.1/s for 5 minutes.
+
+      - alert: EventDeduplicationBacklog
+        expr: event_deduplication_pending > 1000
+        for: 5m
+        labels:
+          severity: warning
+          service: event-service
+        annotations:
+          summary: Event deduplication backlog growing
+          description: Event deduplication pending count has exceeded 1000 for 5 minutes.

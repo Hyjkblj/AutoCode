@@ -15,6 +15,11 @@
     <description>Standalone Approval Service microservice — manages approval workflows, security gates, and RBAC</description>
 
     <dependencies>
+        <dependency>
+            <groupId>net.logstash.logback</groupId>
+            <artifactId>logstash-logback-encoder</artifactId>
+            <version>7.4</version>
+        </dependency>
         <!-- Web -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

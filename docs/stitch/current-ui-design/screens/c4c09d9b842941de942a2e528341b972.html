@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+
+<html class="light" lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Amber Intelligence - Task Hub</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@300;400;500;600;700;800;900&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "surface-container": "#fbebdd",
+                        "on-surface-variant": "#534434",
+                        "inverse-on-surface": "#feeedf",
+                        "outline": "#867461",
+                        "on-primary-fixed": "#2a1700",
+                        "on-primary": "#ffffff",
+                        "surface-variant": "#f0e0d1",
+                        "tertiary-fixed-dim": "#7fd0ff",
+                        "on-tertiary-container": "#004966",
+                        "inverse-primary": "#ffb95f",
+                        "surface-container-high": "#f5e6d7",
+                        "surface": "#fff8f4",
+                        "on-secondary-container": "#686361",
+                        "on-primary-fixed-variant": "#653e00",
+                        "on-tertiary": "#ffffff",
+                        "primary-container": "#f59e0b",
+                        "primary": "#855300",
+                        "secondary-fixed-dim": "#ccc5c2",
+                        "secondary": "#625d5b",
+                        "inverse-surface": "#382f25",
+                        "error-container": "#ffdad6",
+                        "outline-variant": "#d8c3ad",
+                        "on-secondary": "#ffffff",
+                        "on-background": "#221a12",
+                        "primary-fixed": "#ffddb8",
+                        "on-error": "#ffffff",
+                        "secondary-container": "#e9e1dd",
+                        "tertiary-fixed": "#c5e7ff",
+                        "on-tertiary-fixed": "#001e2d",
+                        "error": "#ba1a1a",
+                        "surface-bright": "#fff8f4",
+                        "tertiary": "#00658b",
+                        "on-secondary-fixed-variant": "#4a4643",
+                        "surface-tint": "#855300",
+                        "on-primary-container": "#613b00",
+                        "primary-fixed-dim": "#ffb95f",
+                        "on-secondary-fixed": "#1e1b19",
+                        "tertiary-container": "#1abdff",
+                        "surface-dim": "#e7d7c9",
+                        "on-error-container": "#93000a",
+                        "on-tertiary-fixed-variant": "#004c6a",
+                        "surface-container-low": "#fff1e5",
+                        "surface-container-lowest": "#ffffff",
+                        "surface-container-highest": "#f0e0d1",
+                        "background": "#fff8f4",
+                        "secondary-fixed": "#e9e1dd",
+                        "on-surface": "#221a12"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.125rem",
+                        "lg": "0.25rem",
+                        "xl": "0.5rem",
+                        "full": "0.75rem"
+                    },
+                    "spacing": {
+                        "gutter": "24px",
+                        "xl": "80px",
+                        "base": "4px",
+                        "sm": "16px",
+                        "margin": "32px",
+                        "xs": "8px",
+                        "md": "24px",
+                        "lg": "48px"
+                    },
+                    "fontFamily": {
+                        "body-lg": ["Public Sans"],
+                        "h3": ["Public Sans"],
+                        "label-caps": ["Public Sans"],
+                        "h2": ["Public Sans"],
+                        "body-md": ["Public Sans"],
+                        "h1": ["Public Sans"]
+                    },
+                    "fontSize": {
+                        "body-lg": ["18px", {"lineHeight": "1.6", "letterSpacing": "0", "fontWeight": "400"}],
+                        "h3": ["24px", {"lineHeight": "1.3", "letterSpacing": "0", "fontWeight": "600"}],
+                        "label-caps": ["12px", {"lineHeight": "1.0", "letterSpacing": "0.1em", "fontWeight": "700"}],
+                        "h2": ["32px", {"lineHeight": "1.2", "letterSpacing": "-0.01em", "fontWeight": "600"}],
+                        "body-md": ["16px", {"lineHeight": "1.5", "letterSpacing": "0", "fontWeight": "400"}],
+                        "h1": ["48px", {"lineHeight": "1.1", "letterSpacing": "-0.02em", "fontWeight": "700"}]
+                    }
+                },
+            },
+        }
+    </script>
+<style>
+        body {
+            background-color: #FFFBEB; /* Cream background per style guidance */
+            color: #1C1917;
+            font-family: 'Public Sans', sans-serif;
+            -webkit-font-smoothing: antialiased;
+        }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #E7E5E4;
+            border-radius: 10px;
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-background text-on-surface selection:bg-primary-container selection:text-on-primary-container">
+<!-- TopAppBar Shell -->
+<header class="fixed top-0 left-0 w-full z-50 flex justify-between items-center px-4 h-16 bg-[#FFFBEB] dark:bg-stone-950 border-b border-stone-200 dark:border-stone-800">
+<div class="flex items-center gap-3">
+<div class="w-10 h-10 rounded-full overflow-hidden border border-amber-200">
+<img alt="User profile" class="w-full h-full object-cover" data-alt="A sophisticated professional portrait of a user in a modern office environment, softly lit by golden hour sunlight streaming through large windows. The aesthetic is clean and minimalist, following a warm light-mode color palette with soft ambers and neutral stones. The mood is calm and focused, reflecting an intellectual and premium digital assistant experience." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAMeor_LqeMsCCN-CqAKVK8nvLOHXzxBEplYKWqlMqWz45ZlQfqLd07wUb2NzfHRbl4M4s4lJtW69-m1cZ534x0mV7-v4gf8vZUk5Rd6oM1fmTONfpHr4jA2pWPz7hSl-XJSkQRYIJ0IddsyBJaDB8tG7FPl_Jk9qyI2vGYGAZNhQl2gzRT62JO-2yyFzekwM72RdbieOj9KvpmYcH0_Ujh9TkAtUQ0htJHZ8mbgwQiE20gs7ncfkvOWko1Izo6E_dLfVMo0WDNzzeY"/>
+</div>
+<span class="text-xl font-black text-stone-900 dark:text-stone-50 font-['Public_Sans']">Amber Intelligence</span>
+</div>
+<div class="flex items-center gap-4">
+<button class="p-2 transition-all active:scale-95 duration-200 hover:bg-stone-100 dark:hover:bg-stone-800 rounded-full text-amber-500 dark:text-amber-400">
+<span class="material-symbols-outlined" data-icon="notifications">notifications</span>
+</button>
+</div>
+</header>
+<!-- Main Content Canvas -->
+<main class="pt-20 pb-24 px-4 max-w-4xl mx-auto space-y-md">
+<!-- Conversational Intro Section -->
+<section class="space-y-sm py-4">
+<h1 class="font-h2 text-h2 text-on-surface">你好, 智能助理已准备就绪。</h1>
+<p class="font-body-lg text-body-lg text-on-surface-variant max-w-2xl">
+                当前有 3 个待处理任务需要您的关注。我们可以从分析最新的资产报告开始，或者处理状态更新。
+            </p>
+</section>
+<!-- Bento Grid Task Hub -->
+<div class="grid grid-cols-1 md:grid-cols-12 gap-gutter">
+<!-- Primary Task Card: Chat Focus -->
+<div class="md:col-span-8 bg-[#FAFAF9] border border-[#E7E5E4] rounded-xl p-md transition-all duration-300 hover:shadow-[0_4px_20px_rgba(245,158,11,0.06)] group">
+<div class="flex justify-between items-start mb-md">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-amber-600 bg-amber-50 p-2 rounded-lg" data-icon="chat_sparkle">chat_spark</span>
+<div>
+<h3 class="font-h3 text-h3 text-on-surface">持续对话</h3>
+<p class="font-body-md text-stone-500">Q3 季度财务预测分析</p>
+</div>
+</div>
+<span class="px-2 py-1 bg-amber-100 text-amber-700 font-label-caps text-[10px] rounded">活动中</span>
+</div>
+<div class="space-y-sm bg-white/50 p-sm rounded-lg border border-stone-100 mb-md">
+<div class="flex gap-sm">
+<div class="w-2 h-2 mt-2 rounded-full bg-amber-500 shrink-0"></div>
+<p class="font-body-md text-on-surface italic">“根据目前的市场波动，资产风险敞口增加了 4.2%...”</p>
+</div>
+</div>
+<div class="flex gap-sm">
+<button class="flex-1 py-3 bg-primary-container text-on-primary-fixed font-label-caps rounded-lg transition-transform active:scale-[0.98]">
+                        继续对话
+                    </button>
+<button class="px-4 py-3 border border-[#E7E5E4] text-secondary font-label-caps rounded-lg hover:bg-stone-50 transition-colors">
+                        查看详情
+                    </button>
+</div>
+</div>
+<!-- Side Card: Quick Stats -->
+<div class="md:col-span-4 bg-[#FAFAF9] border border-[#E7E5E4] rounded-xl p-md flex flex-col justify-between hover:shadow-[0_4px_20px_rgba(245,158,11,0.06)] transition-all">
+<div>
+<span class="font-label-caps text-stone-400 mb-sm block">资产状态</span>
+<div class="text-[40px] font-bold text-on-surface tracking-tighter leading-none mb-xs">¥2.4M</div>
+<div class="flex items-center gap-1 text-emerald-600 text-sm font-medium">
+<span class="material-symbols-outlined text-sm" data-icon="trending_up">trending_up</span>
+<span>+12.4% 本月</span>
+</div>
+</div>
+<div class="mt-lg pt-md border-t border-stone-100">
+<img alt="Asset trend" class="w-full h-auto opacity-80" data-alt="A minimalist line chart showing a steady upward trend, rendered in a refined amber and stone color palette. The background is a clean paper-textured light cream, with subtle grid lines and a soft glowing aura around the data points. The overall aesthetic is professional, data-driven, and maintains the warmth of the intellectual clarity design pillars." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBQSu0XhaWwzq5L5cvG2bPh5OtY1bR0KAGARa2BndIQCX3pURMPMm659YCMaqDkvk5fuPw618qQC9Jgp6rkiJ44g5R7CbQQ4580KY0GusBaCYKoLvGwztIWoV0UeteXQQqj0UDNPzSuVk3ApEBDcEMxY0Z8lDY_0aukBy7DMu4WaPvInmLcIl8ffiVijFW9ibej6l5Ejm481Rn5CURE2lxEKFm_Icu8OVKvs9g517nz78eeIvKEOg5d2U4ixZnrnhchMaQrVV7wAsf-"/>
+</div>
+</div>
+<!-- Row 2: Secondary Tasks -->
+<div class="md:col-span-4 bg-[#FAFAF9] border border-[#E7E5E4] rounded-xl p-md hover:shadow-[0_4px_20px_rgba(245,158,11,0.06)] transition-all">
+<span class="material-symbols-outlined text-stone-400 mb-sm" data-icon="inventory_2">inventory_2</span>
+<h4 class="font-h3 text-[20px] text-on-surface mb-xs">库存审核</h4>
+<p class="font-body-md text-stone-500 mb-md text-sm">5 个项目需要重新分类</p>
+<div class="w-full bg-stone-200 h-1.5 rounded-full overflow-hidden">
+<div class="bg-amber-500 h-full w-2/3"></div>
+</div>
+</div>
+<div class="md:col-span-4 bg-[#FAFAF9] border border-[#E7E5E4] rounded-xl p-md hover:shadow-[0_4px_20px_rgba(245,158,11,0.06)] transition-all">
+<span class="material-symbols-outlined text-stone-400 mb-sm" data-icon="analytics">analytics</span>
+<h4 class="font-h3 text-[20px] text-on-surface mb-xs">系统分析</h4>
+<p class="font-body-md text-stone-500 mb-md text-sm">运行效率提升了 15%</p>
+<div class="flex -space-x-2">
+<div class="w-8 h-8 rounded-full border-2 border-white bg-stone-200 flex items-center justify-center text-[10px] font-bold">JD</div>
+<div class="w-8 h-8 rounded-full border-2 border-white bg-amber-200 flex items-center justify-center text-[10px] font-bold">AS</div>
+<div class="w-8 h-8 rounded-full border-2 border-white bg-stone-100 flex items-center justify-center text-[10px] font-bold text-stone-400">+2</div>
+</div>
+</div>
+<div class="md:col-span-4 bg-primary-container text-on-primary-fixed rounded-xl p-md flex flex-col justify-between shadow-lg shadow-amber-500/10">
+<div>
+<h4 class="font-h3 text-[20px] mb-xs">创建新任务</h4>
+<p class="text-on-primary-fixed/70 text-sm">让 AI 协助您整理思路</p>
+</div>
+<button class="self-end w-12 h-12 bg-on-primary-fixed text-primary-container rounded-full flex items-center justify-center transition-transform active:scale-90">
+<span class="material-symbols-outlined" data-icon="add">add</span>
+</button>
+</div>
+</div>
+<!-- Conversational Task Feed -->
+<section class="mt-lg space-y-md">
+<div class="flex items-center justify-between">
+<h2 class="font-h3 text-h3 text-on-surface">最近互动</h2>
+<button class="text-amber-700 font-label-caps text-xs flex items-center gap-1">
+                    全部历史 <span class="material-symbols-outlined text-sm" data-icon="chevron_right">chevron_right</span>
+</button>
+</div>
+<div class="space-y-sm">
+<!-- Chat Message Row -->
+<div class="flex gap-md p-md bg-[#FAFAF9] border border-[#E7E5E4] rounded-xl">
+<div class="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center shrink-0">
+<span class="material-symbols-outlined text-amber-700" data-icon="smart_toy">smart_toy</span>
+</div>
+<div class="space-y-xs">
+<div class="flex items-center gap-2">
+<span class="font-bold text-sm text-on-surface">Amber AI</span>
+<span class="text-[10px] text-stone-400">10:24 AM</span>
+</div>
+<p class="font-body-md text-on-surface-variant">我已经为您更新了“资产配置”表格。需要我现在为您导出 PDF 报告吗？</p>
+<div class="flex gap-xs mt-sm">
+<button class="px-sm py-1.5 bg-white border border-stone-200 rounded-full text-xs font-medium hover:bg-stone-50">是，请导出</button>
+<button class="px-sm py-1.5 bg-white border border-stone-200 rounded-full text-xs font-medium hover:bg-stone-50">稍后再说</button>
+</div>
+</div>
+</div>
+<!-- User Message Row -->
+<div class="flex gap-md p-md justify-end">
+<div class="space-y-xs text-right">
+<div class="flex items-center gap-2 justify-end">
+<span class="text-[10px] text-stone-400">10:25 AM</span>
+<span class="font-bold text-sm text-on-surface">您</span>
+</div>
+<p class="font-body-md text-on-surface-variant bg-white border border-stone-100 p-sm rounded-xl inline-block shadow-sm">
+                            是的，请发送到我的邮箱。
+                        </p>
+</div>
+<div class="w-10 h-10 rounded-full bg-stone-100 flex items-center justify-center shrink-0 overflow-hidden border border-stone-200">
+<img alt="Me" class="w-full h-full object-cover" data-alt="A close-up creative portrait of a professional individual in a minimalist studio. The lighting is soft and warm, emphasizing clean lines and a sophisticated atmosphere. The color palette is dominated by neutral stone tones and subtle amber highlights, creating a cohesive, high-end visual identity for a modern user profile." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCStUAocNwdapNE_sKmzXv7Uyl75N23r3ln0nzCplr6LsMpvZewv--6y_MOose5kNaGc2Jh0GoNmf6aB1O-3Lz2hIWO4xvgjmUkvsoTLN9RU15vcZ-UgpzuO0KVbY4v581eO8sw81oOBrLJW0DW6UQuLajfhVrwQLv-4kZ4TsrDYEiWkUBTv5nrzd2lgJG89DveA7ewb5aUyVzX33viHCXBBXCQsFchwsiWyoREevWQxzxb6VPJM0TCUZ3QHanI7jrMeft3q6F7N1Tk"/>
+</div>
+</div>
+</div>
+</section>
+</main>
+<!-- BottomNavBar Shell -->
+<nav class="fixed bottom-0 left-0 w-full z-50 flex justify-around items-center px-2 py-3 bg-[#FFFBEB] dark:bg-stone-950 border-t border-stone-200 dark:border-stone-800 shadow-[0_-4px_12px_rgba(245,158,11,0.05)]">
+<!-- 对话 - Active -->
+<a class="flex flex-col items-center justify-center bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 rounded-lg px-3 py-1 transition-transform active:scale-90 duration-150" href="#">
+<span class="material-symbols-outlined" data-icon="chat_bubble" style="font-variation-settings: 'FILL' 1;">chat_bubble</span>
+<span class="font-['Public_Sans'] text-[11px] font-medium">对话</span>
+</a>
+<!-- 资产 -->
+<a class="flex flex-col items-center justify-center text-stone-500 dark:text-stone-400 px-3 py-1 hover:bg-stone-50 dark:hover:bg-stone-900 transition-transform active:scale-90 duration-150" href="#">
+<span class="material-symbols-outlined" data-icon="inventory_2">inventory_2</span>
+<span class="font-['Public_Sans'] text-[11px] font-medium">资产</span>
+</a>
+<!-- 状态 -->
+<a class="flex flex-col items-center justify-center text-stone-500 dark:text-stone-400 px-3 py-1 hover:bg-stone-50 dark:hover:bg-stone-900 transition-transform active:scale-90 duration-150" href="#">
+<span class="material-symbols-outlined" data-icon="analytics">analytics</span>
+<span class="font-['Public_Sans'] text-[11px] font-medium">状态</span>
+</a>
+<!-- 设置 -->
+<a class="flex flex-col items-center justify-center text-stone-500 dark:text-stone-400 px-3 py-1 hover:bg-stone-50 dark:hover:bg-stone-900 transition-transform active:scale-90 duration-150" href="#">
+<span class="material-symbols-outlined" data-icon="settings">settings</span>
+<span class="font-['Public_Sans'] text-[11px] font-medium">设置</span>
+</a>
+</nav>
+</body></html>

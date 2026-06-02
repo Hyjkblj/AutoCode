@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+
+<html class="light" lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700;900&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "surface-container": "#fbebdd",
+                        "on-surface-variant": "#534434",
+                        "inverse-on-surface": "#feeedf",
+                        "outline": "#867461",
+                        "on-primary-fixed": "#2a1700",
+                        "on-primary": "#ffffff",
+                        "surface-variant": "#f0e0d1",
+                        "tertiary-fixed-dim": "#7fd0ff",
+                        "on-tertiary-container": "#004966",
+                        "inverse-primary": "#ffb95f",
+                        "surface-container-high": "#f5e6d7",
+                        "surface": "#fff8f4",
+                        "on-secondary-container": "#686361",
+                        "on-primary-fixed-variant": "#653e00",
+                        "on-tertiary": "#ffffff",
+                        "primary-container": "#f59e0b",
+                        "primary": "#855300",
+                        "secondary-fixed-dim": "#ccc5c2",
+                        "secondary": "#625d5b",
+                        "inverse-surface": "#382f25",
+                        "error-container": "#ffdad6",
+                        "outline-variant": "#d8c3ad",
+                        "on-secondary": "#ffffff",
+                        "on-background": "#221a12",
+                        "primary-fixed": "#ffddb8",
+                        "on-error": "#ffffff",
+                        "secondary-container": "#e9e1dd",
+                        "tertiary-fixed": "#c5e7ff",
+                        "on-tertiary-fixed": "#001e2d",
+                        "error": "#ba1a1a",
+                        "surface-bright": "#fff8f4",
+                        "tertiary": "#00658b",
+                        "on-secondary-fixed-variant": "#4a4643",
+                        "surface-tint": "#855300",
+                        "on-primary-container": "#613b00",
+                        "primary-fixed-dim": "#ffb95f",
+                        "on-secondary-fixed": "#1e1b19",
+                        "tertiary-container": "#1abdff",
+                        "surface-dim": "#e7d7c9",
+                        "on-error-container": "#93000a",
+                        "on-tertiary-fixed-variant": "#004c6a",
+                        "surface-container-low": "#fff1e5",
+                        "surface-container-lowest": "#ffffff",
+                        "surface-container-highest": "#f0e0d1",
+                        "background": "#fff8f4",
+                        "secondary-fixed": "#e9e1dd",
+                        "on-surface": "#221a12"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.125rem",
+                        "lg": "0.25rem",
+                        "xl": "0.5rem",
+                        "full": "0.75rem"
+                    },
+                    "spacing": {
+                        "gutter": "24px",
+                        "xl": "80px",
+                        "base": "4px",
+                        "sm": "16px",
+                        "margin": "32px",
+                        "xs": "8px",
+                        "md": "24px",
+                        "lg": "48px"
+                    },
+                    "fontFamily": {
+                        "body-lg": ["Public Sans"],
+                        "h3": ["Public Sans"],
+                        "label-caps": ["Public Sans"],
+                        "h2": ["Public Sans"],
+                        "body-md": ["Public Sans"],
+                        "h1": ["Public Sans"]
+                    },
+                    "fontSize": {
+                        "body-lg": ["18px", {"lineHeight": "1.6", "letterSpacing": "0", "fontWeight": "400"}],
+                        "h3": ["24px", {"lineHeight": "1.3", "letterSpacing": "0", "fontWeight": "600"}],
+                        "label-caps": ["12px", {"lineHeight": "1.0", "letterSpacing": "0.1em", "fontWeight": "700"}],
+                        "h2": ["32px", {"lineHeight": "1.2", "letterSpacing": "-0.01em", "fontWeight": "600"}],
+                        "body-md": ["16px", {"lineHeight": "1.5", "letterSpacing": "0", "fontWeight": "400"}],
+                        "h1": ["48px", {"lineHeight": "1.1", "letterSpacing": "-0.02em", "fontWeight": "700"}]
+                    }
+                },
+            },
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        body {
+            background-color: #FFFBEB; /* Brand base background */
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="font-body-md text-on-surface">
+<!-- Top AppBar -->
+<header class="fixed top-0 left-0 w-full z-50 flex justify-between items-center px-4 h-16 bg-[#FFFBEB] border-b border-stone-200">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded-full overflow-hidden bg-primary-container flex items-center justify-center">
+<img alt="User profile" class="w-full h-full object-cover" data-alt="A professional high-resolution close-up portrait of a tech executive with a neutral expression, set against a warm architectural background with soft natural lighting. the image reflects the intellectual and premium quality of the brand, featuring soft amber highlights and sharp details in the hair and skin textures." src="https://lh3.googleusercontent.com/aida-public/AB6AXuB1Zf0L4vRzZ4EYENrYPtjor8UcSzKXEaudlMmvneWs94D0oOgbp6Hmw-TVCIiqFpDGhDu8AjfCy6uKrqS7HINFuNA0NS998-e4SyuzdRNO_KOvcjCWfEZaDjMEEHvVlOuETwjcDQGZ_BXhmTDBivelX6HTF0o0Xl5ngEg3cu9b09N6XhvRg9anJjb3rCefqaNzm86Vn3gTo1GvEosdQULWjpQXEIJX1DkisbnA07XHnwgLkpwNDQ3__-7JG9gQJ6ba8TVPj8W3Mip6"/>
+</div>
+<h1 class="font-['Public_Sans'] font-black text-xl tracking-tight text-stone-900">Amber Intelligence</h1>
+</div>
+<button class="w-10 h-10 flex items-center justify-center rounded-full hover:bg-stone-100 transition-all active:scale-95 duration-200">
+<span class="material-symbols-outlined text-stone-600" data-icon="notifications">notifications</span>
+</button>
+</header>
+<!-- Main Canvas -->
+<main class="pt-20 pb-32 px-gutter max-w-[1140px] mx-auto min-h-screen">
+<!-- Hero Status Section -->
+<section class="mb-lg">
+<div class="bg-[#FAFAF9] border border-[#E7E5E4] rounded-xl p-md flex flex-col md:flex-row justify-between items-start md:items-center gap-md">
+<div>
+<h2 class="font-h3 text-h3 text-on-surface mb-xs">资产概览</h2>
+<p class="font-body-md text-on-surface-variant">实时追踪与系统实体完整性验证</p>
+</div>
+<div class="flex items-center gap-3 px-4 py-2 bg-primary-fixed rounded-full">
+<div class="w-2 h-2 bg-primary-container rounded-full animate-pulse"></div>
+<span class="font-label-caps text-on-primary-fixed uppercase tracking-widest text-[10px]">System Initializing</span>
+</div>
+</div>
+</section>
+<!-- Bento Grid Assets -->
+<div class="grid grid-cols-1 md:grid-cols-12 gap-gutter">
+<!-- Strategic Performance Card -->
+<div class="md:col-span-8 bg-[#FAFAF9] border border-[#E7E5E4] rounded-xl overflow-hidden">
+<div class="p-md border-b border-[#E7E5E4] flex justify-between items-center">
+<span class="font-label-caps text-outline">compiled entities performance</span>
+<span class="text-primary font-bold">89.4% Efficiency</span>
+</div>
+<div class="p-md h-64 relative bg-surface-container-lowest">
+<img alt="Data Analytics Visualization" class="w-full h-full object-cover rounded-lg" data-alt="A sophisticated data visualization dashboard showing glowing golden and amber line charts against a clean, off-white paper texture background. The layout is minimalist and architectural, reflecting high-end business intelligence. Soft ambient shadows provide depth, and the overall lighting is bright and warm, consistent with a premium light-mode UI." src="https://lh3.googleusercontent.com/aida-public/AB6AXuDDDdsQOKNQpOmMcFkPuzY2xxubfDRJ98ByjsUKF5OJ55KmMoKb3KyhdFgfR4sfxjZ23ZNCVki3mlrhhKQjUiXis_WtHwEk5Fv-2wsyS4JkqRBYaIKgfnifJWK-nIW5-7pLASv4bHT6qJh6s1ofMghGq0kY7ssuKBjgj0LiPHAugeKbHoX8uQkjUphzm8SYxoNxvbKxvO4qxli9m6EE2tNYeLZvSxaA1vgn-FXJl7gClSIz73fEE0rg0ivIgRmyGJLNuoGtcRCjY1Ds"/>
+</div>
+</div>
+<!-- Total Assets Value Chip -->
+<div class="md:col-span-4 bg-primary-container text-on-primary-container rounded-xl p-md flex flex-col justify-between shadow-[0_12px_24px_rgba(245,158,11,0.12)]">
+<div class="flex justify-between items-start">
+<span class="material-symbols-outlined text-4xl" data-icon="account_balance_wallet">account_balance_wallet</span>
+<span class="font-label-caps bg-on-primary-container/10 px-2 py-1 rounded">Update 2m ago</span>
+</div>
+<div>
+<p class="font-body-md opacity-80">当前资产净值</p>
+<h3 class="font-h2 text-h2 font-black leading-none mt-xs">¥2,481,200</h3>
+</div>
+</div>
+<!-- List Layout for Entities -->
+<div class="md:col-span-12 bg-[#FAFAF9] border border-[#E7E5E4] rounded-xl">
+<div class="p-md border-b border-[#E7E5E4] flex justify-between items-center bg-stone-50/50">
+<h3 class="font-h3 text-body-lg font-bold">已编译实体列表</h3>
+<div class="flex gap-2">
+<button class="px-3 py-1 text-xs border border-[#E7E5E4] rounded-lg bg-white hover:bg-stone-50 transition-colors">筛选</button>
+<button class="px-3 py-1 text-xs border border-[#E7E5E4] rounded-lg bg-white hover:bg-stone-50 transition-colors">导出</button>
+</div>
+</div>
+<div class="divide-y divide-[#E7E5E4]">
+<!-- Entity Item 1 -->
+<div class="p-md flex items-center justify-between hover:bg-[#F5F5F4] transition-colors group">
+<div class="flex items-center gap-4">
+<div class="w-12 h-12 rounded-lg bg-surface-container flex items-center justify-center text-primary">
+<span class="material-symbols-outlined" data-icon="hub">hub</span>
+</div>
+<div>
+<h4 class="font-body-md font-bold text-on-surface">Core Intelligence Node</h4>
+<p class="text-xs text-outline">UUID: AMB-9021-X1</p>
+</div>
+</div>
+<div class="text-right">
+<p class="font-body-md font-bold text-on-surface">¥1,200,000</p>
+<span class="inline-block px-2 py-0.5 rounded-full bg-green-100 text-green-700 text-[10px] font-bold uppercase">Active</span>
+</div>
+</div>
+<!-- Entity Item 2 -->
+<div class="p-md flex items-center justify-between hover:bg-[#F5F5F4] transition-colors group">
+<div class="flex items-center gap-4">
+<div class="w-12 h-12 rounded-lg bg-surface-container flex items-center justify-center text-primary">
+<span class="material-symbols-outlined" data-icon="database">database</span>
+</div>
+<div>
+<h4 class="font-body-md font-bold text-on-surface">Neural Dataset Alpha</h4>
+<p class="text-xs text-outline">UUID: AMB-4432-D2</p>
+</div>
+</div>
+<div class="text-right">
+<p class="font-body-md font-bold text-on-surface">¥850,200</p>
+<span class="inline-block px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 text-[10px] font-bold uppercase">Syncing</span>
+</div>
+</div>
+<!-- Entity Item 3 -->
+<div class="p-md flex items-center justify-between hover:bg-[#F5F5F4] transition-colors group">
+<div class="flex items-center gap-4">
+<div class="w-12 h-12 rounded-lg bg-surface-container flex items-center justify-center text-primary">
+<span class="material-symbols-outlined" data-icon="security">security</span>
+</div>
+<div>
+<h4 class="font-body-md font-bold text-on-surface">Security Protocol Layer</h4>
+<p class="text-xs text-outline">UUID: AMB-0012-S9</p>
+</div>
+</div>
+<div class="text-right">
+<p class="font-body-md font-bold text-on-surface">¥431,000</p>
+<span class="inline-block px-2 py-0.5 rounded-full bg-green-100 text-green-700 text-[10px] font-bold uppercase">Active</span>
+</div>
+</div>
+</div>
+<div class="p-md bg-stone-50/50 text-center">
+<button class="text-primary font-bold text-xs flex items-center justify-center gap-1 mx-auto hover:underline">
+                        查看所有 24 个实体 <span class="material-symbols-outlined text-sm" data-icon="chevron_right">chevron_right</span>
+</button>
+</div>
+</div>
+</div>
+</main>
+<!-- Bottom Navigation Bar -->
+<nav class="fixed bottom-0 left-0 w-full z-50 flex justify-around items-center px-2 py-3 bg-[#FFFBEB] border-t border-stone-200 shadow-[0_-4px_12px_rgba(245,158,11,0.05)]">
+<!-- Chat Tab -->
+<a class="flex flex-col items-center justify-center text-stone-500 px-3 py-1 hover:bg-stone-50 transition-transform active:scale-90 duration-150" href="#">
+<span class="material-symbols-outlined mb-1" data-icon="chat_bubble">chat_bubble</span>
+<span class="font-['Public_Sans'] text-[11px] font-medium">对话</span>
+</a>
+<!-- Assets Tab (Active) -->
+<a class="flex flex-col items-center justify-center bg-amber-100 text-amber-700 rounded-lg px-3 py-1 transition-transform active:scale-90 duration-150" href="#">
+<span class="material-symbols-outlined mb-1" data-icon="inventory_2" style="font-variation-settings: 'FILL' 1;">inventory_2</span>
+<span class="font-['Public_Sans'] text-[11px] font-bold">资产</span>
+</a>
+<!-- Status Tab -->
+<a class="flex flex-col items-center justify-center text-stone-500 px-3 py-1 hover:bg-stone-50 transition-transform active:scale-90 duration-150" href="#">
+<span class="material-symbols-outlined mb-1" data-icon="analytics">analytics</span>
+<span class="font-['Public_Sans'] text-[11px] font-medium">状态</span>
+</a>
+<!-- Settings Tab -->
+<a class="flex flex-col items-center justify-center text-stone-500 px-3 py-1 hover:bg-stone-50 transition-transform active:scale-90 duration-150" href="#">
+<span class="material-symbols-outlined mb-1" data-icon="settings">settings</span>
+<span class="font-['Public_Sans'] text-[11px] font-medium">设置</span>
+</a>
+</nav>
+<!-- Floating Action Button Contextual (Hidden on Asset List as per rules if not strictly aligned, but here it represents "Add Asset" which fits the intent) -->
+<button class="fixed right-6 bottom-24 w-14 h-14 bg-primary-container text-on-primary-fixed rounded-full shadow-lg flex items-center justify-center active:scale-90 transition-transform z-40">
+<span class="material-symbols-outlined text-3xl" data-icon="add">add</span>
+</button>
+</body></html>

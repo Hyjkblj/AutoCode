@@ -1,0 +1,695 @@
+{
+    "createTime":  "2026-04-29T13:50:54.192926Z",
+    "designTheme":  {
+                        "bodyFont":  "INTER",
+                        "colorMode":  "DARK",
+                        "colorVariant":  "FIDELITY",
+                        "customColor":  "#00F0FF",
+                        "designMd":  "---\nname: Enterprise Dark AI DevOps\ncolors:\n  surface: \u0027#0d1515\u0027\n  surface-dim: \u0027#0d1515\u0027\n  surface-bright: \u0027#333b3b\u0027\n  surface-container-lowest: \u0027#080f10\u0027\n  surface-container-low: \u0027#151d1e\u0027\n  surface-container: \u0027#192122\u0027\n  surface-container-high: \u0027#232b2c\u0027\n  surface-container-highest: \u0027#2e3637\u0027\n  on-surface: \u0027#dce4e5\u0027\n  on-surface-variant: \u0027#b9cacb\u0027\n  inverse-surface: \u0027#dce4e5\u0027\n  inverse-on-surface: \u0027#2a3233\u0027\n  outline: \u0027#849495\u0027\n  outline-variant: \u0027#3b494b\u0027\n  surface-tint: \u0027#00dbe9\u0027\n  primary: \u0027#dbfcff\u0027\n  on-primary: \u0027#00363a\u0027\n  primary-container: \u0027#00f0ff\u0027\n  on-primary-container: \u0027#006970\u0027\n  inverse-primary: \u0027#006970\u0027\n  secondary: \u0027#d1bcff\u0027\n  on-secondary: \u0027#3c0090\u0027\n  secondary-container: \u0027#7000ff\u0027\n  on-secondary-container: \u0027#ddcdff\u0027\n  tertiary: \u0027#fff5de\u0027\n  on-tertiary: \u0027#3b2f00\u0027\n  tertiary-container: \u0027#fed639\u0027\n  on-tertiary-container: \u0027#715d00\u0027\n  error: \u0027#ffb4ab\u0027\n  on-error: \u0027#690005\u0027\n  error-container: \u0027#93000a\u0027\n  on-error-container: \u0027#ffdad6\u0027\n  primary-fixed: \u0027#7df4ff\u0027\n  primary-fixed-dim: \u0027#00dbe9\u0027\n  on-primary-fixed: \u0027#002022\u0027\n  on-primary-fixed-variant: \u0027#004f54\u0027\n  secondary-fixed: \u0027#e9ddff\u0027\n  secondary-fixed-dim: \u0027#d1bcff\u0027\n  on-secondary-fixed: \u0027#23005b\u0027\n  on-secondary-fixed-variant: \u0027#5700c9\u0027\n  tertiary-fixed: \u0027#ffe179\u0027\n  tertiary-fixed-dim: \u0027#eac324\u0027\n  on-tertiary-fixed: \u0027#231b00\u0027\n  on-tertiary-fixed-variant: \u0027#554500\u0027\n  background: \u0027#0d1515\u0027\n  on-background: \u0027#dce4e5\u0027\n  surface-variant: \u0027#2e3637\u0027\ntypography:\n  h1:\n    fontFamily: Space Grotesk\n    fontSize: 32px\n    fontWeight: \u0027700\u0027\n    lineHeight: 40px\n    letterSpacing: -0.02em\n  h2:\n    fontFamily: Space Grotesk\n    fontSize: 24px\n    fontWeight: \u0027600\u0027\n    lineHeight: 32px\n    letterSpacing: -0.01em\n  body-lg:\n    fontFamily: Inter\n    fontSize: 18px\n    fontWeight: \u0027400\u0027\n    lineHeight: 28px\n  body-md:\n    fontFamily: Inter\n    fontSize: 16px\n    fontWeight: \u0027400\u0027\n    lineHeight: 24px\n  body-sm:\n    fontFamily: Inter\n    fontSize: 14px\n    fontWeight: \u0027400\u0027\n    lineHeight: 20px\n  code-sm:\n    fontFamily: Inter\n    fontSize: 13px\n    fontWeight: \u0027500\u0027\n    lineHeight: 18px\n    letterSpacing: 0.02em\n  label-caps:\n    fontFamily: Space Grotesk\n    fontSize: 12px\n    fontWeight: \u0027700\u0027\n    lineHeight: 16px\n    letterSpacing: 0.05em\nrounded:\n  sm: 0.25rem\n  DEFAULT: 0.5rem\n  md: 0.75rem\n  lg: 1rem\n  xl: 1.5rem\n  full: 9999px\nspacing:\n  unit: 4px\n  container-padding: 16px\n  stack-gap-sm: 8px\n  stack-gap-md: 16px\n  stack-gap-lg: 24px\n  grid-columns: \u00274\u0027\n  grid-gutter: 12px\n---\n\n## Brand \u0026 Style\n\nThe brand personality of this design system is **Intelligent, Authoritative, and Predictive**. It is engineered for DevOps engineers and SREs who require absolute clarity while managing complex cloud infrastructure via mobile. The emotional response should be one of \"calm control\"—the user should feel that the AI is a silent, high-performance partner rather than an intrusive tool.\n\nThe design style utilizes a **Corporate Modern** foundation infused with **Glassmorphism** for data visualization layers. This creates a \"glass cockpit\" aesthetic—sophisticated dark surfaces with luminous accents that mimic high-end hardware interfaces. Visual weight is prioritized for critical system health indicators, ensuring that the most vital information is never obscured by decorative elements.\n\n## Colors\n\nThe palette is built on a **Deep Charcoal** foundation to minimize eye strain during long-tail incident management. The primary action color is **Electric Cyan**, a high-vibrancy hue that draws the eye immediately to primary CTAs and active deployment states.\n\nSecondary accents use a deep violet to represent AI-driven insights, creating a clear distinction between human-triggered actions and machine-generated suggestions. Semantic colors are refined for high accessibility against dark backgrounds:\n- **Success:** A vibrant emerald for healthy nodes and successful builds.\n- **Warning:** A warm amber for pending states or non-critical threshold breaches.\n- **Error:** A bright, high-contrast crimson for immediate intervention requirements.\n\n## Typography\n\nThe typographic hierarchy balances technical precision with high-density readability. This design system uses **Space Grotesk** for headlines and technical labels to lean into a futuristic, \"cutting-edge\" aesthetic. Its geometric nature provides a distinct look for metrics and status headers.\n\n**Inter** is utilized for all body copy, logs, and interactive UI elements. As a highly systematic font, it ensures that long streams of deployment logs or AI explanations remain legible at small sizes on mobile screens. For log data and terminal outputs, use the `code-sm` style with a medium weight to ensure every character is distinct.\n\n## Layout \u0026 Spacing\n\nThis design system employs a **Fluid Grid** model optimized for mobile devices. The core layout relies on a 4-column grid with 16px horizontal margins. A base unit of 4px is used to define all spacing, ensuring a consistent vertical rhythm.\n\nLayouts are primarily card-based to group related technical data (e.g., a \"Deployment\" card containing status, environment, and commit hash). Data density should be high but managed through \"progressive disclosure\"—using stack gaps to separate logical sections while maintaining a compact footprint for monitoring multiple services simultaneously.\n\n## Elevation \u0026 Depth\n\nVisual hierarchy is established through **Tonal Layering** and **Glassmorphism**. Rather than using traditional shadows which can get lost in a dark UI, this design system uses surface color increments to denote \"height\":\n- **Level 0 (Background):** Deepest charcoal (`gray-900`), used for the main application canvas.\n- **Level 1 (Cards/Containers):** Slightly lighter (`gray-800`), used for the primary content containers.\n- **Level 2 (Overlays/Modals):** Lighter still (`gray-700`), with a 1px \"glass\" border (semi-transparent white at 10% opacity) to create a crisp edge.\n\nAI-driven insights or active voice input areas should use a **Backdrop Blur** (20px) and a subtle inner glow of the primary color to suggest they are \"floating\" or \"active\" above the standard system logs.\n\n## Shapes\n\nThe shape language is **Rounded**, reflecting a balance between professional software and approachable AI. \n- **Standard Cards/Inputs:** 0.5rem (8px) corner radius to provide a modern, clean structure.\n- **Action Buttons:** 1rem (16px) or fully pill-shaped to differentiate interactive elements from static informational cards.\n- **Status Pills:** Fully rounded (pill-shaped) to clearly distinguish them as semantic labels.\n\nCorners should be consistent across all elements within a group to maintain the systematic feel of the platform.\n\n## Components\n\n### Buttons \u0026 Inputs\n- **Primary Action:** Solid Electric Cyan background with black text for maximum contrast. High-gloss finish.\n- **Voice/AI Input:** A prominent, full-width text area at the bottom of the screen with a \"pulsing\" border when active. Includes a dedicated microphone icon with a cyan glow.\n- **Input Fields:** Dark gray background with a 1px border that shifts to cyan on focus.\n\n### Status Indicators \u0026 Progress\n- **Status Stream:** A vertical timeline component using micro-interactions. New logs \"slide and fade\" into view. \n- **Progress Indicators:** Linear, thin progress bars for deployments. Use a subtle glow effect on the leading edge of the progress bar to simulate \"energy\" or \"movement.\"\n\n### Cards\n- **Deployment Card:** Contains a header (Service Name), a sub-header (Environment), a status chip (Top-right), and a condensed log snippet (Bottom).\n- **Metric Card:** Focused on a single \"hero\" number with a sparkline background in the semantic color representing health.\n\n### Feedback Elements\n- **Micro-interactions:** When an AI action is processing, use a subtle \"shimmer\" effect across the primary card or input area rather than a traditional spinner, keeping the UI feeling high-tech and fluid.",
+                        "font":  "SPACE_GROTESK",
+                        "headlineFont":  "SPACE_GROTESK",
+                        "labelFont":  "INTER",
+                        "namedColors":  {
+                                            "background":  "#0d1515",
+                                            "error":  "#ffb4ab",
+                                            "error_container":  "#93000a",
+                                            "inverse_on_surface":  "#2a3233",
+                                            "inverse_primary":  "#006970",
+                                            "inverse_surface":  "#dce4e5",
+                                            "on_background":  "#dce4e5",
+                                            "on_error":  "#690005",
+                                            "on_error_container":  "#ffdad6",
+                                            "on_primary":  "#00363a",
+                                            "on_primary_container":  "#006970",
+                                            "on_primary_fixed":  "#002022",
+                                            "on_primary_fixed_variant":  "#004f54",
+                                            "on_secondary":  "#3c0090",
+                                            "on_secondary_container":  "#ddcdff",
+                                            "on_secondary_fixed":  "#23005b",
+                                            "on_secondary_fixed_variant":  "#5700c9",
+                                            "on_surface":  "#dce4e5",
+                                            "on_surface_variant":  "#b9cacb",
+                                            "on_tertiary":  "#3b2f00",
+                                            "on_tertiary_container":  "#715d00",
+                                            "on_tertiary_fixed":  "#231b00",
+                                            "on_tertiary_fixed_variant":  "#554500",
+                                            "outline":  "#849495",
+                                            "outline_variant":  "#3b494b",
+                                            "primary":  "#dbfcff",
+                                            "primary_container":  "#00f0ff",
+                                            "primary_fixed":  "#7df4ff",
+                                            "primary_fixed_dim":  "#00dbe9",
+                                            "secondary":  "#d1bcff",
+                                            "secondary_container":  "#7000ff",
+                                            "secondary_fixed":  "#e9ddff",
+                                            "secondary_fixed_dim":  "#d1bcff",
+                                            "surface":  "#0d1515",
+                                            "surface_bright":  "#333b3b",
+                                            "surface_container":  "#192122",
+                                            "surface_container_high":  "#232b2c",
+                                            "surface_container_highest":  "#2e3637",
+                                            "surface_container_low":  "#151d1e",
+                                            "surface_container_lowest":  "#080f10",
+                                            "surface_dim":  "#0d1515",
+                                            "surface_tint":  "#00dbe9",
+                                            "surface_variant":  "#2e3637",
+                                            "tertiary":  "#fff5de",
+                                            "tertiary_container":  "#fed639",
+                                            "tertiary_fixed":  "#ffe179",
+                                            "tertiary_fixed_dim":  "#eac324"
+                                        },
+                        "overridePrimaryColor":  "#00F0FF",
+                        "overrideSecondaryColor":  "#7000FF",
+                        "roundness":  "ROUND_EIGHT",
+                        "spacing":  {
+                                        "container-padding":  "16px",
+                                        "grid-columns":  "4",
+                                        "grid-gutter":  "12px",
+                                        "stack-gap-lg":  "24px",
+                                        "stack-gap-md":  "16px",
+                                        "stack-gap-sm":  "8px",
+                                        "unit":  "4px"
+                                    },
+                        "spacingScale":  2,
+                        "typography":  {
+                                           "body-lg":  {
+                                                           "fontFamily":  "Inter",
+                                                           "fontSize":  "18px",
+                                                           "fontWeight":  "400",
+                                                           "lineHeight":  "28px"
+                                                       },
+                                           "body-md":  {
+                                                           "fontFamily":  "Inter",
+                                                           "fontSize":  "16px",
+                                                           "fontWeight":  "400",
+                                                           "lineHeight":  "24px"
+                                                       },
+                                           "body-sm":  {
+                                                           "fontFamily":  "Inter",
+                                                           "fontSize":  "14px",
+                                                           "fontWeight":  "400",
+                                                           "lineHeight":  "20px"
+                                                       },
+                                           "code-sm":  {
+                                                           "fontFamily":  "Inter",
+                                                           "fontSize":  "13px",
+                                                           "fontWeight":  "500",
+                                                           "letterSpacing":  "0.02em",
+                                                           "lineHeight":  "18px"
+                                                       },
+                                           "h1":  {
+                                                      "fontFamily":  "Space Grotesk",
+                                                      "fontSize":  "32px",
+                                                      "fontWeight":  "700",
+                                                      "letterSpacing":  "-0.02em",
+                                                      "lineHeight":  "40px"
+                                                  },
+                                           "h2":  {
+                                                      "fontFamily":  "Space Grotesk",
+                                                      "fontSize":  "24px",
+                                                      "fontWeight":  "600",
+                                                      "letterSpacing":  "-0.01em",
+                                                      "lineHeight":  "32px"
+                                                  },
+                                           "label-caps":  {
+                                                              "fontFamily":  "Space Grotesk",
+                                                              "fontSize":  "12px",
+                                                              "fontWeight":  "700",
+                                                              "letterSpacing":  "0.05em",
+                                                              "lineHeight":  "16px"
+                                                          }
+                                       }
+                    },
+    "deviceType":  "MOBILE",
+    "metadata":  {
+                     "userRole":  "OWNER"
+                 },
+    "name":  "projects/15941018180869281562",
+    "origin":  "STITCH",
+    "projectType":  "TEXT_TO_UI_PRO",
+    "screenInstances":  [
+                            {
+                                "height":  1985,
+                                "hidden":  true,
+                                "id":  "00429255c8d94f01bcee8246deeae308",
+                                "sourceScreen":  "projects/15941018180869281562/screens/00429255c8d94f01bcee8246deeae308",
+                                "width":  390,
+                                "x":  15412,
+                                "y":  2117
+                            },
+                            {
+                                "height":  1024,
+                                "hidden":  true,
+                                "id":  "04837d552a8242ae9a4d286f536b3d6e",
+                                "sourceScreen":  "projects/15941018180869281562/screens/04837d552a8242ae9a4d286f536b3d6e",
+                                "width":  390,
+                                "x":  3408,
+                                "y":  2132
+                            },
+                            {
+                                "height":  1719,
+                                "hidden":  true,
+                                "id":  "05a9a5cfcb7b482bb2b57f9f79413bcf",
+                                "sourceScreen":  "projects/15941018180869281562/screens/05a9a5cfcb7b482bb2b57f9f79413bcf",
+                                "width":  390,
+                                "x":  9435,
+                                "y":  2151
+                            },
+                            {
+                                "height":  2252,
+                                "id":  "090d5e38531e4612977b2510470a26a6",
+                                "sourceScreen":  "projects/15941018180869281562/screens/090d5e38531e4612977b2510470a26a6",
+                                "width":  390,
+                                "x":  5278,
+                                "y":  2134
+                            },
+                            {
+                                "height":  2239,
+                                "hidden":  true,
+                                "id":  "0c09fe489fde42dc9957ac36ca7a8751",
+                                "sourceScreen":  "projects/15941018180869281562/screens/0c09fe489fde42dc9957ac36ca7a8751",
+                                "width":  390,
+                                "x":  13596,
+                                "y":  2117
+                            },
+                            {
+                                "height":  1846,
+                                "hidden":  true,
+                                "id":  "0c152ecc45944419b8b19895098371a2",
+                                "sourceScreen":  "projects/15941018180869281562/screens/0c152ecc45944419b8b19895098371a2",
+                                "width":  390,
+                                "x":  19332,
+                                "y":  4443
+                            },
+                            {
+                                "height":  1990,
+                                "id":  "0cb07d75a6bd4d5a94b34222e823e8ba",
+                                "sourceScreen":  "projects/15941018180869281562/screens/0cb07d75a6bd4d5a94b34222e823e8ba",
+                                "width":  390,
+                                "x":  7094,
+                                "y":  2134
+                            },
+                            {
+                                "height":  1778,
+                                "hidden":  true,
+                                "id":  "0d59b4d00bd04a9cb94457bffd65693a",
+                                "sourceScreen":  "projects/15941018180869281562/screens/0d59b4d00bd04a9cb94457bffd65693a",
+                                "width":  390,
+                                "x":  14050,
+                                "y":  2117
+                            },
+                            {
+                                "height":  991,
+                                "hidden":  true,
+                                "id":  "0ea18717551d4eab8e3ee44ed9133ee1",
+                                "sourceScreen":  "projects/15941018180869281562/screens/0ea18717551d4eab8e3ee44ed9133ee1",
+                                "width":  390,
+                                "x":  11705,
+                                "y":  2151
+                            },
+                            {
+                                "height":  1562,
+                                "hidden":  true,
+                                "id":  "12616fddd1ed496995c4083aaa491e73",
+                                "sourceScreen":  "projects/15941018180869281562/screens/12616fddd1ed496995c4083aaa491e73",
+                                "width":  390,
+                                "x":  10343,
+                                "y":  2151
+                            },
+                            {
+                                "height":  1954,
+                                "hidden":  true,
+                                "id":  "145e2f4a3c05490bb652bae7f28898e7",
+                                "sourceScreen":  "projects/15941018180869281562/screens/145e2f4a3c05490bb652bae7f28898e7",
+                                "width":  390,
+                                "x":  9889,
+                                "y":  2151
+                            },
+                            {
+                                "height":  1904,
+                                "hidden":  true,
+                                "id":  "162b69f2de1c40eda4d8a21d84cb36f4",
+                                "sourceScreen":  "projects/15941018180869281562/screens/162b69f2de1c40eda4d8a21d84cb36f4",
+                                "width":  390,
+                                "x":  4648,
+                                "y":  2134
+                            },
+                            {
+                                "height":  1524,
+                                "hidden":  true,
+                                "id":  "24bb28114a454467816a83f795424ad9",
+                                "sourceScreen":  "projects/15941018180869281562/screens/24bb28114a454467816a83f795424ad9",
+                                "width":  390,
+                                "x":  1478,
+                                "y":  2134
+                            },
+                            {
+                                "height":  1451,
+                                "hidden":  true,
+                                "id":  "279098bae5c04da79afbf33416fed824",
+                                "sourceScreen":  "projects/15941018180869281562/screens/279098bae5c04da79afbf33416fed824",
+                                "width":  390,
+                                "x":  8124,
+                                "y":  4590
+                            },
+                            {
+                                "height":  1454,
+                                "hidden":  true,
+                                "id":  "2ad10e76ca2c40e89dc69a03ee1682c5",
+                                "sourceScreen":  "projects/15941018180869281562/screens/2ad10e76ca2c40e89dc69a03ee1682c5",
+                                "width":  390,
+                                "x":  9940,
+                                "y":  4590
+                            },
+                            {
+                                "height":  1299,
+                                "hidden":  true,
+                                "id":  "31cfc0b19a444a52be185da7c79fc75f",
+                                "sourceScreen":  "projects/15941018180869281562/screens/31cfc0b19a444a52be185da7c79fc75f",
+                                "width":  390,
+                                "x":  8581,
+                                "y":  4616
+                            },
+                            {
+                                "height":  2031,
+                                "hidden":  true,
+                                "id":  "3bba879e5bc9417d93eaad589a2f0f0b",
+                                "sourceScreen":  "projects/15941018180869281562/screens/3bba879e5bc9417d93eaad589a2f0f0b",
+                                "width":  390,
+                                "x":  3003,
+                                "y":  2132
+                            },
+                            {
+                                "height":  959,
+                                "hidden":  true,
+                                "id":  "40c3d5c7e3f5407e816244776dc0e3f3",
+                                "sourceScreen":  "projects/15941018180869281562/screens/40c3d5c7e3f5407e816244776dc0e3f3",
+                                "width":  390,
+                                "x":  11251,
+                                "y":  2151
+                            },
+                            {
+                                "height":  1540,
+                                "id":  "4cab0d258f3b40de891932919c82863e",
+                                "sourceScreen":  "projects/15941018180869281562/screens/4cab0d258f3b40de891932919c82863e",
+                                "width":  390,
+                                "x":  2103,
+                                "y":  2398
+                            },
+                            {
+                                "height":  884,
+                                "hidden":  true,
+                                "id":  "55d49dd39abf40e29a482ddbe7aad629",
+                                "sourceScreen":  "projects/15941018180869281562/screens/55d49dd39abf40e29a482ddbe7aad629",
+                                "width":  390,
+                                "x":  2840
+                            },
+                            {
+                                "height":  1916,
+                                "hidden":  true,
+                                "id":  "5a398b9be27143cf913b6a5d384342a0",
+                                "sourceScreen":  "projects/15941018180869281562/screens/5a398b9be27143cf913b6a5d384342a0",
+                                "width":  390,
+                                "x":  18524,
+                                "y":  4467
+                            },
+                            {
+                                "height":  1853,
+                                "hidden":  true,
+                                "id":  "62bb4a7eca264fa7848e0e55b6b0b447",
+                                "sourceScreen":  "projects/15941018180869281562/screens/62bb4a7eca264fa7848e0e55b6b0b447",
+                                "width":  390,
+                                "x":  7078,
+                                "y":  4350
+                            },
+                            {
+                                "height":  1296,
+                                "id":  "62cc22b15a504a838023a3c94826f8ee",
+                                "sourceScreen":  "projects/15941018180869281562/screens/62cc22b15a504a838023a3c94826f8ee",
+                                "width":  390,
+                                "x":  3580,
+                                "y":  3200
+                            },
+                            {
+                                "height":  1522,
+                                "hidden":  true,
+                                "id":  "6357c35c710542469b1a0d46869e1f3f",
+                                "sourceScreen":  "projects/15941018180869281562/screens/6357c35c710542469b1a0d46869e1f3f",
+                                "width":  390,
+                                "x":  13657,
+                                "y":  4616
+                            },
+                            {
+                                "height":  2035,
+                                "hidden":  true,
+                                "id":  "66bc38bc44b8415fb0b557cf52c8d965",
+                                "sourceScreen":  "projects/15941018180869281562/screens/66bc38bc44b8415fb0b557cf52c8d965",
+                                "width":  390,
+                                "x":  9517,
+                                "y":  4624
+                            },
+                            {
+                                "height":  997,
+                                "id":  "67013b722ecf4068943a6a914e0b044e",
+                                "sourceScreen":  "projects/15941018180869281562/screens/67013b722ecf4068943a6a914e0b044e",
+                                "width":  390,
+                                "x":  6640,
+                                "y":  2134
+                            },
+                            {
+                                "height":  1299,
+                                "id":  "7193b8b720434f72b3fbc84a9c8c91c4",
+                                "sourceScreen":  "projects/15941018180869281562/screens/7193b8b720434f72b3fbc84a9c8c91c4",
+                                "width":  390,
+                                "x":  2597,
+                                "y":  3156
+                            },
+                            {
+                                "height":  1676,
+                                "hidden":  true,
+                                "id":  "732934eac03a4a7bae12ed1dbe88ebc5",
+                                "sourceScreen":  "projects/15941018180869281562/screens/732934eac03a4a7bae12ed1dbe88ebc5",
+                                "width":  390,
+                                "x":  3294
+                            },
+                            {
+                                "height":  1846,
+                                "id":  "7ddb879ea9034944a1b02d651084180a",
+                                "sourceScreen":  "projects/15941018180869281562/screens/7ddb879ea9034944a1b02d651084180a",
+                                "width":  390,
+                                "x":  4824,
+                                "y":  2134
+                            },
+                            {
+                                "height":  1081,
+                                "hidden":  true,
+                                "id":  "800e8a1f76b947ec9e8a9ec8b75d8536",
+                                "sourceScreen":  "projects/15941018180869281562/screens/800e8a1f76b947ec9e8a9ec8b75d8536",
+                                "width":  390,
+                                "x":  1478
+                            },
+                            {
+                                "height":  1533,
+                                "hidden":  true,
+                                "id":  "83034877e429499d95dcaab193c9675b",
+                                "sourceScreen":  "projects/15941018180869281562/screens/83034877e429499d95dcaab193c9675b",
+                                "width":  390,
+                                "x":  13142,
+                                "y":  2117
+                            },
+                            {
+                                "height":  1388,
+                                "hidden":  true,
+                                "id":  "8b7ee8cfb3f14b229ad86f19b71cb2d5",
+                                "sourceScreen":  "projects/15941018180869281562/screens/8b7ee8cfb3f14b229ad86f19b71cb2d5",
+                                "width":  390,
+                                "x":  4092,
+                                "y":  2134
+                            },
+                            {
+                                "height":  1522,
+                                "id":  "928972197ab34d7aaf146135436057b4",
+                                "sourceScreen":  "projects/15941018180869281562/screens/928972197ab34d7aaf146135436057b4",
+                                "width":  390,
+                                "x":  1447,
+                                "y":  2151
+                            },
+                            {
+                                "height":  1542,
+                                "id":  "9341b40f92224774b0986611eee5feb0",
+                                "sourceScreen":  "projects/15941018180869281562/screens/9341b40f92224774b0986611eee5feb0",
+                                "width":  390,
+                                "x":  6186,
+                                "y":  2134
+                            },
+                            {
+                                "height":  1391,
+                                "hidden":  true,
+                                "id":  "97668dc72ec2441c96bf15d8697cd48e",
+                                "sourceScreen":  "projects/15941018180869281562/screens/97668dc72ec2441c96bf15d8697cd48e",
+                                "width":  390,
+                                "x":  14504,
+                                "y":  2117
+                            },
+                            {
+                                "height":  1215,
+                                "hidden":  true,
+                                "id":  "9b723bcd9e8d45a0a34664b0f9954622",
+                                "sourceScreen":  "projects/15941018180869281562/screens/9b723bcd9e8d45a0a34664b0f9954622",
+                                "width":  390,
+                                "x":  3748
+                            },
+                            {
+                                "height":  1540,
+                                "hidden":  true,
+                                "id":  "9d3c68762d804cb3ac53e707e42233ab",
+                                "sourceScreen":  "projects/15941018180869281562/screens/9d3c68762d804cb3ac53e707e42233ab",
+                                "width":  390,
+                                "x":  8084,
+                                "y":  4596
+                            },
+                            {
+                                "height":  1879,
+                                "hidden":  true,
+                                "id":  "a428c915f64d4fff9b09355a964db9c2",
+                                "sourceScreen":  "projects/15941018180869281562/screens/a428c915f64d4fff9b09355a964db9c2",
+                                "width":  390,
+                                "x":  8981,
+                                "y":  2151
+                            },
+                            {
+                                "height":  1458,
+                                "hidden":  true,
+                                "id":  "a5565ccf236d420592135c913bbd3689",
+                                "sourceScreen":  "projects/15941018180869281562/screens/a5565ccf236d420592135c913bbd3689",
+                                "width":  390,
+                                "x":  7546,
+                                "y":  4590
+                            },
+                            {
+                                "height":  1550,
+                                "hidden":  true,
+                                "id":  "a915efdbf1c64eb5a3bf59061a539580",
+                                "sourceScreen":  "projects/15941018180869281562/screens/a915efdbf1c64eb5a3bf59061a539580",
+                                "width":  390,
+                                "x":  2066,
+                                "y":  2134
+                            },
+                            {
+                                "height":  1296,
+                                "hidden":  true,
+                                "id":  "ab0cd38017c34b18a2f1b4658ac67eb1",
+                                "sourceScreen":  "projects/15941018180869281562/screens/ab0cd38017c34b18a2f1b4658ac67eb1",
+                                "width":  390,
+                                "x":  9040,
+                                "y":  4616
+                            },
+                            {
+                                "height":  2035,
+                                "id":  "ac3ff91d127e420aa7ee5e3a6da02ce7",
+                                "sourceScreen":  "projects/15941018180869281562/screens/ac3ff91d127e420aa7ee5e3a6da02ce7",
+                                "width":  390,
+                                "x":  3148,
+                                "y":  2128
+                            },
+                            {
+                                "height":  540,
+                                "hidden":  true,
+                                "id":  "assets-2fe1f302cb7747baa8420820eceee8f3-1777471581802",
+                                "sourceAsset":  "assets/2fe1f302cb7747baa8420820eceee8f3",
+                                "type":  "DESIGN_SYSTEM_INSTANCE",
+                                "width":  960
+                            },
+                            {
+                                "height":  540,
+                                "id":  "assets-5c2d62e6fe3a4791a621a58eb4c3260b-1777471964973",
+                                "sourceAsset":  "assets/5c2d62e6fe3a4791a621a58eb4c3260b",
+                                "type":  "DESIGN_SYSTEM_INSTANCE",
+                                "width":  960,
+                                "x":  64,
+                                "y":  2134
+                            },
+                            {
+                                "height":  540,
+                                "hidden":  true,
+                                "id":  "assets-ee15f3ec1d19469b9b350618816f22c7-1777473936399",
+                                "sourceAsset":  "assets/ee15f3ec1d19469b9b350618816f22c7",
+                                "type":  "DESIGN_SYSTEM_INSTANCE",
+                                "width":  960,
+                                "x":  16774,
+                                "y":  2117
+                            },
+                            {
+                                "height":  1150,
+                                "hidden":  true,
+                                "id":  "b3527678e36340058eb79f1b1dd8ad7e",
+                                "sourceScreen":  "projects/15941018180869281562/screens/b3527678e36340058eb79f1b1dd8ad7e",
+                                "width":  390,
+                                "x":  16005,
+                                "y":  4876
+                            },
+                            {
+                                "height":  1878,
+                                "hidden":  true,
+                                "id":  "bacd3608a0134430a8fa53ced109778a",
+                                "sourceScreen":  "projects/15941018180869281562/screens/bacd3608a0134430a8fa53ced109778a",
+                                "width":  390,
+                                "x":  1932
+                            },
+                            {
+                                "height":  1363,
+                                "hidden":  true,
+                                "id":  "bad6dadf346e4aa9b1e1737cf40f3e71",
+                                "sourceScreen":  "projects/15941018180869281562/screens/bad6dadf346e4aa9b1e1737cf40f3e71",
+                                "width":  390,
+                                "x":  15866,
+                                "y":  2117
+                            },
+                            {
+                                "height":  884,
+                                "hidden":  true,
+                                "id":  "bce9382146b8482685893c67b6434981",
+                                "sourceScreen":  "projects/15941018180869281562/screens/bce9382146b8482685893c67b6434981",
+                                "width":  390,
+                                "x":  2954,
+                                "y":  2132
+                            },
+                            {
+                                "height":  1524,
+                                "hidden":  true,
+                                "id":  "be51573a03cf4887b697ee0ec3a3e9af",
+                                "sourceScreen":  "projects/15941018180869281562/screens/be51573a03cf4887b697ee0ec3a3e9af",
+                                "width":  390,
+                                "x":  2500,
+                                "y":  2132
+                            },
+                            {
+                                "height":  2309,
+                                "id":  "c4c09d9b842941de942a2e528341b972",
+                                "sourceScreen":  "projects/15941018180869281562/screens/c4c09d9b842941de942a2e528341b972",
+                                "width":  390,
+                                "x":  8002,
+                                "y":  2134
+                            },
+                            {
+                                "height":  2147,
+                                "hidden":  true,
+                                "id":  "c5429046d7204b099371eeddbf37909f",
+                                "sourceScreen":  "projects/15941018180869281562/screens/c5429046d7204b099371eeddbf37909f",
+                                "width":  390,
+                                "x":  3534,
+                                "y":  2134
+                            },
+                            {
+                                "height":  600,
+                                "hidden":  true,
+                                "id":  "c71f44052fb2450a90c341d509d1df77",
+                                "sourceScreen":  "projects/15941018180869281562/screens/c71f44052fb2450a90c341d509d1df77",
+                                "width":  600,
+                                "x":  17798,
+                                "y":  2117
+                            },
+                            {
+                                "height":  1211,
+                                "hidden":  true,
+                                "id":  "c9f1af3d07b144d1b9d56aa86ed89015",
+                                "sourceScreen":  "projects/15941018180869281562/screens/c9f1af3d07b144d1b9d56aa86ed89015",
+                                "width":  390,
+                                "x":  9032,
+                                "y":  4590
+                            },
+                            {
+                                "height":  2641,
+                                "hidden":  true,
+                                "id":  "d2c4c016704e4cc7b75ce22bc4be91ae",
+                                "sourceScreen":  "projects/15941018180869281562/screens/d2c4c016704e4cc7b75ce22bc4be91ae",
+                                "width":  390,
+                                "x":  10797,
+                                "y":  2151
+                            },
+                            {
+                                "height":  1691,
+                                "hidden":  true,
+                                "id":  "db2f5c6b97394e81a589f23fabf2abec",
+                                "sourceScreen":  "projects/15941018180869281562/screens/db2f5c6b97394e81a589f23fabf2abec",
+                                "width":  390,
+                                "x":  16320,
+                                "y":  2117
+                            },
+                            {
+                                "height":  2031,
+                                "hidden":  true,
+                                "id":  "ddf01e980cab4540aa90820aa2be9fd3",
+                                "sourceScreen":  "projects/15941018180869281562/screens/ddf01e980cab4540aa90820aa2be9fd3",
+                                "width":  390,
+                                "x":  1478,
+                                "y":  3914
+                            },
+                            {
+                                "height":  2147,
+                                "hidden":  true,
+                                "id":  "e1cab907406f4465b9b20e8aafef67d0",
+                                "sourceScreen":  "projects/15941018180869281562/screens/e1cab907406f4465b9b20e8aafef67d0",
+                                "width":  390,
+                                "x":  1024,
+                                "y":  3914
+                            },
+                            {
+                                "height":  1465,
+                                "id":  "e8dc7bd82797461a9f0cca739376a1e5",
+                                "sourceScreen":  "projects/15941018180869281562/screens/e8dc7bd82797461a9f0cca739376a1e5",
+                                "width":  390,
+                                "x":  5732,
+                                "y":  2134
+                            },
+                            {
+                                "height":  1853,
+                                "id":  "ed69b92499ea402ab432f0e24c5c383f",
+                                "sourceScreen":  "projects/15941018180869281562/screens/ed69b92499ea402ab432f0e24c5c383f",
+                                "width":  390,
+                                "x":  4138,
+                                "y":  2134
+                            },
+                            {
+                                "height":  1455,
+                                "hidden":  true,
+                                "id":  "ef59c27492974169b720307668337075",
+                                "sourceScreen":  "projects/15941018180869281562/screens/ef59c27492974169b720307668337075",
+                                "width":  390,
+                                "x":  14958,
+                                "y":  2117
+                            },
+                            {
+                                "height":  1911,
+                                "id":  "f00ae3e9f8e94f19a3f84bd8d2d230c9",
+                                "sourceScreen":  "projects/15941018180869281562/screens/f00ae3e9f8e94f19a3f84bd8d2d230c9",
+                                "width":  390,
+                                "x":  7548,
+                                "y":  2134
+                            },
+                            {
+                                "height":  1388,
+                                "hidden":  true,
+                                "id":  "f90ae43d1c2e4e41a77e7f544af60dcf",
+                                "sourceScreen":  "projects/15941018180869281562/screens/f90ae43d1c2e4e41a77e7f544af60dcf",
+                                "width":  390,
+                                "x":  1024,
+                                "y":  2117
+                            },
+                            {
+                                "height":  1026,
+                                "hidden":  true,
+                                "id":  "f939a8acf98946798b15575ae7cd3e77",
+                                "sourceScreen":  "projects/15941018180869281562/screens/f939a8acf98946798b15575ae7cd3e77",
+                                "width":  390,
+                                "x":  1024
+                            }
+                        ],
+    "thumbnailScreenshot":  {
+                                "downloadUrl":  "https://lh3.googleusercontent.com/aida/ADBb0uj8Gb_znY4k-qm6Zb_Yg1GYD56p3cQZc-vsihfOkXR_oDQ1jhLI_uNS78neq-XZ-Y9Y3s49NgFiM_aID_h6u5fM0gG8SWpfSKJl9LJ-cOYKmLv5V1TFmkXkRCddS4ASdl5WOHjJGrIv817VqRFiY36aY2MvOPIZpzEDO4UUb7bzuLglTPYGgGYmp3CXh_hMvPY5oEgLMFHC1BgzgXVGIjTVhdkerWzlsf95KjOS61TXboShp_Zmh01FDzIv",
+                                "name":  "projects/15941018180869281562/files/df8431941ced429c881e934106c1895c"
+                            },
+    "title":  "移动全栈自动化引擎",
+    "updateTime":  "2026-04-29T15:40:58.863945Z",
+    "visibility":  "PRIVATE"
+}

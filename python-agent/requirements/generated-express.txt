@@ -1,0 +1,2 @@
+# Express.js dependencies are managed via package.json
+# This file is a placeholder for consistency with other generators

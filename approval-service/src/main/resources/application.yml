@@ -1,0 +1,44 @@
+server:
+  port: 8064
+
+spring:
+  application:
+    name: approval-service
+  
+  datasource:
+    url: ${APPROVAL_DB_URL:jdbc:mysql://localhost:3306/approval_db?createDatabaseIfNotExist=true}
+    username: ${APPROVAL_DB_USER:root}
+    password: ${APPROVAL_DB_PASSWORD:}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.MySQLDialect
+        format_sql: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus,info
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+
+# Approval service configuration
+approval:
+  default-timeout-seconds: 300
+  max-timeout-seconds: 3600
+  audit-enabled: true
+  control-plane-url: ${CONTROL_PLANE_URL:http://localhost:8058}
+
+logging:
+  level:
+    com.autocode.approval: INFO
+    org.springframework.web: INFO
+    org.hibernate.SQL: WARN

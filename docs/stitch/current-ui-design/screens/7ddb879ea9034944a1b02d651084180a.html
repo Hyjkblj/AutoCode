@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          "colors": {
+                  "secondary-container": "#76330d",
+                  "inverse-primary": "#855300",
+                  "surface-bright": "#3c3836",
+                  "surface-container": "#221f1d",
+                  "primary-fixed-dim": "#ffb95f",
+                  "on-tertiary": "#363113",
+                  "on-background": "#e9e1dd",
+                  "secondary": "#ffb693",
+                  "on-primary-container": "#613b00",
+                  "surface-container-high": "#2d2927",
+                  "secondary-fixed": "#ffdbcc",
+                  "outline-variant": "#534434",
+                  "tertiary-fixed-dim": "#d1c79d",
+                  "surface-variant": "#383432",
+                  "surface-container-highest": "#383432",
+                  "on-tertiary-fixed-variant": "#4d4727",
+                  "surface": "#161311",
+                  "secondary-fixed-dim": "#ffb693",
+                  "on-tertiary-fixed": "#201c02",
+                  "error": "#ffb4ab",
+                  "on-secondary-container": "#fc9e6f",
+                  "surface-tint": "#ffb95f",
+                  "on-error-container": "#ffdad6",
+                  "error-container": "#93000a",
+                  "on-secondary": "#561f00",
+                  "on-primary": "#472a00",
+                  "tertiary-container": "#bab189",
+                  "on-secondary-fixed-variant": "#76330d",
+                  "surface-container-lowest": "#100e0c",
+                  "outline": "#a08e7a",
+                  "primary-fixed": "#ffddb8",
+                  "on-primary-fixed": "#2a1700",
+                  "tertiary-fixed": "#ede3b8",
+                  "tertiary": "#d7cda3",
+                  "surface-container-low": "#1e1b19",
+                  "primary-container": "#f59e0b",
+                  "background": "#161311",
+                  "surface-dim": "#161311",
+                  "on-error": "#690005",
+                  "on-secondary-fixed": "#351000",
+                  "on-primary-fixed-variant": "#653e00",
+                  "inverse-on-surface": "#33302d",
+                  "on-tertiary-container": "#4a4424",
+                  "on-surface": "#e9e1dd",
+                  "inverse-surface": "#e9e1dd",
+                  "primary": "#ffc174",
+                  "on-surface-variant": "#d8c3ad"
+          },
+          "borderRadius": {
+                  "DEFAULT": "0.25rem",
+                  "lg": "0.5rem",
+                  "xl": "0.75rem",
+                  "full": "9999px"
+          },
+          "spacing": {
+                  "xs": "4px",
+                  "md": "16px",
+                  "max-width": "800px",
+                  "xl": "40px",
+                  "lg": "24px",
+                  "unit": "4px",
+                  "sm": "8px",
+                  "gutter": "20px"
+          },
+          "fontFamily": {
+                  "body-md": ["Public Sans"],
+                  "headline-md": ["Public Sans"],
+                  "body-lg": ["Public Sans"],
+                  "label-sm": ["Public Sans"],
+                  "headline-xl": ["Public Sans"]
+          },
+          "fontSize": {
+                  "body-md": ["16px", {"lineHeight": "1.6", "fontWeight": "400"}],
+                  "headline-md": ["24px", {"lineHeight": "1.3", "fontWeight": "600"}],
+                  "body-lg": ["18px", {"lineHeight": "1.6", "fontWeight": "400"}],
+                  "label-sm": ["13px", {"lineHeight": "1.2", "letterSpacing": "0.04em", "fontWeight": "600"}],
+                  "headline-xl": ["40px", {"lineHeight": "1.2", "letterSpacing": "-0.02em", "fontWeight": "700"}]
+          }
+        },
+      },
+    }
+  </script>
+<style>
+    .material-symbols-outlined {
+      font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+    }
+    .amber-glow {
+      box-shadow: 0 0 20px rgba(245, 158, 11, 0.15);
+    }
+    .glass-surface {
+      background: rgba(41, 37, 36, 0.6);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+  </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+</head>
+<body class="bg-background text-on-surface font-body-md overflow-x-hidden">
+<!-- TopAppBar -->
+<header class="fixed top-0 w-full z-50 bg-stone-900/80 backdrop-blur-xl border-b border-white/10 flex justify-between items-center px-6 h-16 shadow-[0_0_20px_rgba(245,158,11,0.15)]">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-amber-500" data-icon="bubble_chart">bubble_chart</span>
+<h1 class="font-['Public_Sans'] text-lg font-bold text-stone-100 tracking-wide">琥珀智能</h1>
+</div>
+<div class="flex items-center gap-4">
+<button class="hover:bg-white/5 transition-colors p-2 rounded-full active:scale-95 transition-transform">
+<span class="material-symbols-outlined text-stone-400" data-icon="settings_suggest">settings_suggest</span>
+</button>
+</div>
+</header>
+<main class="pt-24 pb-32 px-lg max-w-max-width mx-auto">
+<!-- Top Section: User Profile & Project Context -->
+<section class="mb-xl grid grid-cols-1 md:grid-cols-2 gap-md">
+<div class="glass-surface p-lg rounded-xl flex items-center gap-md">
+<div class="relative">
+<img alt="Alex Chen" class="w-16 h-16 rounded-full border-2 border-amber-500/30 object-cover" data-alt="A professional portrait of Alex Chen, a focused technologist with a warm expression. The lighting is dramatic and warm, with amber highlights reflecting off a dark, minimalist background that complements the Amber Intelligence brand aesthetic. The photography is high-contrast and high-resolution, evoking a sense of calm expertise and modern intelligence." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCR04ucKNIwdMw_pSRfgLggzq_tsGNGE0acPPeWJQAakUA3LIVj4ZREBvS_5SmM_eeS4f3AafQbxKVbARxEn_Fs2a4rNETWBpMboCM7IhTtF3dk1Ozu1-2ot0NkPhkp-erAu6JwR48XZk8cnb1G4gGAnW_vqTuknboQJ-Wz3xjU5sxdn1aoxiGYYcRp0J6B-xruejX6rQiQE2o1pG-7FogR0_Ihrv2P3jQ56sQaTOOyM_LvfN9vDj9F53BN5kSGXwKmsrR2LCrSyp4T"/>
+<div class="absolute bottom-0 right-0 w-4 h-4 bg-green-500 border-2 border-surface rounded-full"></div>
+</div>
+<div>
+<h2 class="font-headline-md text-on-surface">Alex Chen</h2>
+<p class="font-label-sm text-on-surface-variant">首席系统架构师</p>
+</div>
+</div>
+<div class="glass-surface p-lg rounded-xl border-l-4 border-l-amber-500 amber-glow">
+<div class="flex justify-between items-start">
+<div>
+<h3 class="font-label-sm text-amber-500 mb-xs">当前工作区</h3>
+<p class="font-headline-md text-on-surface">Project Alpha</p>
+</div>
+<span class="material-symbols-outlined text-amber-500/50" data-icon="hub">hub</span>
+</div>
+<div class="mt-md flex items-center gap-sm">
+<span class="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
+<span class="text-label-sm text-on-surface-variant">运行时：企业级高速节点</span>
+</div>
+</div>
+</section>
+<!-- Middle Section: Account & Preferences -->
+<section class="grid grid-cols-1 md:grid-cols-3 gap-md mb-xl">
+<!-- Account Binding -->
+<div class="md:col-span-1 flex flex-col gap-md">
+<h3 class="font-label-sm text-on-surface-variant uppercase tracking-widest px-xs">账号绑定</h3>
+<div class="glass-surface rounded-xl overflow-hidden">
+<div class="p-md flex items-center justify-between border-b border-white/5 hover:bg-white/5 transition-colors cursor-pointer">
+<div class="flex items-center gap-sm">
+<span class="material-symbols-outlined text-stone-300" data-icon="terminal">terminal</span>
+<span class="font-body-md">GitHub</span>
+</div>
+<span class="font-label-sm text-amber-500">已绑定</span>
+</div>
+<div class="p-md flex items-center justify-between border-b border-white/5 hover:bg-white/5 transition-colors cursor-pointer">
+<div class="flex items-center gap-sm">
+<span class="material-symbols-outlined text-stone-300" data-icon="cloud">cloud</span>
+<span class="font-body-md">Google</span>
+</div>
+<span class="font-label-sm text-on-surface-variant">立即绑定</span>
+</div>
+<div class="p-md flex items-center justify-between hover:bg-white/5 transition-colors cursor-pointer">
+<div class="flex items-center gap-sm">
+<span class="material-symbols-outlined text-stone-300" data-icon="developer_board">developer_board</span>
+<span class="font-body-md">GitLab</span>
+</div>
+<span class="font-label-sm text-on-surface-variant">立即绑定</span>
+</div>
+</div>
+</div>
+<!-- Personal Preferences -->
+<div class="md:col-span-2 flex flex-col gap-md">
+<h3 class="font-label-sm text-on-surface-variant uppercase tracking-widest px-xs">个人偏好</h3>
+<div class="glass-surface rounded-xl p-md grid grid-cols-1 sm:grid-cols-2 gap-md">
+<div class="space-y-sm">
+<label class="font-label-sm text-on-surface-variant">通知管理</label>
+<div class="flex items-center justify-between p-sm bg-surface-container rounded-lg border border-white/5">
+<span class="font-body-md">系统警报</span>
+<div class="w-10 h-5 bg-amber-500 rounded-full relative">
+<div class="absolute right-1 top-1 w-3 h-3 bg-white rounded-full"></div>
+</div>
+</div>
+</div>
+<div class="space-y-sm">
+<label class="font-label-sm text-on-surface-variant">外观主题</label>
+<div class="flex items-center justify-between p-sm bg-surface-container rounded-lg border border-white/5">
+<span class="font-body-md">深色琥珀</span>
+<span class="material-symbols-outlined text-amber-500" data-icon="dark_mode">dark_mode</span>
+</div>
+</div>
+<div class="space-y-sm">
+<label class="font-label-sm text-on-surface-variant">语言设置</label>
+<div class="flex items-center justify-between p-sm bg-surface-container rounded-lg border border-white/5">
+<span class="font-body-md">简体中文</span>
+<span class="material-symbols-outlined text-stone-400" data-icon="language">language</span>
+</div>
+</div>
+<div class="space-y-sm">
+<label class="font-label-sm text-on-surface-variant">AI 人格</label>
+<div class="flex items-center justify-between p-sm bg-surface-container rounded-lg border border-white/5">
+<span class="font-body-md">战略助手</span>
+<span class="material-symbols-outlined text-stone-400" data-icon="psychology">psychology</span>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- Bottom Section: System Health & Network Topology -->
+<section class="flex flex-col gap-md">
+<h3 class="font-label-sm text-on-surface-variant uppercase tracking-widest px-xs">系统健康与运行时</h3>
+<div class="grid grid-cols-1 md:grid-cols-2 gap-md">
+<!-- Health Metrics -->
+<div class="glass-surface p-lg rounded-xl flex flex-col gap-lg">
+<div class="flex items-center justify-between">
+<h4 class="font-body-lg font-bold">健康状态</h4>
+<div class="bg-amber-500/10 text-amber-500 px-3 py-1 rounded-full text-xs font-bold border border-amber-500/20">稳定</div>
+</div>
+<div class="space-y-md">
+<div>
+<div class="flex justify-between mb-xs">
+<span class="font-label-sm text-on-surface-variant">数据库一致性</span>
+<span class="font-label-sm text-amber-500">99.8%</span>
+</div>
+<div class="h-1 w-full bg-stone-800 rounded-full overflow-hidden">
+<div class="h-full bg-amber-500 w-[99.8%] amber-glow"></div>
+</div>
+</div>
+<div>
+<div class="flex justify-between mb-xs">
+<span class="font-label-sm text-on-surface-variant">节点效率</span>
+<span class="font-label-sm text-amber-500">84.2%</span>
+</div>
+<div class="h-1 w-full bg-stone-800 rounded-full overflow-hidden">
+<div class="h-full bg-amber-500 w-[84.2%] shadow-[0_0_8px_rgba(245,158,11,0.5)]"></div>
+</div>
+</div>
+</div>
+<div class="grid grid-cols-2 gap-sm pt-md border-t border-white/5">
+<div class="text-center">
+<p class="text-[10px] text-on-surface-variant uppercase">延迟</p>
+<p class="font-headline-md text-amber-500">14ms</p>
+</div>
+<div class="text-center">
+<p class="text-[10px] text-on-surface-variant uppercase">运行时间</p>
+<p class="font-headline-md text-amber-500">32天</p>
+</div>
+</div>
+</div>
+<!-- Network Topology Asymmetric Layout -->
+<div class="glass-surface rounded-xl p-lg relative overflow-hidden flex flex-col justify-between">
+<div>
+<div class="flex items-center gap-sm mb-lg">
+<span class="material-symbols-outlined text-amber-500" data-icon="monitoring">monitoring</span>
+<h4 class="font-body-lg font-bold">网络拓扑</h4>
+</div>
+<!-- Pseudo-Topology Map -->
+<div class="relative h-40 flex items-center justify-center">
+<div class="absolute inset-0 opacity-20">
+<svg class="w-full h-full stroke-amber-500 fill-none" viewbox="0 0 200 100">
+<circle cx="50" cy="50" fill="currentColor" r="2"></circle>
+<circle cx="100" cy="20" fill="currentColor" r="2"></circle>
+<circle cx="100" cy="80" fill="currentColor" r="2"></circle>
+<circle cx="150" cy="50" fill="currentColor" r="2"></circle>
+<path d="M50 50 L100 20 L150 50 L100 80 Z" stroke-dasharray="2 2" stroke-width="0.5"></path>
+<path d="M50 50 L100 80 M100 20 L150 50" stroke-width="0.5"></path>
+</svg>
+</div>
+<div class="bg-surface-container rounded-xl p-md border border-white/5 text-center amber-glow z-10">
+<p class="text-xs text-amber-500 font-bold">核心节点-01</p>
+<p class="text-[10px] text-on-surface-variant">活跃连接</p>
+</div>
+</div>
+</div>
+<button class="w-full py-md bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 rounded-lg font-label-sm transition-all border border-amber-500/20 active:scale-95">优化架构</button>
+</div>
+</div>
+</section>
+</main>
+<!-- BottomNavBar -->
+<nav class="fixed bottom-0 w-full flex justify-around items-center px-4 pb-safe pt-2 h-20 bg-stone-900/90 backdrop-blur-lg z-50 border-t border-white/10 shadow-[0_-4px_24px_rgba(0,0,0,0.4)] rounded-t-2xl">
+<a class="flex flex-col items-center justify-center text-stone-500 px-5 py-1 hover:text-amber-400 active:scale-90 transition-all duration-200" href="#">
+<span class="material-symbols-outlined" data-icon="chat">chat</span>
+<span class="font-['Public_Sans'] text-[11px] font-medium">对话</span>
+</a>
+<a class="flex flex-col items-center justify-center text-stone-500 px-5 py-1 hover:text-amber-400 active:scale-90 transition-all duration-200" href="#">
+<span class="material-symbols-outlined" data-icon="account_balance_wallet">account_balance_wallet</span>
+<span class="font-['Public_Sans'] text-[11px] font-medium">资产</span>
+</a>
+<a class="flex flex-col items-center justify-center text-stone-500 px-5 py-1 hover:text-amber-400 active:scale-90 transition-all duration-200" href="#">
+<span class="material-symbols-outlined" data-icon="monitoring">monitoring</span>
+<span class="font-['Public_Sans'] text-[11px] font-medium">状态</span>
+</a>
+<a class="flex flex-col items-center justify-center bg-amber-500/10 text-amber-500 rounded-2xl px-5 py-1 active:scale-90 transition-all duration-200" href="#">
+<span class="material-symbols-outlined" data-icon="settings" data-weight="fill" style="font-variation-settings: 'FILL' 1;">settings</span>
+<span class="font-['Public_Sans'] text-[11px] font-medium">设置</span>
+</a>
+</nav>
+</body></html>

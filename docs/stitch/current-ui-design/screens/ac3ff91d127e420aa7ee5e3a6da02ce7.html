@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Nexus DevOps - Artifact Center</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "on-background": "#e9e1dd",
+                        "inverse-on-surface": "#33302d",
+                        "surface-container-highest": "#383432",
+                        "tertiary": "#d7cda3",
+                        "surface": "#161311",
+                        "on-tertiary-fixed": "#201c02",
+                        "on-secondary-fixed-variant": "#76330d",
+                        "on-secondary-fixed": "#351000",
+                        "on-primary-fixed-variant": "#653e00",
+                        "background": "#161311",
+                        "outline": "#a08e7a",
+                        "on-surface": "#e9e1dd",
+                        "tertiary-fixed-dim": "#d1c79d",
+                        "on-tertiary-fixed-variant": "#4d4727",
+                        "surface-variant": "#383432",
+                        "secondary-container": "#76330d",
+                        "secondary-fixed": "#ffdbcc",
+                        "inverse-primary": "#855300",
+                        "tertiary-container": "#bab189",
+                        "primary": "#ffc174",
+                        "on-secondary-container": "#fc9e6f",
+                        "surface-dim": "#161311",
+                        "error-container": "#93000a",
+                        "secondary-fixed-dim": "#ffb693",
+                        "on-primary-fixed": "#2a1700",
+                        "inverse-surface": "#e9e1dd",
+                        "error": "#ffb4ab",
+                        "on-primary": "#472a00",
+                        "on-secondary": "#561f00",
+                        "primary-fixed": "#ffddb8",
+                        "outline-variant": "#534434",
+                        "surface-container-lowest": "#100e0c",
+                        "on-primary-container": "#613b00",
+                        "tertiary-fixed": "#ede3b8",
+                        "surface-bright": "#3c3836",
+                        "surface-tint": "#ffb95f",
+                        "on-tertiary": "#363113",
+                        "on-error-container": "#ffdad6",
+                        "on-error": "#690005",
+                        "primary-fixed-dim": "#ffb95f",
+                        "surface-container-high": "#2d2927",
+                        "surface-container": "#221f1d",
+                        "primary-container": "#f59e0b",
+                        "on-surface-variant": "#d8c3ad",
+                        "secondary": "#ffb693",
+                        "on-tertiary-container": "#4a4424",
+                        "surface-container-low": "#1e1b19"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "xl": "40px",
+                        "sm": "8px",
+                        "unit": "4px",
+                        "xs": "4px",
+                        "max-width": "800px",
+                        "gutter": "20px",
+                        "md": "16px",
+                        "lg": "24px"
+                    },
+                    "fontFamily": {
+                        "headline-xl": ["Public Sans"],
+                        "body-md": ["Public Sans"],
+                        "label-sm": ["Public Sans"],
+                        "headline-md": ["Public Sans"],
+                        "body-lg": ["Public Sans"]
+                    },
+                    "fontSize": {
+                        "headline-xl": ["40px", {"lineHeight": "1.2", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                        "body-md": ["16px", {"lineHeight": "1.6", "fontWeight": "400"}],
+                        "label-sm": ["13px", {"lineHeight": "1.2", "letterSpacing": "0.04em", "fontWeight": "600"}],
+                        "headline-md": ["24px", {"lineHeight": "1.3", "fontWeight": "600"}],
+                        "body-lg": ["18px", {"lineHeight": "1.6", "fontWeight": "400"}]
+                    }
+                },
+            },
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .amber-glow {
+            box-shadow: 0 0 20px rgba(245, 158, 11, 0.15);
+        }
+        .glass-surface {
+            background: rgba(41, 37, 36, 0.7);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+</head>
+<body class="bg-background text-on-surface font-body-md selection:bg-primary-container selection:text-on-primary-container">
+<!-- TopAppBar -->
+<header class="fixed top-0 w-full border-b border-white/10 bg-stone-900/80 backdrop-blur-md z-50 flex items-center justify-between px-6 h-16 shadow-[0_0_20px_rgba(245,158,11,0.15)]">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-amber-500" data-icon="terminal">terminal</span>
+<h1 class="text-xl font-bold text-amber-500 font-public-sans tracking-tight">Nexus 运维中心</h1>
+</div>
+<div class="flex items-center gap-4">
+<button class="text-stone-400 hover:bg-white/5 transition-colors p-2 rounded-full active:scale-95 duration-200">
+<span class="material-symbols-outlined" data-icon="notifications">notifications</span>
+</button>
+<div class="w-8 h-8 rounded-full bg-stone-800 border border-white/10 flex items-center justify-center overflow-hidden">
+<img alt="User Profile" class="w-full h-full object-cover" data-alt="A professional headshot of a software architect in a high-tech environment. The lighting is moody and dramatic with subtle amber highlights reflecting off sleek, dark surfaces in the background. The overall aesthetic is clean, modern, and high-end, matching the warm dark stone and amber color palette of the DevOps platform." src="https://lh3.googleusercontent.com/aida-public/AB6AXuDvUUdpOHe-Eyd78wkvLMNSOT6WICysYH6G2-uPB0O6JQxYvGbbvWlphTNvkDU31IfmUUrzOFhcLmdMCa63pbT4KMZkbb9n_WTTg0PivYpI9QaEP2LuJDPB0BwiTq5ukThlxlcLpyoEW7NzALeMnMqTyWbVxnLw5xLBIXyfSqSazREPbFOh-wdr-WE8Z04JLLIoOltmMczSttvLfNKa5-AldSdNp9-_s7cPcTHGjb5QJEFwh5_t_OO4w3Vclmncyu92j4IfM7Bhw7NY"/>
+</div>
+</div>
+</header>
+<div class="flex min-h-screen pt-16 pb-20 md:pb-0">
+<!-- NavigationDrawer (Web Only Sidebar) -->
+<aside class="hidden md:flex h-full w-72 border-r border-white/10 bg-stone-950 flex-col py-8 shadow-2xl shrink-0 fixed left-0">
+<div class="px-6 mb-8 flex items-center gap-3">
+<div class="w-10 h-10 rounded-lg bg-amber-500/10 flex items-center justify-center border border-amber-500/20">
+<span class="material-symbols-outlined text-amber-500" data-icon="dns">dns</span>
+</div>
+<div>
+<p class="text-amber-500 font-bold font-public-sans text-sm">DevOps Suite</p>
+<p class="text-stone-500 text-xs">active-node-01</p>
+</div>
+</div>
+<nav class="flex-1 space-y-1 px-4">
+<a class="flex items-center gap-3 px-4 py-3 rounded-lg text-stone-400 hover:bg-stone-900/50 transition-all ease-in-out" href="#">
+<span class="material-symbols-outlined text-sm" data-icon="folder">folder</span>
+<span class="font-public-sans text-sm">项目 Alpha</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-lg text-stone-400 hover:bg-stone-900/50 transition-all ease-in-out" href="#">
+<span class="material-symbols-outlined text-sm" data-icon="dns">dns</span>
+<span class="font-public-sans text-sm">基础设施</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-lg text-stone-400 hover:bg-stone-900/50 transition-all ease-in-out" href="#">
+<span class="material-symbols-outlined text-sm" data-icon="verified_user">verified_user</span>
+<span class="font-public-sans text-sm">安全扫描</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-lg text-stone-400 hover:bg-stone-900/50 transition-all ease-in-out" href="#">
+<span class="material-symbols-outlined text-sm" data-icon="api">api</span>
+<span class="font-public-sans text-sm">API 文档</span>
+</a>
+</nav>
+<div class="px-6 py-4 mt-auto border-t border-white/5">
+<p class="text-stone-600 text-xs font-medium uppercase tracking-widest">版本</p>
+<p class="text-stone-400 text-sm mt-1">v2.4.0</p>
+</div>
+</aside>
+<!-- Main Content Area -->
+<main class="flex-1 md:ml-72 flex justify-center px-4 py-8 lg:px-lg overflow-y-auto">
+<div class="w-full max-w-max-width">
+<!-- Header Section -->
+<div class="mb-10">
+<h2 class="font-headline-xl text-headline-xl text-on-surface mb-2">资产中心</h2>
+<p class="text-on-surface-variant font-body-md">管理由 Amber Intelligence 生成的编译交付物和部署资产。</p>
+</div>
+<!-- Recent Artifacts Grid -->
+<section class="mb-12">
+<div class="flex items-center justify-between mb-6">
+<h3 class="font-headline-md text-headline-md text-on-surface flex items-center gap-2">最近资产 <span class="w-2 h-2 rounded-full bg-primary animate-pulse"></span></h3>
+<button class="text-primary font-label-sm uppercase tracking-wider hover:opacity-80">查看全部</button>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-2 gap-md">
+<!-- Artifact Card: Docker -->
+<div class="glass-surface p-lg rounded-xl flex flex-col gap-4 hover:border-amber-500/30 transition-all duration-300 group">
+<div class="flex justify-between items-start">
+<div class="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center border border-primary/20">
+<span class="material-symbols-outlined text-primary" data-icon="inventory_2">inventory_2</span>
+</div>
+<span class="bg-secondary-container text-on-secondary-container text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-tighter">DOCKER</span>
+</div>
+<div>
+<h4 class="font-headline-md text-body-lg text-on-surface mb-1">core-api-v2.1.0</h4>
+<p class="text-stone-500 text-sm">2 小时前创建 • 452MB</p>
+</div>
+<div class="flex gap-2 mt-2">
+<button class="flex-1 bg-surface-container-highest text-on-surface py-2 rounded-lg font-label-sm hover:bg-white/10 transition-colors flex items-center justify-center gap-2"><span class="material-symbols-outlined text-sm" data-icon="visibility">visibility</span> 预览</button>
+<button class="flex-1 border border-white/10 text-on-surface py-2 rounded-lg font-label-sm hover:bg-white/5 transition-colors flex items-center justify-center gap-2"><span class="material-symbols-outlined text-sm" data-icon="content_copy">content_copy</span> 复制</button>
+</div>
+</div>
+<!-- Artifact Card: API Docs -->
+<div class="glass-surface p-lg rounded-xl flex flex-col gap-4 hover:border-amber-500/30 transition-all duration-300 group">
+<div class="flex justify-between items-start">
+<div class="w-12 h-12 rounded-xl bg-tertiary/10 flex items-center justify-center border border-tertiary/20">
+<span class="material-symbols-outlined text-tertiary" data-icon="description">description</span>
+</div>
+<span class="bg-tertiary-container/20 text-tertiary text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-tighter">文档</span>
+</div>
+<div>
+<h4 class="font-headline-md text-body-lg text-on-surface mb-1">API 文档 (Swagger)</h4>
+<p class="text-stone-500 text-sm">为 Sprint 12 自动生成 • HTML/JSON</p>
+</div>
+<div class="flex gap-2 mt-2">
+<button class="flex-1 bg-surface-container-highest text-on-surface py-2 rounded-lg font-label-sm hover:bg-white/10 transition-colors flex items-center justify-center gap-2"><span class="material-symbols-outlined text-sm" data-icon="open_in_new">open_in_new</span> 预览</button>
+<button class="flex-1 border border-white/10 text-on-surface py-2 rounded-lg font-label-sm hover:bg-white/5 transition-colors flex items-center justify-center gap-2"><span class="material-symbols-outlined text-sm" data-icon="share">share</span> 复制链接</button>
+</div>
+</div>
+<!-- Artifact Card: Staging URL (Asymmetric Layout Item) -->
+<div class="md:col-span-2 glass-surface p-lg rounded-xl flex flex-col md:flex-row items-center gap-lg hover:border-amber-500/30 transition-all duration-300">
+<div class="w-16 h-16 rounded-full bg-primary-container/20 flex items-center justify-center border border-primary-container/30 shrink-0 amber-glow">
+<span class="material-symbols-outlined text-primary text-3xl" data-icon="rocket_launch">rocket_launch</span>
+</div>
+<div class="flex-1 text-center md:text-left">
+<h4 class="font-headline-md text-body-lg text-on-surface mb-1">staging-env-alpha-99.nexus-cloud.dev</h4>
+<p class="text-stone-500 text-sm">最近一次部署于 15 分钟前。安全 SSL 环境已激活，供内部评审。</p>
+</div>
+<div class="flex gap-3 w-full md:w-auto">
+<button class="flex-1 md:px-6 bg-primary-container text-on-primary-container py-3 rounded-full font-label-sm hover:brightness-110 transition-all active:scale-95 amber-glow">访问测试环境</button>
+</div>
+</div>
+</div>
+</section>
+<!-- Release Submission Section -->
+<section class="mb-12">
+<div class="glass-surface p-lg rounded-2xl border-l-4 border-l-primary relative overflow-hidden">
+<!-- Decorative background element -->
+<div class="absolute -right-10 -top-10 w-40 h-40 bg-primary/5 rounded-full blur-3xl"></div>
+<div class="relative z-10">
+<h3 class="font-headline-md text-headline-md text-on-surface mb-4">发布提交</h3>
+<p class="text-on-surface-variant font-body-md mb-8">打包多个资产并提交到下一个部署窗口（周五 18:00 UTC）。</p>
+<div class="flex flex-wrap gap-sm mb-lg">
+<span class="bg-surface-container-high border border-white/5 px-3 py-1.5 rounded-full text-xs font-medium flex items-center gap-2">
+<span class="material-symbols-outlined text-[14px]" data-icon="check_circle">check_circle</span> core-api-v2.1.0
+                                </span>
+<span class="bg-surface-container-high border border-white/5 px-3 py-1.5 rounded-full text-xs font-medium flex items-center gap-2">
+<span class="material-symbols-outlined text-[14px]" data-icon="check_circle">check_circle</span> ui-kit-final
+                                </span>
+<button class="bg-white/5 border border-dashed border-white/20 px-3 py-1.5 rounded-full text-xs font-medium text-stone-500 hover:text-on-surface transition-colors">+ 添加资产</button>
+</div>
+<button class="w-full md:w-auto px-10 py-4 bg-primary text-on-primary font-bold rounded-xl shadow-lg hover:shadow-primary/20 transition-all active:scale-[0.98]">提交生产评审</button>
+</div>
+</div>
+</section>
+<!-- Release History Log -->
+<section>
+<h3 class="font-headline-md text-headline-md text-on-surface mb-6">发布历史</h3>
+<div class="glass-surface rounded-xl overflow-hidden">
+<!-- Log Header -->
+<div class="bg-stone-900/50 px-lg py-4 grid grid-cols-4 text-stone-500 font-label-sm uppercase tracking-widest border-b border-white/5"><div class="col-span-2">部署</div><div>状态</div><div class="text-right">时间戳</div></div>
+<!-- Log Entries -->
+<div class="divide-y divide-white/5">
+<div class="px-lg py-4 grid grid-cols-4 items-center hover:bg-white/5 transition-colors group">
+<div class="col-span-2 flex items-center gap-3">
+<div class="w-2 h-2 rounded-full bg-green-500"></div>
+<span class="text-on-surface font-medium">生产推送 #482</span>
+</div>
+<div>
+<span class="bg-green-500/10 text-green-400 text-xs px-2 py-0.5 rounded">成功</span>
+</div>
+<div class="text-right text-stone-500 text-sm">Oct 24, 09:12</div>
+</div>
+<div class="px-lg py-4 grid grid-cols-4 items-center hover:bg-white/5 transition-colors group">
+<div class="col-span-2 flex items-center gap-3">
+<div class="w-2 h-2 rounded-full bg-green-500"></div>
+<span class="text-on-surface font-medium">Sprint 11 最终资产</span>
+</div>
+<div>
+<span class="bg-green-500/10 text-green-400 text-xs px-2 py-0.5 rounded">成功</span>
+</div>
+<div class="text-right text-stone-500 text-sm">Oct 22, 14:30</div>
+</div>
+<div class="px-lg py-4 grid grid-cols-4 items-center hover:bg-white/5 transition-colors group">
+<div class="col-span-2 flex items-center gap-3">
+<div class="w-2 h-2 rounded-full bg-primary animate-pulse"></div>
+<span class="text-on-surface font-medium">数据库迁移 Alpha</span>
+</div>
+<div>
+<span class="bg-primary/10 text-primary text-xs px-2 py-0.5 rounded">进行中</span>
+</div>
+<div class="text-right text-stone-500 text-sm">刚刚</div>
+</div>
+<div class="px-lg py-4 grid grid-cols-4 items-center hover:bg-white/5 transition-colors group">
+<div class="col-span-2 flex items-center gap-3">
+<div class="w-2 h-2 rounded-full bg-red-500"></div>
+<span class="text-on-surface font-medium">热修复 CI 流水线测试</span>
+</div>
+<div>
+<span class="bg-red-500/10 text-red-400 text-xs px-2 py-0.5 rounded">失败</span>
+</div>
+<div class="text-right text-stone-500 text-sm">Oct 20, 11:05</div>
+</div>
+</div>
+</div>
+</section>
+</div>
+</main>
+</div>
+<!-- BottomNavBar (Mobile Only) -->
+<nav class="md:hidden fixed bottom-0 left-0 w-full z-50 flex justify-around items-center px-4 py-3 pb-safe bg-stone-900/90 backdrop-blur-lg rounded-t-2xl border-t border-white/10 shadow-[0_-4px_20px_rgba(245,158,11,0.1)]">
+<a class="flex flex-col items-center justify-center text-stone-500 hover:bg-white/5 transition-all active:scale-90 duration-200" href="#">
+<span class="material-symbols-outlined" data-icon="chat_bubble">chat_bubble</span>
+<span class="font-public-sans text-[10px] font-medium mt-1">对话</span>
+</a>
+<a class="flex flex-col items-center justify-center bg-amber-500/10 text-amber-500 rounded-xl px-4 py-1 hover:bg-white/5 transition-all active:scale-90 duration-200" href="#">
+<span class="material-symbols-outlined" data-icon="account_tree" style="font-variation-settings: 'FILL' 1;">account_tree</span>
+<span class="font-public-sans text-[10px] font-medium mt-1">资产</span>
+</a>
+<a class="flex flex-col items-center justify-center text-stone-500 hover:bg-white/5 transition-all active:scale-90 duration-200" href="#">
+<span class="material-symbols-outlined" data-icon="monitoring">monitoring</span>
+<span class="font-public-sans text-[10px] font-medium mt-1">状态</span>
+</a>
+<a class="flex flex-col items-center justify-center text-stone-500 hover:bg-white/5 transition-all active:scale-90 duration-200" href="#">
+<span class="material-symbols-outlined" data-icon="settings">settings</span>
+<span class="font-public-sans text-[10px] font-medium mt-1">设置</span>
+</a>
+</nav>
+<!-- FAB Suppression Logic: Not showing context-sensitive FAB here to prioritize Artifact content focus -->
+</body></html>

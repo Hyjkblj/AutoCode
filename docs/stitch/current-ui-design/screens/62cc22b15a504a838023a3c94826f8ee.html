@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700;800&amp;family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "secondary-fixed": "#ffdbcc",
+                    "inverse-on-surface": "#33302d",
+                    "surface-container-high": "#2d2927",
+                    "primary-fixed-dim": "#ffb95f",
+                    "on-tertiary-fixed-variant": "#4d4727",
+                    "on-secondary-container": "#fc9e6f",
+                    "surface-container-highest": "#383432",
+                    "tertiary": "#d7cda3",
+                    "on-secondary-fixed": "#351000",
+                    "on-error-container": "#ffdad6",
+                    "on-primary-fixed": "#2a1700",
+                    "surface-container": "#221f1d",
+                    "on-surface": "#e9e1dd",
+                    "outline": "#a08e7a",
+                    "on-error": "#690005",
+                    "surface": "#161311",
+                    "on-secondary": "#561f00",
+                    "primary": "#ffc174",
+                    "on-tertiary": "#363113",
+                    "secondary-fixed-dim": "#ffb693",
+                    "tertiary-fixed-dim": "#d1c79d",
+                    "surface-container-low": "#1e1b19",
+                    "on-background": "#e9e1dd",
+                    "inverse-primary": "#855300",
+                    "background": "#161311",
+                    "surface-dim": "#161311",
+                    "inverse-surface": "#e9e1dd",
+                    "error-container": "#93000a",
+                    "surface-bright": "#3c3836",
+                    "on-tertiary-fixed": "#201c02",
+                    "surface-container-lowest": "#100e0c",
+                    "surface-tint": "#ffb95f",
+                    "tertiary-container": "#bab189",
+                    "on-primary-fixed-variant": "#653e00",
+                    "outline-variant": "#534434",
+                    "surface-variant": "#383432",
+                    "on-tertiary-container": "#4a4424",
+                    "on-primary": "#472a00",
+                    "tertiary-fixed": "#ede3b8",
+                    "primary-fixed": "#ffddb8",
+                    "on-surface-variant": "#d8c3ad",
+                    "secondary-container": "#76330d",
+                    "primary-container": "#f59e0b",
+                    "on-secondary-fixed-variant": "#76330d",
+                    "on-primary-container": "#613b00",
+                    "secondary": "#ffb693",
+                    "error": "#ffb4ab"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.25rem",
+                    "lg": "0.5rem",
+                    "xl": "0.75rem",
+                    "full": "9999px"
+            },
+            "spacing": {
+                    "xl": "40px",
+                    "unit": "4px",
+                    "md": "16px",
+                    "gutter": "20px",
+                    "xs": "4px",
+                    "lg": "24px",
+                    "sm": "8px",
+                    "max-width": "800px"
+            },
+            "fontFamily": {
+                    "headline-xl": ["Public Sans"],
+                    "body-md": ["Public Sans"],
+                    "headline-md": ["Public Sans"],
+                    "body-lg": ["Public Sans"],
+                    "label-sm": ["Public Sans"]
+            },
+            "fontSize": {
+                    "headline-xl": ["40px", {"lineHeight": "1.2", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                    "body-md": ["16px", {"lineHeight": "1.6", "fontWeight": "400"}],
+                    "headline-md": ["24px", {"lineHeight": "1.3", "fontWeight": "600"}],
+                    "body-lg": ["18px", {"lineHeight": "1.6", "fontWeight": "400"}],
+                    "label-sm": ["13px", {"lineHeight": "1.2", "letterSpacing": "0.04em", "fontWeight": "600"}]
+            }
+          },
+        },
+      }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+            display: inline-block;
+            line-height: 1;
+            text-transform: none;
+            letter-spacing: normal;
+            word-wrap: normal;
+            white-space: nowrap;
+            direction: ltr;
+        }
+        .glass-panel {
+            background: rgba(41, 37, 36, 0.7);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .amber-glow {
+            box-shadow: 0 0 20px rgba(245, 158, 11, 0.15);
+        }
+        body {
+            background-color: #161311;
+            color: #e9e1dd;
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+</head>
+<body class="font-body-md text-on-surface selection:bg-primary-container selection:text-on-primary-container">
+<!-- TopAppBar -->
+<header class="fixed top-0 left-0 w-full z-50 bg-stone-900/80 backdrop-blur-md border-b border-white/10 shadow-[0_0_20px_rgba(245,158,11,0.15)]">
+<div class="flex justify-between items-center w-full px-6 py-4">
+<div class="flex items-center gap-4">
+<div class="w-10 h-10 rounded-lg bg-primary-container flex items-center justify-center text-on-primary-container font-bold overflow-hidden">
+<img alt="Logo" class="w-full h-full object-cover" data-alt="A sophisticated geometric logo for an advanced technology project called Sentinel. The logo features sharp amber-colored lines that form an abstract protective shield symbol. It is set against a dark obsidian background with a subtle inner glow that gives it a high-tech, futuristic feel. The lighting is focused and cinematic, emphasizing the precision of the design." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAtae-DVoM6_oa9MUz1wjoL7Rc5mmNz5akIER6Oq-95uJer6niFKkdsN-VcH788mqrfxxpwas8AXsEgwJe5hnnaasHfYG3O1ZFGIdkjQlJ3Qr9ei4drCvG1sL3lZEVhUY4iCWMjEdCIuOcOesQZkFJzUaojJO4gUPD7QqRmFQ0NCPrLOqz5WY1GoNWnJLDH-3CIaOFA8MowKD8ghDtJzVc4LLP4yJfbkKCqQorZL3P1r4-rXs3Vk3JuImX-1CktB3nMwJ9JvkfCXXcy"/>
+</div>
+<h1 class="font-public-sans text-lg font-semibold tracking-tight text-amber-500 uppercase tracking-widest">Project Sentinel</h1>
+</div>
+<div class="flex items-center gap-2">
+<button class="p-2 text-stone-400 hover:bg-white/5 transition-colors rounded-full active:scale-95 duration-200">
+<span class="material-symbols-outlined" data-icon="search">search</span>
+</button>
+<div class="w-8 h-8 rounded-full border border-white/10 overflow-hidden">
+<img alt="Profile" class="w-full h-full object-cover" data-alt="A professional user profile avatar for a lead system engineer. The character has a calm, intelligent expression and is wearing a dark, high-collar tech suit. The portrait is rendered in a clean, modern digital illustration style with warm lighting from the side, reflecting the amber-toned interface. The background is a soft, blurred mahogany gradient." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBVTOVS_ifZKXmu3HoVQiIWXRGNqcotVFTDabX2motaa84KkFajLNm4dhOOb5yMiCQGlOX-jdGqDwwnnvtYwEVTCkEEnAWqWhiKiz_VizCG_13EstWbbwIHZVsJPgf4ohG2FxuPl2NZ36tzEp1b7RnxcSODvBiOw6Vv3lQYBzHd3d1C8-YV5k2xQAVCF2kuTkkw4hTLdf06G05NzuuE2EFjDiLccLHc5cCsgaEojzjIUc8oXfx08SQVPXP6EumBzWQz3LgNvpSaHOK2"/>
+</div>
+</div>
+</div>
+</header>
+<main class="pt-24 pb-32 px-6 max-w-screen-xl mx-auto">
+<!-- Header Section -->
+<section class="mb-10">
+<div class="flex flex-col md:flex-row md:items-end justify-between gap-6">
+<div>
+<h2 class="font-headline-xl text-primary mb-2">Project Artifacts</h2>
+<p class="text-on-surface-variant font-body-md max-w-2xl">Access and manage all compiled entities, deployment packages, and documentation for the Sentinel ecosystem. Assets are currently synchronizing.</p>
+</div>
+<div class="flex items-center gap-3">
+<div class="glass-panel rounded-full px-4 py-2 flex items-center gap-3 amber-glow">
+<span class="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
+<span class="font-label-sm text-amber-500">System Initializing</span>
+</div>
+</div>
+</div>
+</section>
+<!-- Filters & Search -->
+<section class="mb-8 flex flex-col md:flex-row gap-4">
+<div class="relative flex-grow">
+<span class="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-stone-500">search</span>
+<input class="w-full bg-surface-container-low border border-white/10 rounded-xl py-3 pl-12 pr-4 focus:ring-2 focus:ring-primary-container outline-none transition-all font-body-md" placeholder="Search artifacts by name or version..." type="text"/>
+</div>
+<div class="flex gap-2 overflow-x-auto pb-2 md:pb-0">
+<button class="bg-primary-container text-on-primary-container px-6 py-3 rounded-xl font-label-sm whitespace-nowrap active:scale-95 transition-transform">All Assets</button>
+<button class="bg-surface-container border border-white/5 text-stone-400 px-6 py-3 rounded-xl font-label-sm whitespace-nowrap hover:bg-white/5 transition-colors">Containers</button>
+<button class="bg-surface-container border border-white/5 text-stone-400 px-6 py-3 rounded-xl font-label-sm whitespace-nowrap hover:bg-white/5 transition-colors">Packages</button>
+<button class="bg-surface-container border border-white/5 text-stone-400 px-6 py-3 rounded-xl font-label-sm whitespace-nowrap hover:bg-white/5 transition-colors">Reports</button>
+</div>
+</section>
+<!-- Artifacts Grid/List -->
+<div class="grid grid-cols-1 gap-4">
+<!-- Item 1: Docker -->
+<div class="glass-panel group p-4 rounded-2xl flex items-center justify-between hover:bg-stone-800/80 transition-all duration-300">
+<div class="flex items-center gap-6">
+<div class="w-14 h-14 rounded-xl bg-secondary-container/30 flex items-center justify-center text-amber-500 group-hover:scale-110 transition-transform">
+<span class="material-symbols-outlined text-3xl" data-icon="inventory_2">inventory_2</span>
+</div>
+<div>
+<div class="flex items-center gap-2 mb-1">
+<h3 class="font-headline-md text-lg text-on-surface">sentinel-core-engine</h3>
+<span class="px-2 py-0.5 rounded bg-white/10 text-stone-400 font-label-sm">Docker</span>
+</div>
+<p class="text-stone-500 font-body-md text-sm">v2.4.1-alpha • 1.2 GB • Last modified 2m ago</p>
+</div>
+</div>
+<div class="flex items-center gap-8">
+<div class="hidden md:flex flex-col items-end">
+<span class="font-label-sm text-amber-500 flex items-center gap-2">
+<span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
+                            Initializing
+                        </span>
+<div class="w-32 h-1 bg-white/5 rounded-full mt-2 overflow-hidden">
+<div class="h-full bg-amber-500 w-1/3 rounded-full"></div>
+</div>
+</div>
+<button class="p-2 text-stone-500 hover:text-white transition-colors">
+<span class="material-symbols-outlined">more_vert</span>
+</button>
+</div>
+</div>
+<!-- Item 2: Zip -->
+<div class="glass-panel group p-4 rounded-2xl flex items-center justify-between hover:bg-stone-800/80 transition-all duration-300">
+<div class="flex items-center gap-6">
+<div class="w-14 h-14 rounded-xl bg-secondary-container/30 flex items-center justify-center text-amber-500 group-hover:scale-110 transition-transform">
+<span class="material-symbols-outlined text-3xl" data-icon="folder_zip">folder_zip</span>
+</div>
+<div>
+<div class="flex items-center gap-2 mb-1">
+<h3 class="font-headline-md text-lg text-on-surface">deployment-configs-main</h3>
+<span class="px-2 py-0.5 rounded bg-white/10 text-stone-400 font-label-sm">Zip</span>
+</div>
+<p class="text-stone-500 font-body-md text-sm">v1.0.8 • 45 MB • Last modified 15m ago</p>
+</div>
+</div>
+<div class="flex items-center gap-8">
+<div class="hidden md:flex flex-col items-end">
+<span class="font-label-sm text-amber-500 flex items-center gap-2">
+<span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
+                            Initializing
+                        </span>
+<div class="w-32 h-1 bg-white/5 rounded-full mt-2 overflow-hidden">
+<div class="h-full bg-amber-500 w-2/3 rounded-full"></div>
+</div>
+</div>
+<button class="p-2 text-stone-500 hover:text-white transition-colors">
+<span class="material-symbols-outlined">more_vert</span>
+</button>
+</div>
+</div>
+<!-- Item 3: Doc -->
+<div class="glass-panel group p-4 rounded-2xl flex items-center justify-between hover:bg-stone-800/80 transition-all duration-300">
+<div class="flex items-center gap-6">
+<div class="w-14 h-14 rounded-xl bg-secondary-container/30 flex items-center justify-center text-amber-500 group-hover:scale-110 transition-transform">
+<span class="material-symbols-outlined text-3xl" data-icon="description">description</span>
+</div>
+<div>
+<div class="flex items-center gap-2 mb-1">
+<h3 class="font-headline-md text-lg text-on-surface">security-audit-report-q4</h3>
+<span class="px-2 py-0.5 rounded bg-white/10 text-stone-400 font-label-sm">Doc</span>
+</div>
+<p class="text-stone-500 font-body-md text-sm">Final • 4.2 MB • Last modified 1h ago</p>
+</div>
+</div>
+<div class="flex items-center gap-8">
+<div class="hidden md:flex flex-col items-end">
+<span class="font-label-sm text-amber-500 flex items-center gap-2">
+<span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
+                            Initializing
+                        </span>
+<div class="w-32 h-1 bg-white/5 rounded-full mt-2 overflow-hidden">
+<div class="h-full bg-amber-500 w-1/4 rounded-full"></div>
+</div>
+</div>
+<button class="p-2 text-stone-500 hover:text-white transition-colors">
+<span class="material-symbols-outlined">more_vert</span>
+</button>
+</div>
+</div>
+<!-- Item 4: Analytics -->
+<div class="glass-panel group p-4 rounded-2xl flex items-center justify-between hover:bg-stone-800/80 transition-all duration-300">
+<div class="flex items-center gap-6">
+<div class="w-14 h-14 rounded-xl bg-secondary-container/30 flex items-center justify-center text-amber-500 group-hover:scale-110 transition-transform">
+<span class="material-symbols-outlined text-3xl" data-icon="analytics">analytics</span>
+</div>
+<div>
+<div class="flex items-center gap-2 mb-1">
+<h3 class="font-headline-md text-lg text-on-surface">behavioral-model-dataset</h3>
+<span class="px-2 py-0.5 rounded bg-white/10 text-stone-400 font-label-sm">Data</span>
+</div>
+<p class="text-stone-500 font-body-md text-sm">v3.0.0 • 8.4 GB • Last modified 3h ago</p>
+</div>
+</div>
+<div class="flex items-center gap-8">
+<div class="hidden md:flex flex-col items-end">
+<span class="font-label-sm text-amber-500 flex items-center gap-2">
+<span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
+                            Initializing
+                        </span>
+<div class="w-32 h-1 bg-white/5 rounded-full mt-2 overflow-hidden">
+<div class="h-full bg-amber-500 w-[10%] rounded-full"></div>
+</div>
+</div>
+<button class="p-2 text-stone-500 hover:text-white transition-colors">
+<span class="material-symbols-outlined">more_vert</span>
+</button>
+</div>
+</div>
+</div>
+<!-- Empty State / Load More -->
+<div class="mt-12 text-center">
+<button class="glass-panel px-8 py-3 rounded-full text-on-surface-variant font-label-sm hover:text-amber-500 active:scale-95 transition-all">
+                Load Archive Artifacts
+            </button>
+</div>
+</main>
+<!-- BottomNavBar -->
+<nav class="fixed bottom-0 left-0 w-full z-50 bg-stone-900/90 backdrop-blur-xl border-t border-white/10 shadow-[0_-4px_24px_rgba(0,0,0,0.4)]">
+<div class="flex justify-around items-center px-4 py-3 pb-safe"><a class="flex flex-col items-center justify-center text-stone-500 hover:text-amber-400 active:translate-y-0.5 transition-all" href="#">
+<span class="material-symbols-outlined" data-icon="chat_bubble">chat_bubble</span>
+<span class="font-public-sans text-[11px] font-medium">对话</span>
+</a>
+<a class="flex flex-col items-center justify-center text-amber-500 bg-amber-500/10 rounded-xl px-3 py-1 active:translate-y-0.5 transition-all" href="#">
+<span class="material-symbols-outlined" data-icon="inventory_2" style="font-variation-settings: 'FILL' 1;">inventory_2</span>
+<span class="font-public-sans text-[11px] font-medium">资产</span>
+</a>
+<a class="flex flex-col items-center justify-center text-stone-500 hover:text-amber-400 active:translate-y-0.5 transition-all" href="#">
+<span class="material-symbols-outlined" data-icon="analytics">analytics</span>
+<span class="font-public-sans text-[11px] font-medium">状态</span>
+</a>
+<a class="flex flex-col items-center justify-center text-stone-500 hover:text-amber-400 active:translate-y-0.5 transition-all" href="#">
+<span class="material-symbols-outlined" data-icon="settings">settings</span>
+<span class="font-public-sans text-[11px] font-medium">设置</span>
+</a></div>
+</nav>
+<!-- FAB (Suppressed based on context, but including for complete potential shell layout) -->
+<button class="fixed bottom-24 right-6 w-14 h-14 bg-primary-container text-on-primary-container rounded-full flex items-center justify-center shadow-lg active:scale-95 transition-transform amber-glow z-40">
+<span class="material-symbols-outlined" data-icon="add">add</span>
+</button>
+</body></html>

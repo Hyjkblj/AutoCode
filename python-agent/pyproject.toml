@@ -1,0 +1,104 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "python-agent"
+version = "2.0.0"
+description = "Multi-agent orchestration system for AutoCode backend generation"
+requires-python = ">=3.11"
+dependencies = [
+    "redis>=5.0.0,<6",
+    "langgraph>=0.2.0,<1",
+    "jsonschema>=4.0.0,<5",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0,<9",
+    "pytest-cov>=4.1.0,<5",
+    "pytest-asyncio>=0.23.0,<1",
+]
+
+[tool.pytest.ini_options]
+# Test discovery
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+
+# Custom markers
+markers = [
+    "integration: marks tests as integration tests (require running services)",
+    "unit: marks tests as unit tests (no external dependencies)",
+    "slow: marks tests as slow running",
+]
+
+# Output options
+addopts = [
+    "-v",                          # Verbose output
+    "--strict-markers",            # Strict marker validation
+    "--tb=short",                  # Short traceback format
+    "--cov=.",                     # Coverage for all code in python-agent
+    "--cov-report=term-missing",   # Terminal report with missing lines
+    "--cov-report=html:htmlcov",   # HTML report in htmlcov directory
+    "--cov-report=xml:coverage.xml", # XML report for CI integration
+    "--cov-fail-under=70",         # Fail if coverage below 70%
+]
+
+# Coverage configuration
+[tool.coverage.run]
+source = ["."]
+omit = [
+    "*/tests/*",
+    "*/test_*.py",
+    "*/__pycache__/*",
+    "*/venv/*",
+    "*/virtualenv/*",
+    "*/.venv/*",
+    "*/examples/*",
+    "*/docs/*",
+    "*/None/*",
+    "*/.hypothesis/*",
+    "*/.pytest_cache/*",
+]
+branch = true                      # Measure branch coverage
+parallel = true                    # Support parallel test execution
+
+[tool.coverage.report]
+precision = 2
+show_missing = true
+skip_covered = false
+sort = "Cover"
+
+# Fail if coverage is below threshold
+fail_under = 70
+
+# Exclude patterns from coverage reporting
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "def __str__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    "if typing.TYPE_CHECKING:",
+    "@abstractmethod",
+    "@abc.abstractmethod",
+    "class .*\\bProtocol\\):",
+    "@overload",
+]
+
+[tool.coverage.html]
+directory = "htmlcov"
+title = "Python Agent Coverage Report"
+
+[tool.coverage.xml]
+output = "coverage.xml"
+
+[tool.coverage.paths]
+source = [
+    ".",
+    "*/site-packages/",
+]

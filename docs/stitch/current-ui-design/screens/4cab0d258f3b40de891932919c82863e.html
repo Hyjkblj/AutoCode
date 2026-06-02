@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<style>
+        body {
+            font-family: 'Public Sans', sans-serif;
+            background-color: #161311;
+        }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .glass-panel {
+            background: rgba(41, 37, 36, 0.7);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+        .amber-glow {
+            box-shadow: 0 0 20px rgba(245, 158, 11, 0.15);
+        }
+    </style>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "surface-container-highest": "#383432",
+                        "surface-bright": "#3c3836",
+                        "secondary-fixed": "#ffdbcc",
+                        "on-secondary-fixed-variant": "#76330d",
+                        "tertiary-fixed": "#ede3b8",
+                        "on-surface-variant": "#d8c3ad",
+                        "tertiary-container": "#bab189",
+                        "inverse-surface": "#e9e1dd",
+                        "inverse-primary": "#855300",
+                        "secondary": "#ffb693",
+                        "outline": "#a08e7a",
+                        "surface-container-low": "#1e1b19",
+                        "primary-fixed-dim": "#ffb95f",
+                        "on-secondary-container": "#fc9e6f",
+                        "surface-container": "#221f1d",
+                        "on-secondary-fixed": "#351000",
+                        "on-primary-fixed": "#2a1700",
+                        "primary-fixed": "#ffddb8",
+                        "tertiary": "#d7cda3",
+                        "on-tertiary-container": "#4a4424",
+                        "primary": "#ffc174",
+                        "outline-variant": "#534434",
+                        "on-secondary": "#561f00",
+                        "on-error": "#690005",
+                        "error": "#ffb4ab",
+                        "primary-container": "#f59e0b",
+                        "on-primary-container": "#613b00",
+                        "secondary-container": "#76330d",
+                        "on-tertiary-fixed-variant": "#4d4727",
+                        "on-surface": "#e9e1dd",
+                        "inverse-on-surface": "#33302d",
+                        "on-primary-fixed-variant": "#653e00",
+                        "background": "#161311",
+                        "surface-dim": "#161311",
+                        "secondary-fixed-dim": "#ffb693",
+                        "on-tertiary-fixed": "#201c02",
+                        "on-error-container": "#ffdad6",
+                        "on-background": "#e9e1dd",
+                        "surface-tint": "#ffb95f",
+                        "on-primary": "#472a00",
+                        "tertiary-fixed-dim": "#d1c79d",
+                        "on-tertiary": "#363113",
+                        "surface-container-lowest": "#100e0c",
+                        "surface": "#161311",
+                        "error-container": "#93000a",
+                        "surface-variant": "#383432",
+                        "surface-container-high": "#2d2927"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "unit": "4px",
+                        "sm": "8px",
+                        "gutter": "20px",
+                        "xl": "40px",
+                        "max-width": "800px",
+                        "xs": "4px",
+                        "lg": "24px",
+                        "md": "16px"
+                    },
+                    "fontFamily": {
+                        "body-md": ["Public Sans"],
+                        "headline-xl": ["Public Sans"],
+                        "label-sm": ["Public Sans"],
+                        "headline-md": ["Public Sans"],
+                        "body-lg": ["Public Sans"]
+                    },
+                    "fontSize": {
+                        "body-md": ["16px", {"lineHeight": "1.6", "fontWeight": "400"}],
+                        "headline-xl": ["40px", {"lineHeight": "1.2", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                        "label-sm": ["13px", {"lineHeight": "1.2", "letterSpacing": "0.04em", "fontWeight": "600"}],
+                        "headline-md": ["24px", {"lineHeight": "1.3", "fontWeight": "600"}],
+                        "body-lg": ["18px", {"lineHeight": "1.6", "fontWeight": "400"}]
+                    }
+                },
+            },
+        }
+    </script>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+</head>
+<body class="bg-background text-on-background min-h-screen pb-24">
+<!-- TopAppBar -->
+<header class="fixed top-0 left-0 w-full z-50 bg-stone-900/80 backdrop-blur-md text-amber-500 border-b border-white/10 flex justify-between items-center px-6 h-16 w-full">
+<div class="flex items-center gap-4">
+<button class="hover:bg-white/5 transition-colors p-2 rounded-lg">
+<span class="material-symbols-outlined">menu</span>
+</button>
+<h1 class="text-xl font-bold text-amber-500 drop-shadow-[0_0_10px_rgba(245,158,11,0.3)] font-public-sans font-semibold tracking-tight">Sentinel</h1>
+</div>
+<div class="flex items-center gap-4">
+<span class="text-xs font-label-sm text-stone-400 hidden md:block">v2.4 在线</span>
+<div class="h-8 w-8 rounded-full bg-surface-container-highest border border-outline-variant flex items-center justify-center overflow-hidden">
+<img alt="User avatar" class="w-full h-full object-cover" data-alt="A professional studio portrait of a futuristic AI operator in a high-tech environment. The lighting is warm and cinematic, featuring golden amber rim lighting against a deep charcoal background. The subject has a calm, intelligent expression, embodying the persona of a digital sentinel or companion. High-end photography style with shallow depth of field." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCymFBcCL82WFMTJgNrpM77RYGskpcJTjo04gyQZcIYminXDsRKtjmrYP0QUEcz4OO5qFBi667BfBtVGWJs68GF8aRf4NL8-P0U58uRvr4zEc1Pjzkjmg1ty6npAjBfgVPXMdnHBYF_0BNOdVsJWrBmE1Iu72mN3xOqP_1vc7DzAy30nNdMOSlinTJe0Cxo_TxKGzIy2EbBI78d_tUJoetkEe2r3HMjDhiuG2gjJkGm_HAqwYun0yKBcnJHoNyVLqr4eCmU7ic4iwY2"/>
+</div>
+</div>
+</header>
+<main class="pt-24 px-6 max-w-screen-xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-6">
+<!-- Left Column: Agent & Status -->
+<div class="lg:col-span-4 space-y-6">
+<!-- Agent Card -->
+<div class="glass-panel p-6 rounded-3xl amber-glow">
+<div class="flex items-center gap-4 mb-6">
+<div class="relative">
+<div class="w-16 h-16 rounded-2xl bg-primary-container flex items-center justify-center shadow-lg shadow-amber-500/20">
+<span class="material-symbols-outlined text-on-primary-container text-4xl" data-weight="fill" style="font-variation-settings: 'FILL' 1;">smart_toy</span>
+</div>
+<div class="absolute -bottom-1 -right-1 w-4 h-4 bg-green-500 rounded-full border-4 border-surface-container-low"></div>
+</div>
+<div>
+<h2 class="text-headline-md font-headline-md text-on-surface">Sentinel</h2>
+<p class="text-label-sm font-label-sm text-primary">系统在线</p>
+</div>
+</div>
+<div class="space-y-4">
+<div class="p-4 bg-surface-container-low rounded-xl border border-white/5">
+<p class="text-label-sm text-stone-500 mb-1">当前项目</p>
+<div class="flex justify-between items-center">
+<span class="text-body-md font-semibold text-on-surface">Project Alpha</span>
+<span class="material-symbols-outlined text-amber-500 text-sm">rocket_launch</span>
+</div>
+</div>
+<div class="p-4 bg-surface-container-low rounded-xl border border-white/5">
+<p class="text-label-sm text-stone-500 mb-1">计算负载</p>
+<div class="w-full bg-stone-800 h-1.5 rounded-full mt-2">
+<div class="bg-primary-container h-full rounded-full amber-glow w-[34%]"></div>
+</div>
+<p class="text-[10px] text-stone-500 mt-2 text-right">34% 已优化</p>
+</div>
+</div>
+</div>
+<!-- Quick Access Links -->
+<div class="glass-panel p-4 rounded-2xl hover:bg-white/5 transition-all cursor-pointer group">
+<div class="flex items-center gap-4">
+<div class="w-12 h-12 rounded-xl bg-surface-container-highest flex items-center justify-center group-hover:bg-primary-container/20">
+<span class="material-symbols-outlined text-amber-500 text-3xl">inventory_2</span>
+</div>
+<div>
+<p class="text-body-md font-semibold text-on-surface">资产中心</p>
+<p class="text-[10px] text-stone-500">管理所有任务与资源</p>
+</div>
+</div>
+</div>
+</div>
+<!-- Right Column: Workspace Dashboard -->
+<div class="lg:col-span-8 flex flex-col gap-6"><div class="glass-panel p-4 rounded-2xl border-l-4 border-amber-500/50 flex items-center justify-between">
+<div class="flex items-center gap-3">
+<div class="relative flex h-2 w-2">
+<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+<span class="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
+</div>
+<span class="text-label-sm font-bold text-amber-500 uppercase tracking-widest">实时动态</span>
+<p class="text-body-md text-on-surface ml-2">Project Alpha - 正在初始化...</p>
+</div>
+<span class="text-[10px] text-stone-500">刚刚</span>
+</div>
+<!-- Hero Workspace Section -->
+<div class="relative glass-panel rounded-3xl p-8 overflow-hidden min-h-[320px] flex flex-col justify-end">
+<div class="absolute top-0 left-0 w-full h-full opacity-40 z-0">
+<img alt="Background pattern" class="w-full h-full object-cover" data-alt="An abstract visualization of complex data networks and neural pathways. The scene is bathed in warm golden light and deep amber tones against a rich charcoal background. Soft glowing particles drift through a three-dimensional web of connections, creating a sense of intelligent, living technology. The mood is calm, sophisticated, and deeply humanistic." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCYHcVvh9Qum48ccG_qIMbJbuWnytQ-8H7NSc1sUsVXsnnjxWM67vHclssXY4gCbQNcpzrQRJKUbpsnZ3z13lGXMv5gFKJDFSo648lWOxHtT3w6y0-i-u4M1RVAyaZ4S-KnG2IKCLubQ8Lj1BQ8ot53_05sy0dDzDJn0JzsXME5QF0ZoiqfpOu99U8krfaTvt1XL69dieXf0qtwBScUDCYM8Ojt8XPgLP6HYHXxOoI5cMv1JE2GXdABiidjJPi1lQVDsfEyfdWuECiA"/>
+<div class="absolute inset-0 bg-gradient-to-t from-background via-background/40 to-transparent"></div>
+</div>
+<div class="relative z-10 max-w-lg">
+<h2 class="text-headline-xl font-headline-xl text-on-surface mb-4">欢迎回来，架构师</h2>
+<p class="text-body-lg font-body-lg text-on-surface-variant mb-8">准备好推进 Project Alpha 了吗？Sentinel 已汇总最新日志并准备为您提供帮助。</p>
+<button class="bg-primary-container hover:opacity-90 transition-all text-on-primary-container px-8 py-4 rounded-full font-bold flex items-center gap-3 amber-glow">
+<span class="material-symbols-outlined" data-weight="fill" style="font-variation-settings: 'FILL' 1;">add_circle</span>
+<span>开启新任务</span>
+</button>
+</div>
+</div>
+<!-- Contextual Chat / Recent Activity Bento -->
+<div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+<!-- Message Bubble Style -->
+<div class="glass-panel p-6 rounded-3xl border-l-4 border-primary-container">
+<div class="flex items-center gap-2 mb-3">
+<span class="text-[10px] uppercase tracking-widest text-primary font-bold">Latest Intelligence</span>
+</div>
+<p class="text-body-md font-body-md text-on-surface mb-4">“我已经分析了下个冲刺阶段的 API 配置。如果我们今天重构中间件，预计效率将提升 15%。”</p>
+<div class="flex gap-2">
+<span class="bg-secondary-container/50 text-on-secondary-container px-3 py-1 rounded-full text-label-sm font-label-sm border border-white/5">分析数据</span>
+<span class="bg-secondary-container/50 text-on-secondary-container px-3 py-1 rounded-full text-label-sm font-label-sm border border-white/5">更新中间件</span>
+</div>
+</div>
+<!-- Active Project Stats -->
+<div class="glass-panel p-6 rounded-3xl flex flex-col justify-between">
+<div>
+<h3 class="text-label-sm font-label-sm text-stone-500 mb-4 uppercase">Project Alpha Status</h3>
+<ul class="space-y-3">
+<li class="flex items-center gap-3">
+<span class="material-symbols-outlined text-green-500 text-lg" data-weight="fill" style="font-variation-settings: 'FILL' 1;">check_circle</span>
+<span class="text-body-md text-on-surface">系统日志已验证</span>
+</li>
+<li class="flex items-center gap-3">
+<span class="material-symbols-outlined text-amber-500 text-lg animate-pulse" data-weight="fill" style="font-variation-settings: 'FILL' 1;">pending</span>
+<span class="text-body-md text-on-surface">API 同步进行中</span>
+</li>
+</ul>
+</div>
+<button class="mt-6 text-primary text-label-sm font-bold flex items-center gap-2 hover:gap-3 transition-all">查看工作区详情 <span class="material-symbols-outlined text-sm">arrow_forward</span></button>
+</div>
+</div>
+</div>
+</main>
+<!-- BottomNavBar -->
+<nav class="fixed bottom-0 left-0 w-full z-50 flex justify-around items-center px-4 py-3 pb-safe bg-stone-900/90 backdrop-blur-lg rounded-t-2xl border-t border-white/10 shadow-[0_-4px_20px_rgba(245,158,11,0.1)]">
+<a class="flex flex-col items-center justify-center bg-amber-500/10 text-amber-500 rounded-xl px-4 py-1 transition-all active:scale-90 duration-200" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">chat_bubble</span>
+<span class="font-public-sans text-xs font-medium">对话</span>
+</a>
+<a class="flex flex-col items-center justify-center text-stone-500 hover:bg-white/5 rounded-xl px-4 py-1 transition-all active:scale-90 duration-200" href="#">
+<span class="material-symbols-outlined">account_tree</span>
+<span class="font-public-sans text-xs font-medium">资产</span>
+</a>
+<a class="flex flex-col items-center justify-center text-stone-500 hover:bg-white/5 rounded-xl px-4 py-1 transition-all active:scale-90 duration-200" href="#">
+<span class="material-symbols-outlined">analytics</span>
+<span class="font-public-sans text-xs font-medium">状态</span>
+</a>
+<a class="flex flex-col items-center justify-center text-stone-500 hover:bg-white/5 rounded-xl px-4 py-1 transition-all active:scale-90 duration-200" href="#">
+<span class="material-symbols-outlined">settings</span>
+<span class="font-public-sans text-xs font-medium">设置</span>
+</a>
+</nav>
+<!-- FAB Content (Contextual) -->
+<button class="fixed bottom-24 right-6 w-14 h-14 bg-primary-container text-on-primary-container rounded-2xl shadow-xl shadow-amber-500/30 flex items-center justify-center hover:scale-105 active:scale-95 transition-all z-40">
+<span class="material-symbols-outlined text-2xl" data-weight="fill" style="font-variation-settings: 'FILL' 1;">chat_bubble</span>
+</button>
+</body></html>

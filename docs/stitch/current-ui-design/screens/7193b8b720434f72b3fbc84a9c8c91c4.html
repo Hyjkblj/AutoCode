@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "surface-container-highest": "#383432",
+                        "surface-bright": "#3c3836",
+                        "secondary-fixed": "#ffdbcc",
+                        "on-secondary-fixed-variant": "#76330d",
+                        "tertiary-fixed": "#ede3b8",
+                        "on-surface-variant": "#d8c3ad",
+                        "tertiary-container": "#bab189",
+                        "inverse-surface": "#e9e1dd",
+                        "inverse-primary": "#855300",
+                        "secondary": "#ffb693",
+                        "outline": "#a08e7a",
+                        "surface-container-low": "#1e1b19",
+                        "primary-fixed-dim": "#ffb95f",
+                        "on-secondary-container": "#fc9e6f",
+                        "surface-container": "#221f1d",
+                        "on-secondary-fixed": "#351000",
+                        "on-primary-fixed": "#2a1700",
+                        "primary-fixed": "#ffddb8",
+                        "tertiary": "#d7cda3",
+                        "on-tertiary-container": "#4a4424",
+                        "primary": "#ffc174",
+                        "outline-variant": "#534434",
+                        "on-secondary": "#561f00",
+                        "on-error": "#690005",
+                        "error": "#ffb4ab",
+                        "primary-container": "#f59e0b",
+                        "on-primary-container": "#613b00",
+                        "secondary-container": "#76330d",
+                        "on-tertiary-fixed-variant": "#4d4727",
+                        "on-surface": "#e9e1dd",
+                        "inverse-on-surface": "#33302d",
+                        "on-primary-fixed-variant": "#653e00",
+                        "background": "#161311",
+                        "surface-dim": "#161311",
+                        "secondary-fixed-dim": "#ffb693",
+                        "on-tertiary-fixed": "#201c02",
+                        "on-error-container": "#ffdad6",
+                        "on-background": "#e9e1dd",
+                        "surface-tint": "#ffb95f",
+                        "on-primary": "#472a00",
+                        "tertiary-fixed-dim": "#d1c79d",
+                        "on-tertiary": "#363113",
+                        "surface-container-lowest": "#100e0c",
+                        "surface": "#161311",
+                        "error-container": "#93000a",
+                        "surface-variant": "#383432",
+                        "surface-container-high": "#2d2927"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "unit": "4px",
+                        "sm": "8px",
+                        "gutter": "20px",
+                        "xl": "40px",
+                        "max-width": "800px",
+                        "xs": "4px",
+                        "lg": "24px",
+                        "md": "16px"
+                    },
+                    "fontFamily": {
+                        "body-md": ["Public Sans"],
+                        "headline-xl": ["Public Sans"],
+                        "label-sm": ["Public Sans"],
+                        "headline-md": ["Public Sans"],
+                        "body-lg": ["Public Sans"]
+                    },
+                    "fontSize": {
+                        "body-md": ["16px", {"lineHeight": "1.6", "fontWeight": "400"}],
+                        "headline-xl": ["40px", {"lineHeight": "1.2", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                        "label-sm": ["13px", {"lineHeight": "1.2", "letterSpacing": "0.04em", "fontWeight": "600"}],
+                        "headline-md": ["24px", {"lineHeight": "1.3", "fontWeight": "600"}],
+                        "body-lg": ["18px", {"lineHeight": "1.6", "fontWeight": "400"}]
+                    }
+                },
+            },
+        }
+    </script>
+<style>
+        .glass-panel {
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+        }
+        .amber-glow {
+            box-shadow: 0 0 20px rgba(245, 158, 11, 0.15);
+        }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+</head>
+<body class="bg-background text-on-background font-body-md min-h-screen flex flex-col">
+<!-- TopAppBar -->
+<header class="bg-stone-900/80 backdrop-blur-md fixed top-0 w-full z-50 flex justify-between items-center px-6 h-16 border-b border-white/10">
+<div class="flex items-center gap-4">
+<button class="text-amber-500 hover:bg-white/5 transition-colors p-2 rounded-lg">
+<span class="material-symbols-outlined" data-icon="menu">menu</span>
+</button>
+<h1 class="font-public-sans font-semibold tracking-tight text-xl font-bold text-amber-500 drop-shadow-[0_0_10px_rgba(245,158,11,0.3)]">Sentinel</h1>
+</div>
+<div class="flex items-center gap-4">
+<div class="w-8 h-8 rounded-full overflow-hidden border border-amber-500/30">
+<img alt="User avatar" data-alt="A professional headshot of a person with warm studio lighting, reflecting a modern tech professional aesthetic. The portrait features a soft focus background with subtle warm amber bokeh lights that complement the overall Humanistic Modernism UI style. The lighting is clean and high-end, highlighting the approachable and intelligent persona of the platform user." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCX-6vs0BuJrP3v8VC4cu__DzvBoOP58eBFtN9kdbJCK5NKR-zhicucm7oi-2hQSzYgIth0KCbPnPr2JzSBm71OdZPEJtH1yFChlf_wpohS1Pdk3Ge8fERHlmp6ZlDg9MceuOF33jTUsij4EbHIRdngtVvPz-lHw9dxg4e-ysFV3ldGy4s1iAEs41SbYNbImDU2FQmY4r77SmFgDN1RqTUamNA5wUqhCHg0ZC79P6qpY3jIlS1cvuPpFb8tUGrPTUGnZhWMTrimYyP4"/>
+</div>
+</div>
+</header>
+<!-- Main Content Canvas -->
+<main class="flex-1 mt-16 pb-32 overflow-y-auto">
+<div class="max-w-[800px] mx-auto px-lg py-xl flex flex-col gap-lg">
+<!-- System Greeting Message -->
+<div class="flex flex-col gap-sm max-w-[85%]">
+<div class="bg-surface-container border-l-2 border-amber-500 p-md rounded-xl rounded-tl-none shadow-sm">
+<p class="font-body-md text-on-surface">下午好。我已成功初始化您的工作区。有 <span class="text-amber-500 font-bold">3 个活跃任务</span> 需要您的关注。今天我能为您提供什么帮助？</p>
+</div>
+<span class="text-label-sm text-stone-500 ml-2">14:02 • Sentinel v2.4</span>
+</div>
+<!-- User Query -->
+<div class="flex flex-col gap-sm self-end max-w-[85%]">
+<div class="bg-amber-500/10 border border-amber-500/20 p-md rounded-xl rounded-tr-none">
+<p class="font-body-md text-on-background">显示 API 部署状态和最新的审计日志。</p>
+</div>
+<span class="text-label-sm text-stone-500 mr-2 self-end">14:03 • 您</span>
+</div>
+<!-- AI Response with Task Hub Grid -->
+<div class="flex flex-col gap-sm max-w-[95%]">
+<div class="bg-surface-container border-l-2 border-amber-500 p-md rounded-xl rounded-tl-none shadow-sm">
+<p class="font-body-md text-on-surface mb-md">下午好。我已成功初始化您的工作区。有 <span class="text-amber-500 font-bold">3 个活跃任务</span> 需要您的关注。今天我能为您提供什么帮助？</p>
+<!-- Bento Grid for Tasks -->
+<div class="grid grid-cols-1 md:grid-cols-2 gap-md mt-sm">
+<!-- Task Card: API Deployment -->
+<div class="bg-surface-container-highest border border-white/5 rounded-xl p-md flex flex-col gap-md amber-glow">
+<div class="flex justify-between items-start">
+<div class="flex flex-col">
+<h3 class="font-headline-md text-on-surface text-lg">API Deployment</h3>
+<span class="text-label-sm text-stone-400">Global Production Cluster</span>
+</div>
+<span class="bg-amber-500/20 text-amber-500 text-[10px] font-bold px-2 py-1 rounded-full uppercase tracking-wider">Generating...</span>
+</div>
+<!-- Progress Bar -->
+<div class="w-full bg-stone-800 h-1 rounded-full overflow-hidden">
+<div class="bg-amber-500 h-full w-2/3 shadow-[0_0_8px_rgba(245,158,11,0.5)]"></div>
+</div>
+<div class="flex justify-between items-center text-label-sm text-stone-400">
+<span>Phase 3: Traffic Migration</span>
+<span>68%</span>
+</div>
+</div>
+<!-- Task Card: Security Audit -->
+<div class="bg-surface-container-highest border border-white/5 rounded-xl p-md flex flex-col gap-md">
+<div class="flex justify-between items-start">
+<div class="flex flex-col">
+<h3 class="font-headline-md text-on-surface text-lg">Security Audit</h3>
+<span class="text-label-sm text-stone-400">Endpoint Vulnerability Check</span>
+</div>
+<span class="bg-emerald-500/20 text-emerald-400 text-[10px] font-bold px-2 py-1 rounded-full uppercase tracking-wider">Deployed</span>
+</div>
+<!-- Progress Bar -->
+<div class="w-full bg-stone-800 h-1 rounded-full overflow-hidden">
+<div class="bg-emerald-500 h-full w-full"></div>
+</div>
+<div class="flex justify-between items-center text-label-sm text-stone-400">
+<span>Status: Secure</span>
+<span>100%</span>
+</div>
+</div>
+<!-- Full Width Task: Optimization -->
+<div class="md:col-span-2 bg-surface-container-highest border border-white/5 rounded-xl p-md flex flex-col gap-md">
+<div class="flex items-center gap-md">
+<div class="bg-amber-500/20 p-2 rounded-lg">
+<span class="material-symbols-outlined text-amber-500" data-icon="terminal">terminal</span>
+</div>
+<div class="flex-1">
+<div class="flex justify-between items-center">
+<h3 class="font-headline-md text-on-surface text-lg">Query Optimization</h3>
+<span class="text-label-sm text-stone-400">ETA: 4m</span>
+</div>
+<p class="text-label-sm text-stone-500">下午好。我已成功初始化您的工作区。有 <span class="text-amber-500 font-bold">3 个活跃任务</span> 需要您的关注。今天我能为您提供什么帮助？</p>
+</div>
+</div>
+</div>
+</div>
+</div>
+<span class="text-label-sm text-stone-500 ml-2">14:03 • Sentinel v2.4</span>
+</div>
+<!-- Chips for Suggestions -->
+<div class="flex flex-wrap gap-sm mt-md">
+<button class="bg-[#78350F] text-[#FEF3C7] font-label-sm px-4 py-2 rounded-full hover:bg-amber-800 transition-colors">终止 API 部署</button>
+<button class="bg-[#78350F] text-[#FEF3C7] font-label-sm px-4 py-2 rounded-full hover:bg-amber-800 transition-colors">下载审计 PDF</button>
+<button class="bg-[#78350F] text-[#FEF3C7] font-label-sm px-4 py-2 rounded-full hover:bg-amber-800 transition-colors">查看系统日志</button>
+</div>
+</div>
+</main>
+<!-- Floating Chat Input Bar -->
+<div class="fixed bottom-24 left-0 w-full px-lg flex justify-center z-40 pointer-events-none">
+<div class="max-w-[800px] w-full bg-stone-900/90 backdrop-blur-xl border border-white/10 rounded-full h-16 flex items-center px-4 amber-glow pointer-events-auto">
+<button class="text-stone-400 hover:text-amber-500 transition-colors p-2">
+<span class="material-symbols-outlined" data-icon="mic">mic</span>
+</button>
+<input class="flex-1 bg-transparent border-none focus:ring-0 text-on-background placeholder:text-stone-500 font-body-md px-4" placeholder="启动新任务或提问..." type="text"/>
+<button class="bg-amber-500 text-on-primary w-10 h-10 rounded-full flex items-center justify-center hover:scale-105 active:scale-95 transition-all">
+<span class="material-symbols-outlined font-bold" data-icon="send">send</span>
+</button>
+</div>
+</div>
+<!-- BottomNavBar -->
+<nav class="fixed bottom-0 left-0 w-full z-50 flex justify-around items-center px-4 py-3 pb-safe bg-stone-900/90 backdrop-blur-lg rounded-t-2xl border-t border-white/10 shadow-[0_-4px_20px_rgba(245,158,11,0.1)]">
+<button class="flex flex-col items-center justify-center bg-amber-500/10 text-amber-500 rounded-xl px-4 py-1 transition-all active:scale-90 duration-200">
+<span class="material-symbols-outlined mb-0.5" style="font-variation-settings: 'FILL' 1;">chat_bubble</span>
+<span class="font-public-sans text-xs font-medium">对话</span>
+</button>
+<button class="flex flex-col items-center justify-center text-stone-500 hover:bg-white/5 transition-all active:scale-90 duration-200">
+<span class="material-symbols-outlined mb-0.5">account_tree</span>
+<span class="font-public-sans text-xs font-medium">资产</span>
+</button>
+<button class="flex flex-col items-center justify-center text-stone-500 hover:bg-white/5 transition-all active:scale-90 duration-200">
+<span class="material-symbols-outlined mb-0.5">analytics</span>
+<span class="font-public-sans text-xs font-medium">状态</span>
+</button>
+<button class="flex flex-col items-center justify-center text-stone-500 hover:bg-white/5 transition-all active:scale-90 duration-200">
+<span class="material-symbols-outlined mb-0.5">settings</span>
+<span class="font-public-sans text-xs font-medium">设置</span>
+</button>
+</nav>
+<!-- Side Navigation Drawer (Hidden on mobile via screen positioning, accessible via menu button) -->
+<aside class="fixed inset-y-0 left-0 z-[60] flex flex-col p-6 h-full w-80 rounded-r-3xl bg-stone-950 border-r border-white/5 shadow-2xl shadow-black -translate-x-full lg:translate-x-0 transition-transform">
+<div class="flex items-center gap-4 mb-xl">
+<div class="w-12 h-12 bg-amber-500/20 rounded-xl flex items-center justify-center">
+<span class="material-symbols-outlined text-amber-500 text-3xl" data-icon="bolt">bolt</span>
+</div>
+<div>
+<h2 class="text-amber-500 font-bold font-public-sans">Sentinel v2.4</h2>
+<p class="text-stone-400 text-xs">在线 • 已优化</p>
+</div>
+</div>
+<div class="flex flex-col gap-2">
+<button class="flex items-center gap-4 p-3 text-stone-400 hover:text-stone-200 hover:bg-stone-900/50 rounded-lg transition-all">
+<span class="material-symbols-outlined" data-icon="folder_open">folder_open</span>
+<span class="font-public-sans font-medium">活跃项目</span>
+</button>
+<button class="flex items-center gap-4 p-3 text-stone-400 hover:text-stone-200 hover:bg-stone-900/50 rounded-lg transition-all">
+<span class="material-symbols-outlined" data-icon="layers">layers</span>
+<span class="font-public-sans font-medium">技术栈</span>
+</button>
+<button class="flex items-center gap-4 p-3 text-stone-400 hover:text-stone-200 hover:bg-stone-900/50 rounded-lg transition-all">
+<span class="material-symbols-outlined" data-icon="terminal">terminal</span>
+<span class="font-public-sans font-medium">系统日志</span>
+</button>
+<button class="flex items-center gap-4 p-3 text-stone-400 hover:text-stone-200 hover:bg-stone-900/50 rounded-lg transition-all">
+<span class="material-symbols-outlined" data-icon="settings_input_component">settings_input_component</span>
+<span class="font-public-sans font-medium">API 配置</span>
+</button>
+</div>
+<div class="mt-auto pt-6 border-t border-white/5">
+<div class="bg-stone-900/50 p-4 rounded-xl">
+<p class="text-stone-500 text-[10px] uppercase tracking-widest font-bold mb-2">引擎负载</p>
+<div class="w-full bg-stone-800 h-1.5 rounded-full mb-1">
+<div class="bg-amber-500 h-full w-[42%]"></div>
+</div>
+<p class="text-stone-400 text-xs">42% 线程利用率</p>
+</div>
+</div>
+</aside>
+</body></html>

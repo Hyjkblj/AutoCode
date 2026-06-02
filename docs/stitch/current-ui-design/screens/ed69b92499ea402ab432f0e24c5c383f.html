@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Execution Monitor - Amber Intelligence</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@300;400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<style>
+        body {
+            font-family: 'Public Sans', sans-serif;
+            background-color: #161311;
+        }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .glass-panel {
+            background: rgba(41, 37, 36, 0.7);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+        .amber-glow {
+            box-shadow: 0 0 20px rgba(245, 158, 11, 0.15);
+        }
+        .pulse-amber {
+            box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.4);
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.4); }
+            70% { box-shadow: 0 0 0 10px rgba(245, 158, 11, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0); }
+        }
+    </style>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "on-tertiary-fixed-variant": "#4d4727",
+                        "on-primary-fixed": "#2a1700",
+                        "on-primary-fixed-variant": "#653e00",
+                        "surface-dim": "#161311",
+                        "primary-container": "#f59e0b",
+                        "secondary-container": "#76330d",
+                        "on-surface": "#e9e1dd",
+                        "tertiary-fixed": "#ede3b8",
+                        "secondary-fixed": "#ffdbcc",
+                        "primary": "#ffc174",
+                        "on-tertiary": "#363113",
+                        "tertiary": "#d7cda3",
+                        "surface-container": "#221f1d",
+                        "surface": "#161311",
+                        "error-container": "#93000a",
+                        "error": "#ffb4ab",
+                        "outline": "#a08e7a",
+                        "surface-container-highest": "#383432",
+                        "surface-variant": "#383432",
+                        "on-primary": "#472a00",
+                        "on-secondary-container": "#fc9e6f",
+                        "surface-container-lowest": "#100e0c",
+                        "outline-variant": "#534434",
+                        "surface-bright": "#3c3836",
+                        "on-error": "#690005",
+                        "on-secondary-fixed-variant": "#76330d",
+                        "inverse-on-surface": "#33302d",
+                        "primary-fixed-dim": "#ffb95f",
+                        "on-error-container": "#ffdad6",
+                        "primary-fixed": "#ffddb8",
+                        "secondary-fixed-dim": "#ffb693",
+                        "on-tertiary-fixed": "#201c02",
+                        "on-secondary-fixed": "#351000",
+                        "surface-container-high": "#2d2927",
+                        "on-primary-container": "#613b00",
+                        "tertiary-fixed-dim": "#d1c79d",
+                        "on-surface-variant": "#d8c3ad",
+                        "on-tertiary-container": "#4a4424",
+                        "inverse-surface": "#e9e1dd",
+                        "secondary": "#ffb693",
+                        "on-background": "#e9e1dd",
+                        "inverse-primary": "#855300",
+                        "surface-container-low": "#1e1b19",
+                        "tertiary-container": "#bab189",
+                        "surface-tint": "#ffb95f",
+                        "on-secondary": "#561f00",
+                        "background": "#161311"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "max-width": "800px",
+                        "lg": "24px",
+                        "gutter": "20px",
+                        "xl": "40px",
+                        "unit": "4px",
+                        "md": "16px",
+                        "sm": "8px",
+                        "xs": "4px"
+                    },
+                    "fontFamily": {
+                        "label-sm": ["Public Sans"],
+                        "headline-md": ["Public Sans"],
+                        "body-lg": ["Public Sans"],
+                        "headline-xl": ["Public Sans"],
+                        "body-md": ["Public Sans"]
+                    },
+                    "fontSize": {
+                        "label-sm": ["13px", {"lineHeight": "1.2", "letterSpacing": "0.04em", "fontWeight": "600"}],
+                        "headline-md": ["24px", {"lineHeight": "1.3", "fontWeight": "600"}],
+                        "body-lg": ["18px", {"lineHeight": "1.6", "fontWeight": "400"}],
+                        "headline-xl": ["40px", {"lineHeight": "1.2", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                        "body-md": ["16px", {"lineHeight": "1.6", "fontWeight": "400"}]
+                    }
+                },
+            },
+        }
+    </script>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+</head>
+<body class="bg-surface text-on-surface selection:bg-primary-container selection:text-on-primary-container">
+<!-- TopAppBar -->
+<header class="fixed top-0 w-full z-50 flex justify-between items-center px-6 h-16 bg-stone-950/80 backdrop-blur-md border-b border-white/10 shadow-[0_0_20px_rgba(245,158,11,0.15)] font-public-sans antialiased">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded-full bg-primary-container flex items-center justify-center overflow-hidden">
+<img alt="Intelligence Companion" class="w-full h-full object-cover" data-alt="A sophisticated abstract geometric shape representing an artificial intelligence entity. The design features sharp golden lines and crystalline structures floating against a dark, moody background with subtle atmospheric particles. The aesthetic is clean, professional, and suggests a high-tech monitoring system within a dark-mode environment." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBLpYtoBshS6ujvNvlRbGFqU_6fxWJk0jWn-wo4fVxMN5_gt4Cj0GOo-KfEBDvbyL_Pit9raqTnzSDfiwlp46tf2VtPaXJVx0xdSV41g1TDMl7tKOGwH_IoxkTg2E9g-2Hn7YWlLWMvyH0HkVYW8ROqJK4DZwAMT7Deh3UeeT_MrztxQsuvW3qUyf5VGEM5ZNRkA4lygQsbZtBM5r-vqOS0RFQr7ZMlMdnuPugMkFgjGfyoNljOyx1gi66ebGPa5bN7IyaKuWF62l3Y"/>
+</div>
+<h1 class="text-xl font-bold tracking-tight text-amber-500">系统情报</h1>
+</div>
+<div class="flex items-center gap-4">
+<span class="font-label-sm text-label-sm text-amber-500 px-3 py-1 bg-amber-500/10 rounded-full border border-amber-500/20">实时：执行监控</span>
+<button class="material-symbols-outlined text-stone-400 hover:bg-white/5 transition-colors p-2 rounded-lg active:scale-95 duration-200">settings</button>
+</div>
+</header>
+<main class="pt-24 pb-32 px-6 max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-6">
+<!-- Left Column: Core Execution Details (Col 8) -->
+<div class="lg:col-span-8 space-y-6">
+<!-- Task Info Header -->
+<section class="glass-panel rounded-xl p-6">
+<div class="flex justify-between items-start mb-6">
+<div>
+<div class="flex items-center gap-2 mb-1">
+<span class="font-label-sm text-label-sm text-primary tracking-widest">TASK GEN-982</span>
+<span class="w-1.5 h-1.5 rounded-full bg-primary-container pulse-amber"></span>
+</div>
+<h2 class="font-headline-md text-headline-md text-on-surface">系统核心部署</h2>
+<p class="text-stone-400 mt-1 font-body-md text-body-md">项目：<span class="text-on-surface">Amber Intelligence Nexus</span></p>
+</div>
+<div class="text-right">
+<p class="text-stone-500 text-xs uppercase tracking-tighter mb-1">已用时间</p>
+<p class="font-headline-md text-headline-md text-primary">04:12:44</p>
+</div>
+</div>
+<!-- Visual Pipeline Stepper -->
+<div class="relative pt-4 pb-8">
+<div class="absolute top-8 left-0 w-full h-0.5 bg-stone-800"></div>
+<div class="absolute top-8 left-0 w-1/2 h-0.5 bg-primary-container amber-glow transition-all duration-1000"></div>
+<div class="relative z-10 flex justify-between">
+<!-- Step 1 -->
+<div class="flex flex-col items-center">
+<div class="w-8 h-8 rounded-full bg-primary-container text-on-primary-container flex items-center justify-center mb-2">
+<span class="material-symbols-outlined text-sm">check</span>
+</div>
+<span class="font-label-sm text-label-sm text-stone-400">初始化</span>
+</div>
+<!-- Step 2 (Active) -->
+<div class="flex flex-col items-center">
+<div class="w-8 h-8 rounded-full bg-primary-container flex items-center justify-center mb-2 pulse-amber ring-4 ring-primary-container/20">
+<span class="material-symbols-outlined text-sm text-on-primary-container" style="font-variation-settings: 'FILL' 1;">sync</span>
+</div>
+<span class="font-label-sm text-label-sm text-primary">构建中</span>
+</div>
+<!-- Step 3 -->
+<div class="flex flex-col items-center">
+<div class="w-8 h-8 rounded-full bg-stone-800 flex items-center justify-center mb-2 border border-white/5">
+<span class="material-symbols-outlined text-sm text-stone-600">lock</span>
+</div>
+<span class="font-label-sm text-label-sm text-stone-600">审核</span>
+</div>
+<!-- Step 4 -->
+<div class="flex flex-col items-center">
+<div class="w-8 h-8 rounded-full bg-stone-800 flex items-center justify-center mb-2 border border-white/5">
+<span class="material-symbols-outlined text-sm text-stone-600">rocket_launch</span>
+</div>
+<span class="font-label-sm text-label-sm text-stone-600">部署</span>
+</div>
+</div>
+</div>
+</section>
+<!-- Live Log Stream -->
+<section class="glass-panel rounded-xl overflow-hidden flex flex-col h-[500px]">
+<div class="bg-stone-900/50 px-4 py-3 border-b border-white/5 flex justify-between items-center">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-primary text-lg">terminal</span>
+<span class="font-label-sm text-label-sm">实时日志流</span>
+</div>
+<div class="flex gap-2">
+<span class="w-2 h-2 rounded-full bg-stone-700"></span>
+<span class="w-2 h-2 rounded-full bg-stone-700"></span>
+<span class="w-2 h-2 rounded-full bg-stone-700"></span>
+</div>
+</div>
+<div class="flex-1 overflow-y-auto p-4 font-mono text-sm space-y-2 bg-stone-950/40">
+<div class="flex gap-4">
+<span class="text-stone-600 shrink-0">12:04:12</span>
+<p class="text-stone-400"><span class="text-amber-600">[INFO]</span> 正在初始化构建环境 <span class="text-stone-200">nexus-core-v2</span></p>
+</div>
+<div class="flex gap-4">
+<span class="text-stone-600 shrink-0">12:04:15</span>
+<p class="text-stone-400"><span class="text-amber-600">[INFO]</span> 正在从 <span class="text-amber-500/80">registry.amber-intel.com</span> 获取依赖项</p>
+</div>
+<div class="flex gap-4">
+<span class="text-stone-600 shrink-0">12:05:01</span>
+<p class="text-stone-400"><span class="text-amber-600">[INFO]</span> 正在编译资产... (45/112 个文件)</p>
+</div>
+<div class="flex gap-4 py-1 bg-amber-500/5 border-l-2 border-amber-500 px-2">
+<span class="text-stone-600 shrink-0">12:08:44</span>
+<p class="text-on-surface"><span class="bg-amber-500 text-on-primary px-1.5 rounded text-[10px] font-bold mr-2">PROCESS</span> 正在通过 Gzip 策略压缩生产包</p>
+</div>
+<div class="flex gap-4">
+<span class="text-stone-600 shrink-0">12:09:12</span>
+<p class="text-stone-400"><span class="text-amber-600">[INFO]</span> 正在运行单元测试：<span class="text-primary">1248 通过</span>，<span class="text-stone-500">0 失败</span></p>
+</div>
+<div class="flex gap-4">
+<span class="text-stone-600 shrink-0">12:10:05</span>
+<p class="text-stone-400"><span class="text-amber-600">[INFO]</span> 正在为遥测生成源码映射...</p>
+</div>
+<div class="flex gap-4">
+<span class="text-stone-600 shrink-0">12:11:12</span>
+<p class="text-primary-container animate-pulse">等待容器虚拟化同步...</p>
+</div>
+</div>
+</section>
+</div>
+<!-- Right Column: Context & Actions (Col 4) -->
+<div class="lg:col-span-4 space-y-6">
+<!-- Pending Approval Card -->
+<section class="bg-primary-container rounded-xl p-6 shadow-[0_10px_30px_rgba(245,158,11,0.2)]">
+<div class="flex items-center gap-3 mb-4">
+<span class="material-symbols-outlined text-on-primary-container text-3xl">verified_user</span>
+<h3 class="font-headline-md text-headline-md text-on-primary-container leading-none">人工审批</h3>
+</div>
+<p class="text-on-primary-container/80 text-sm mb-6 font-body-md">第 3 阶段需要管理员对 <span class="font-bold">production-east-1</span> 的部署进行授权。请在继续前查看日志。</p>
+<div class="grid grid-cols-2 gap-3">
+<button class="bg-on-primary-container text-amber-500 font-bold py-3 rounded-lg flex items-center justify-center gap-2 hover:opacity-90 transition-all active:scale-95"><span class="material-symbols-outlined text-sm">check_circle</span> 批准</button>
+<button class="bg-black/20 text-on-primary-container font-bold py-3 rounded-lg flex items-center justify-center gap-2 hover:bg-black/30 transition-all active:scale-95"><span class="material-symbols-outlined text-sm">cancel</span> 拒绝</button>
+</div>
+</section>
+<!-- Build Insights Grid -->
+<section class="glass-panel rounded-xl p-6">
+<h3 class="font-label-sm text-label-sm text-stone-400 uppercase tracking-widest mb-4">Build Insights</h3>
+<div class="grid grid-cols-2 gap-4">
+<div class="bg-white/5 rounded-lg p-3">
+<span class="text-[10px] text-stone-500 uppercase">平均耗时</span>
+<p class="text-lg font-bold text-on-surface">12m 4s</p>
+<div class="flex items-end gap-1 h-6 mt-2">
+<div class="flex-1 bg-stone-700 h-2 rounded-t-sm"></div>
+<div class="flex-1 bg-stone-700 h-3 rounded-t-sm"></div>
+<div class="flex-1 bg-amber-500 h-5 rounded-t-sm"></div>
+<div class="flex-1 bg-stone-700 h-2 rounded-t-sm"></div>
+</div>
+</div>
+<div class="bg-white/5 rounded-lg p-3">
+<span class="text-[10px] text-stone-500 uppercase">环境</span>
+<p class="text-lg font-bold text-on-surface">PROD</p>
+<span class="text-[10px] text-amber-500 font-semibold px-1.5 py-0.5 bg-amber-500/10 rounded mt-2 inline-block">SECURE</span>
+</div>
+<div class="bg-white/5 rounded-lg p-3">
+<span class="text-[10px] text-stone-500 uppercase">CPU 使用率</span>
+<p class="text-lg font-bold text-on-surface">42.8%</p>
+<div class="w-full bg-stone-800 h-1 rounded-full mt-2">
+<div class="bg-primary-container h-full rounded-full" style="width: 42.8%"></div>
+</div>
+</div>
+<div class="bg-white/5 rounded-lg p-3">
+<span class="text-[10px] text-stone-500 uppercase">提交</span>
+<p class="text-lg font-bold text-on-surface">7f2d9c1</p>
+<span class="text-[10px] text-stone-500 mt-2 block truncate">Main: Add Intel Core</span>
+</div>
+</div>
+</section>
+<!-- Task History Timeline -->
+<section class="glass-panel rounded-xl p-6">
+<h3 class="font-label-sm text-label-sm text-stone-400 uppercase tracking-widest mb-6">Event Timeline</h3>
+<div class="space-y-6 relative before:absolute before:left-2 before:top-2 before:bottom-2 before:w-px before:bg-white/10">
+<div class="relative pl-8">
+<div class="absolute left-0 top-1 w-4 h-4 rounded-full bg-stone-900 border-2 border-primary-container"></div>
+<p class="font-label-sm text-label-sm text-on-surface">构建已启动</p>
+<p class="text-xs text-stone-500">12:04:00 • 自动触发</p>
+</div>
+<div class="relative pl-8">
+<div class="absolute left-0 top-1 w-4 h-4 rounded-full bg-stone-900 border-2 border-stone-700"></div>
+<p class="font-label-sm text-label-sm text-on-surface">安全扫描已完成</p>
+<p class="text-xs text-stone-500">12:06:12 • 未发现问题</p>
+</div>
+<div class="relative pl-8 opacity-40">
+<div class="absolute left-0 top-1 w-4 h-4 rounded-full bg-stone-900 border-2 border-stone-800"></div>
+<p class="font-label-sm text-label-sm text-stone-500">资产已发布</p>
+<p class="text-xs text-stone-700">Scheduled: T-Plus 15m</p>
+</div>
+</div>
+</section>
+</div>
+</main>
+<!-- BottomNavBar -->
+<nav class="fixed bottom-0 left-0 w-full z-50 flex justify-around items-center px-4 py-3 pb-safe bg-stone-950/90 backdrop-blur-lg border-t border-white/10 shadow-[0_-4px_20px_rgba(0,0,0,0.5)] font-public-sans text-[10px] font-medium"><!-- Chat -->
+<a class="flex flex-col items-center justify-center text-stone-500 hover:text-stone-300 transition-all tap-highlight-none" href="#">
+<span class="material-symbols-outlined">chat</span>
+<span>对话</span>
+</a>
+<!-- Artifacts -->
+<a class="flex flex-col items-center justify-center text-stone-500 hover:text-stone-300 transition-all tap-highlight-none" href="#">
+<span class="material-symbols-outlined">category</span>
+<span>资产</span>
+</a>
+<!-- Status (Active) -->
+<a class="flex flex-col items-center justify-center text-amber-500 bg-amber-500/5 rounded-xl px-3 py-1 tap-highlight-none active:opacity-80 transition-all" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">query_stats</span>
+<span>状态</span>
+</a>
+<!-- Settings -->
+<a class="flex flex-col items-center justify-center text-stone-500 hover:text-stone-300 transition-all tap-highlight-none" href="#">
+<span class="material-symbols-outlined">settings</span>
+<span>设置</span>
+</a></nav>
+<!-- Navigation Drawer for Desktop -->
+<aside class="hidden lg:flex fixed left-0 top-0 h-screen w-64 bg-stone-900/95 backdrop-blur-xl border-r border-white/5 shadow-2xl flex-col pt-20 z-40 transition-all duration-300">
+<div class="px-6 mb-8">
+<div class="flex items-center gap-3 mb-6">
+<div class="w-10 h-10 rounded-lg bg-amber-500/10 flex items-center justify-center">
+<span class="material-symbols-outlined text-amber-500">terminal</span>
+</div>
+<div>
+<h4 class="text-amber-500 font-bold text-sm">DevOps Core</h4>
+<span class="text-[10px] text-stone-500 uppercase tracking-wider">v2.4.0</span>
+</div>
+</div>
+</div>
+<nav class="flex-1 px-4 space-y-2">
+<a class="flex items-center gap-3 px-4 py-3 bg-amber-500/10 text-amber-400 border-l-2 border-amber-500 transition-all rounded-r-lg" href="#">
+<span class="material-symbols-outlined text-xl">account_tree</span>
+<span class="font-label-sm text-label-sm">流水线</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-stone-400 hover:text-stone-200 hover:bg-white/5 transition-all rounded-lg" href="#">
+<span class="material-symbols-outlined text-xl">terminal</span>
+<span class="font-label-sm text-label-sm">实时日志</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-stone-400 hover:text-stone-200 hover:bg-white/5 transition-all rounded-lg" href="#">
+<span class="material-symbols-outlined text-xl">rocket_launch</span>
+<span class="font-label-sm text-label-sm">部署管理</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-stone-400 hover:text-stone-200 hover:bg-white/5 transition-all rounded-lg" href="#">
+<span class="material-symbols-outlined text-xl">analytics</span>
+<span class="font-label-sm text-label-sm">洞察分析</span>
+</a>
+</nav>
+<div class="p-6 mt-auto border-t border-white/5">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded-full bg-stone-800 border border-white/10 flex items-center justify-center">
+<span class="material-symbols-outlined text-xs text-amber-500">person</span>
+</div>
+<div>
+<p class="text-xs font-bold text-on-surface">系统操作员</p>
+<p class="text-[10px] text-amber-500">监控已激活</p>
+</div>
+</div>
+</div>
+</aside>
+</body></html>

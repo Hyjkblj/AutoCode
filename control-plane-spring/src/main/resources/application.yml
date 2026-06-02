@@ -62,7 +62,6 @@ mvp:
       base-backoff-seconds: ${MVP_SCHEDULER_RETRY_BASE_BACKOFF_SECONDS:5}
     lease-recover-interval-ms: ${MVP_SCHEDULER_LEASE_RECOVER_INTERVAL_MS:5000}
   auth:
-    mode: ${MVP_AUTH_MODE:jwt}
     operator-token: ${MVP_OPERATOR_TOKEN:operator-dev-token}
     agent-token: ${MVP_AGENT_TOKEN:agent-dev-token}
     elevated-authorities: ${MVP_ELEVATED_AUTHORITIES:ROLE_ADMIN,ROLE_OPERATOR}

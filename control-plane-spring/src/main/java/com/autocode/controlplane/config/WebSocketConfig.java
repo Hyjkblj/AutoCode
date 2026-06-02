@@ -4,7 +4,6 @@
 package com.autocode.controlplane.config;
 
 import com.autocode.controlplane.security.JwtWebSocketAuthInterceptor;
-import com.autocode.controlplane.security.TokenWebSocketAuthInterceptor;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.messaging.simp.config.MessageBrokerRegistry;
@@ -17,14 +16,11 @@ import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerCo
 @EnableWebSocketMessageBroker
 public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
-    private final ObjectProvider<TokenWebSocketAuthInterceptor> tokenWebSocketAuthInterceptor;
     private final ObjectProvider<JwtWebSocketAuthInterceptor> jwtWebSocketAuthInterceptor;
 
     public WebSocketConfig(
-            ObjectProvider<TokenWebSocketAuthInterceptor> tokenWebSocketAuthInterceptor,
             ObjectProvider<JwtWebSocketAuthInterceptor> jwtWebSocketAuthInterceptor
     ) {
-        this.tokenWebSocketAuthInterceptor = tokenWebSocketAuthInterceptor;
         this.jwtWebSocketAuthInterceptor = jwtWebSocketAuthInterceptor;
     }
 
@@ -41,7 +37,6 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     @Override
     public void configureClientInboundChannel(ChannelRegistration registration) {
-        tokenWebSocketAuthInterceptor.ifAvailable(registration::interceptors);
         jwtWebSocketAuthInterceptor.ifAvailable(registration::interceptors);
     }
 }

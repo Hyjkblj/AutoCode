@@ -1,0 +1,68 @@
+server:
+  port: 8082
+
+spring:
+  application:
+    name: event-service
+
+  datasource:
+    url: ${EVENT_DB_URL:jdbc:mysql://localhost:3306/event_db?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true}
+    username: ${EVENT_DB_USER:root}
+    password: ${EVENT_DB_PASSWORD:}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      maximum-pool-size: 20
+      minimum-idle: 5
+      connection-timeout: 30000
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.MySQLDialect
+        format_sql: false
+
+  # Redis configuration for event deduplication
+  data:
+    redis:
+      host: ${EVENT_REDIS_HOST:localhost}
+      port: ${EVENT_REDIS_PORT:6379}
+      password: ${EVENT_REDIS_PASSWORD:changeme}
+      timeout: 2000ms
+      lettuce:
+        pool:
+          max-active: 8
+          max-idle: 8
+          min-idle: 2
+
+# Actuator — expose health and info endpoints
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: always
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+
+# Service-to-service communication (Requirement 11.2)
+event-service:
+  control-plane:
+    url: ${CONTROL_PLANE_URL:http://localhost:8058}
+  deduplication:
+    ttl-hours: ${EVENT_DEDUP_TTL_HOURS:24}
+  auth:
+    enabled: ${EVENT_AUTH_ENABLED:true}
+    agent-tokens: ${EVENT_AGENT_TOKENS:agent-dev-token}
+
+logging:
+  level:
+    com.autocode.event: INFO
+    org.springframework.web: WARN
+    org.springframework.data.redis: WARN

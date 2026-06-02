@@ -10,6 +10,11 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.HttpHeaders;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.http.MediaType;
+import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
+import org.springframework.security.oauth2.jwt.JwtClaimsSet;
+import org.springframework.security.oauth2.jwt.JwtEncoder;
+import org.springframework.security.oauth2.jwt.JwtEncoderParameters;
+import org.springframework.security.oauth2.jwt.JwsHeader;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
@@ -24,6 +29,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
@@ -39,6 +45,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @SpringBootTest(properties = {
+        "mvp.auth.jwt.secret=01234567890123456789012345678901",
         "artifacts.download.shared-token=test-download-token",
         "artifacts.download.allow-authenticated-without-shared-token=false",
         "artifacts.storage.base-dir=./build/test-artifacts",
@@ -62,9 +69,14 @@ class ArtifactsIntegrationTest {
     @Autowired
     private AuditLogRepository auditLogRepository;
 
+    @Autowired
+    private JwtEncoder jwtEncoder;
+
+    private String operatorJwt;
+
     @BeforeEach
     void setup() {
-        // Test fixture: seed a user + membership for authorization.
+        // Seed a user + membership for method-security authorization.
         UserEntity user = userRepository.findByUsername("operator").orElseGet(() -> {
             UserEntity u = new UserEntity();
             u.setUserId("usr_operator");
@@ -80,6 +92,17 @@ class ArtifactsIntegrationTest {
         membership.setUserId(user.getUserId());
         membership.setRoleName("ADMIN");
         membershipRepository.save(membership);
+
+        // Generate an operator JWT for test requests.
+        Instant now = Instant.now();
+        JwtClaimsSet claims = JwtClaimsSet.builder()
+                .subject("operator")
+                .issuedAt(now)
+                .expiresAt(now.plusSeconds(3600))
+                .claim("roles", List.of("OPERATOR", "ADMIN"))
+                .build();
+        JwsHeader jwsHeader = JwsHeader.with(MacAlgorithm.HS256).build();
+        operatorJwt = jwtEncoder.encode(JwtEncoderParameters.from(jwsHeader, claims)).getTokenValue();
     }
 
     @Test
@@ -93,7 +116,7 @@ class ArtifactsIntegrationTest {
                 """;
 
         String createResponse = mockMvc.perform(post("/api/v1/tasks")
-                        .header("Authorization", "Bearer operator-dev-token")
+                        .header("Authorization", "Bearer " + operatorJwt)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(createPayload))
                 .andExpect(status().isOk())
@@ -118,7 +141,7 @@ class ArtifactsIntegrationTest {
                 .andExpect(jsonPath("$.payload.sha256").exists());
 
         MvcResult listRes = mockMvc.perform(get("/api/v1/tasks/{taskId}/artifacts", taskId)
-                        .header("Authorization", "Bearer operator-dev-token"))
+                        .header("Authorization", "Bearer " + operatorJwt))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.ok").value(true))
                 .andExpect(jsonPath("$.payload.taskId").value(taskId))
@@ -129,13 +152,13 @@ class ArtifactsIntegrationTest {
         String artifactId = objectMapper.readTree(listJson).path("payload").path("items").get(0).path("artifactId").asText();
 
         mockMvc.perform(get("/api/v1/tasks/{taskId}/artifacts/{artifactId}/download", taskId, artifactId)
-                        .header("Authorization", "Bearer operator-dev-token"))
+                        .header("Authorization", "Bearer " + operatorJwt))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.ok").value(false));
 
         MvcResult downloadResult = mockMvc.perform(get("/api/v1/tasks/{taskId}/artifacts/{artifactId}/download", taskId, artifactId)
                         .queryParam("token", "test-download-token")
-                        .header("Authorization", "Bearer operator-dev-token"))
+                        .header("Authorization", "Bearer " + operatorJwt))
                 .andExpect(request().asyncStarted())
                 .andReturn();
 
@@ -147,13 +170,13 @@ class ArtifactsIntegrationTest {
         }
 
         mockMvc.perform(get("/api/v1/tasks/{taskId}/artifacts/{artifactId}/preview", taskId, artifactId)
-                        .header("Authorization", "Bearer operator-dev-token"))
+                        .header("Authorization", "Bearer " + operatorJwt))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.ok").value(false));
 
         mockMvc.perform(get("/api/v1/tasks/{taskId}/artifacts/{artifactId}/preview", taskId, artifactId)
                         .queryParam("token", "test-download-token")
-                        .header("Authorization", "Bearer operator-dev-token"))
+                        .header("Authorization", "Bearer " + operatorJwt))
                 .andExpect(status().isOk())
                 .andExpect(result -> {
                     String cd = result.getResponse().getHeader("Content-Disposition");
@@ -164,7 +187,7 @@ class ArtifactsIntegrationTest {
 
         mockMvc.perform(get("/api/v1/audits/export")
                         .param("taskId", taskId)
-                        .header("Authorization", "Bearer operator-dev-token"))
+                        .header("Authorization", "Bearer " + operatorJwt))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.ok").value(true))
                 .andExpect(jsonPath("$.payload.taskId").value(taskId))
@@ -183,7 +206,7 @@ class ArtifactsIntegrationTest {
                 """;
 
         String createResponse = mockMvc.perform(post("/api/v1/tasks")
-                        .header("Authorization", "Bearer operator-dev-token")
+                        .header("Authorization", "Bearer " + operatorJwt)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(createPayload))
                 .andExpect(status().isOk())
@@ -212,7 +235,7 @@ class ArtifactsIntegrationTest {
 
         mockMvc.perform(get("/api/v1/audits/export")
                         .param("taskId", taskId)
-                        .header("Authorization", "Bearer operator-dev-token"))
+                        .header("Authorization", "Bearer " + operatorJwt))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.ok").value(true))
                 .andExpect(jsonPath("$.payload.taskId").value(taskId))
@@ -230,7 +253,7 @@ class ArtifactsIntegrationTest {
                 """;
 
         String createResponse = mockMvc.perform(post("/api/v1/tasks")
-                        .header("Authorization", "Bearer operator-dev-token")
+                        .header("Authorization", "Bearer " + operatorJwt)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(createPayload))
                 .andExpect(status().isOk())
@@ -291,7 +314,7 @@ class ArtifactsIntegrationTest {
                 .andExpect(jsonPath("$.ok").value(true));
 
         String eventsResponse = mockMvc.perform(get("/api/v1/tasks/{taskId}/events", taskId)
-                        .header("Authorization", "Bearer operator-dev-token"))
+                        .header("Authorization", "Bearer " + operatorJwt))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
 
@@ -310,7 +333,7 @@ class ArtifactsIntegrationTest {
         assertEquals("application/zip", readyEvent.path("payload").path("artifact").path("mimeType").asText());
 
         mockMvc.perform(get("/api/v1/tasks/{taskId}/artifacts", taskId)
-                        .header("Authorization", "Bearer operator-dev-token"))
+                        .header("Authorization", "Bearer " + operatorJwt))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.ok").value(true))
                 .andExpect(jsonPath("$.payload.items.length()").value(1))
@@ -320,13 +343,13 @@ class ArtifactsIntegrationTest {
                 .andExpect(jsonPath("$.payload.items[0].mimeType").value("application/zip"));
 
         mockMvc.perform(get("/api/v1/tasks/{taskId}/artifacts/{artifactId}/download", taskId, artifactId)
-                        .header("Authorization", "Bearer operator-dev-token"))
+                        .header("Authorization", "Bearer " + operatorJwt))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.ok").value(false));
 
         mockMvc.perform(get("/api/v1/tasks/{taskId}/artifacts/{artifactId}/download", taskId, artifactId)
                         .queryParam("token", "test-download-token")
-                        .header("Authorization", "Bearer operator-dev-token"))
+                        .header("Authorization", "Bearer " + operatorJwt))
                 .andExpect(status().isOk())
                 .andExpect(result -> {
                     byte[] bytes = result.getResponse().getContentAsByteArray();
@@ -347,7 +370,7 @@ class ArtifactsIntegrationTest {
         );
 
         mockMvc.perform(get("/api/v1/tasks/{taskId}/artifacts", missingTaskId)
-                        .header("Authorization", "Bearer operator-dev-token"))
+                        .header("Authorization", "Bearer " + operatorJwt))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.ok").value(false));
 
@@ -359,13 +382,13 @@ class ArtifactsIntegrationTest {
 
         mockMvc.perform(get("/api/v1/tasks/{taskId}/artifacts/{artifactId}/download", missingTaskId, "art_missing_1")
                         .queryParam("token", "test-download-token")
-                        .header("Authorization", "Bearer operator-dev-token"))
+                        .header("Authorization", "Bearer " + operatorJwt))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.ok").value(false));
 
         mockMvc.perform(get("/api/v1/tasks/{taskId}/artifacts/{artifactId}/preview", missingTaskId, "art_missing_1")
                         .queryParam("token", "test-download-token")
-                        .header("Authorization", "Bearer operator-dev-token"))
+                        .header("Authorization", "Bearer " + operatorJwt))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.ok").value(false));
     }
@@ -382,7 +405,7 @@ class ArtifactsIntegrationTest {
                 """;
 
         String createResponse = mockMvc.perform(post("/api/v1/tasks")
-                        .header("Authorization", "Bearer operator-dev-token")
+                        .header("Authorization", "Bearer " + operatorJwt)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(createPayload))
                 .andExpect(status().isOk())
@@ -408,7 +431,7 @@ class ArtifactsIntegrationTest {
         membershipRepository.deleteAll();
 
         mockMvc.perform(get("/api/v1/tasks/{taskId}/artifacts", taskId)
-                        .header("Authorization", "Bearer operator-dev-token"))
+                        .header("Authorization", "Bearer " + operatorJwt))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.ok").value(false))
                 .andExpect(jsonPath("$.error").value("not found"));
@@ -417,45 +440,45 @@ class ArtifactsIntegrationTest {
         // otherwise artifacts become enumerable via download probing.
         mockMvc.perform(get("/api/v1/tasks/{taskId}/artifacts/{artifactId}/download", taskId, "art_any_1")
                         .queryParam("token", "test-download-token")
-                        .header("Authorization", "Bearer operator-dev-token"))
+                        .header("Authorization", "Bearer " + operatorJwt))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.ok").value(false))
                 .andExpect(jsonPath("$.error").value("not found"));
 
         mockMvc.perform(get("/api/v1/tasks/{taskId}/artifacts/{artifactId}/preview", taskId, "art_any_1")
                         .queryParam("token", "test-download-token")
-                        .header("Authorization", "Bearer operator-dev-token"))
+                        .header("Authorization", "Bearer " + operatorJwt))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.ok").value(false))
                 .andExpect(jsonPath("$.error").value("not found"));
         mockMvc.perform(get("/api/v1/tasks/{taskId}/artifacts/derived", taskId)
-                        .header("Authorization", "Bearer operator-dev-token"))
+                        .header("Authorization", "Bearer " + operatorJwt))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.ok").value(false))
                 .andExpect(jsonPath("$.error").value("not found"));
 
         mockMvc.perform(get("/api/v1/audits/export")
                         .param("taskId", taskId)
-                        .header("Authorization", "Bearer operator-dev-token"))
+                        .header("Authorization", "Bearer " + operatorJwt))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.ok").value(false))
                 .andExpect(jsonPath("$.error").value("not found"));
 
         // M2: other task-scoped operator APIs must also mask existence (not 403).
         mockMvc.perform(get("/api/v1/tasks/{taskId}", taskId)
-                        .header("Authorization", "Bearer operator-dev-token"))
+                        .header("Authorization", "Bearer " + operatorJwt))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.ok").value(false))
                 .andExpect(jsonPath("$.error").value("not found"));
 
         mockMvc.perform(get("/api/v1/tasks/{taskId}/events", taskId)
-                        .header("Authorization", "Bearer operator-dev-token"))
+                        .header("Authorization", "Bearer " + operatorJwt))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.ok").value(false))
                 .andExpect(jsonPath("$.error").value("not found"));
 
         mockMvc.perform(post("/api/v1/tasks")
-                        .header("Authorization", "Bearer operator-dev-token")
+                        .header("Authorization", "Bearer " + operatorJwt)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(createPayload))
                 .andExpect(status().isNotFound())
@@ -474,7 +497,7 @@ class ArtifactsIntegrationTest {
                 """;
 
         String createResponse = mockMvc.perform(post("/api/v1/tasks")
-                        .header("Authorization", "Bearer operator-dev-token")
+                        .header("Authorization", "Bearer " + operatorJwt)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(createPayload))
                 .andExpect(status().isOk())
@@ -515,7 +538,7 @@ class ArtifactsIntegrationTest {
                 .andExpect(jsonPath("$.ok").value(false));
 
         String urlResponse = mockMvc.perform(get("/api/v1/tasks/{taskId}/artifacts/{artifactId}/site-url", taskId, artifactId)
-                        .header("Authorization", "Bearer operator-dev-token"))
+                        .header("Authorization", "Bearer " + operatorJwt))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.ok").value(true))
                 .andExpect(jsonPath("$.payload.entryPath").value("index.html"))

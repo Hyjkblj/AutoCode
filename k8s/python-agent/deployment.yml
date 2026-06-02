@@ -1,0 +1,37 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: python-agent
+  namespace: autocode
+  labels:
+    app: python-agent
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: python-agent
+  template:
+    metadata:
+      labels:
+        app: python-agent
+    spec:
+      containers:
+        - name: python-agent
+          image: ghcr.io/hyjkblj/autocode/python-agent:latest
+          env:
+            - name: AUTOCODE_CONTROL_PLANE_URL
+              value: "http://control-plane:8058"
+            - name: LLM_PROVIDER
+              value: "mimo"
+            - name: LLM_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: autocode-secrets
+                  key: llm-api-key
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "1Gi"
+              cpu: "1000m"

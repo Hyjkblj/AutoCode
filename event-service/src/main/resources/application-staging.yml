@@ -1,0 +1,10 @@
+spring:
+  datasource:
+    url: ${EVENT_DB_URL}
+    username: ${EVENT_DB_USER}
+    password: ${EVENT_DB_PASSWORD}
+
+logging:
+  level:
+    com.autocode.event: INFO
+    org.springframework.web: WARN

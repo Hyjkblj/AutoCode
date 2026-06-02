@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: approval-service
+  namespace: autocode
+  labels:
+    app: approval-service
+spec:
+  selector:
+    app: approval-service
+  ports:
+    - port: 8064
+      targetPort: 8064
+      protocol: TCP
+  type: ClusterIP

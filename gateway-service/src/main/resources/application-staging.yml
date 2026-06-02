@@ -1,0 +1,11 @@
+spring:
+  data:
+    redis:
+      host: ${GATEWAY_REDIS_HOST}
+      port: ${GATEWAY_REDIS_PORT:6379}
+      password: ${GATEWAY_REDIS_PASSWORD}
+
+logging:
+  level:
+    com.autocode.gateway: INFO
+    org.springframework.cloud.gateway: WARN

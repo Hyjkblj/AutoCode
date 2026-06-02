@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: control-plane-config
+  namespace: autocode
+data:
+  # Non-secret configuration overrides for control-plane
+  MVP_TRACING_ENABLED: "true"
+  MVP_TRACING_SAMPLING_PROBABILITY: "0.1"
+  MVP_HEALTH_RABBIT_ENABLED: "false"

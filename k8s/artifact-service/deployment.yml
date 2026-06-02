@@ -1,0 +1,70 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: artifact-service
+  namespace: autocode
+  labels:
+    app: artifact-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: artifact-service
+  template:
+    metadata:
+      labels:
+        app: artifact-service
+    spec:
+      containers:
+        - name: artifact-service
+          image: ghcr.io/hyjkblj/autocode/artifact-service:latest
+          ports:
+            - containerPort: 8081
+          env:
+            - name: SPRING_PROFILES_ACTIVE
+              value: "prod"
+            - name: ARTIFACT_DB_URL
+              valueFrom:
+                secretKeyRef:
+                  name: autocode-secrets
+                  key: artifact-db-url
+            - name: ARTIFACT_DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: autocode-secrets
+                  key: artifact-db-user
+            - name: ARTIFACT_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: autocode-secrets
+                  key: artifact-db-password
+            - name: CONTROL_PLANE_URL
+              value: "http://control-plane:8058"
+            - name: ARTIFACT_STORAGE_DIR
+              value: "/data/artifacts"
+          volumeMounts:
+            - name: artifact-storage
+              mountPath: /data/artifacts
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8081
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 8081
+            initialDelaySeconds: 15
+            periodSeconds: 5
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "200m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+      volumes:
+        - name: artifact-storage
+          persistentVolumeClaim:
+            claimName: artifact-storage-pvc

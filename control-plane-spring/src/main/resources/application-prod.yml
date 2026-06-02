@@ -1,0 +1,29 @@
+spring:
+  datasource:
+    url: ${MVP_DB_URL}
+    username: ${MVP_DB_USERNAME}
+    password: ${MVP_DB_PASSWORD}
+    hikari:
+      maximum-pool-size: 30
+      minimum-idle: 10
+      connection-timeout: 5000
+  data:
+    redis:
+      host: ${MVP_REDIS_HOST}
+      port: ${MVP_REDIS_PORT:6379}
+      password: ${MVP_REDIS_PASSWORD}
+
+mvp:
+  auth:
+    jwt:
+      secret: ${MVP_JWT_SECRET}
+  mtls:
+    required-for-agent: true
+  scheduler:
+    mode: db
+    lease-recover-interval-ms: 3000
+
+logging:
+  level:
+    com.autocode: WARN
+    org.springframework.web: WARN

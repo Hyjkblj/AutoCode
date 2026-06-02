@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: event-service
+  namespace: autocode
+  labels:
+    app: event-service
+spec:
+  selector:
+    app: event-service
+  ports:
+    - port: 8082
+      targetPort: 8082
+      protocol: TCP
+  type: ClusterIP

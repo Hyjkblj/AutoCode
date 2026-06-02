@@ -1,0 +1,61 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: approval-service
+  namespace: autocode
+  labels:
+    app: approval-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: approval-service
+  template:
+    metadata:
+      labels:
+        app: approval-service
+    spec:
+      containers:
+        - name: approval-service
+          image: ghcr.io/hyjkblj/autocode/approval-service:latest
+          ports:
+            - containerPort: 8064
+          env:
+            - name: SPRING_PROFILES_ACTIVE
+              value: "prod"
+            - name: APPROVAL_DB_URL
+              valueFrom:
+                secretKeyRef:
+                  name: autocode-secrets
+                  key: approval-db-url
+            - name: APPROVAL_DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: autocode-secrets
+                  key: approval-db-user
+            - name: APPROVAL_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: autocode-secrets
+                  key: approval-db-password
+            - name: CONTROL_PLANE_URL
+              value: "http://control-plane:8058"
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8064
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 8064
+            initialDelaySeconds: 15
+            periodSeconds: 5
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "200m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"

@@ -27,6 +27,38 @@ scrape_configs:
         labels:
           service: control-plane
 
+  - job_name: gateway-service
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets:
+          - gateway-service:8080
+        labels:
+          service: gateway-service
+
+  - job_name: approval-service
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets:
+          - approval-service:8064
+        labels:
+          service: approval-service
+
+  - job_name: artifact-service
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets:
+          - artifact-service:8081
+        labels:
+          service: artifact-service
+
+  - job_name: event-service
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets:
+          - event-service:8082
+        labels:
+          service: event-service
+
   - job_name: alertmanager
     static_configs:
       - targets:

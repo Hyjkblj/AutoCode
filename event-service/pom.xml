@@ -15,6 +15,11 @@
     <description>Standalone Event Service microservice — handles event processing, deduplication, and ACK protocol</description>
 
     <dependencies>
+        <dependency>
+            <groupId>net.logstash.logback</groupId>
+            <artifactId>logstash-logback-encoder</artifactId>
+            <version>7.4</version>
+        </dependency>
         <!-- Shared protocol (DTOs, ACK response, error codes) -->
         <dependency>
             <groupId>com.autocode</groupId>

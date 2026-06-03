@@ -15,6 +15,10 @@
         <module>shared-protocol</module>
         <module>control-plane-spring</module>
         <module>pc-agent-java</module>
+        <module>gateway-service</module>
+        <module>approval-service</module>
+        <module>artifact-service</module>
+        <module>event-service</module>
     </modules>
 
     <properties>

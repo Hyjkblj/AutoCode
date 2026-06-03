@@ -1,7 +1,13 @@
+# Version control
 .git
 .gitignore
+
+# IDE
 .idea
 .vscode
+.kiro
+
+# Build artifacts
 .gradle-cache
 .runtime-logs
 .tmp
@@ -11,5 +17,32 @@
 **/*.log
 **/hs_err_pid*
 **/replay_pid*
-**/data
+
+# Data directories
+data
+
+# Mobile app (not needed for Docker builds)
 mobile-app
+
+# Node modules (if any)
+node_modules
+
+# Claude worktrees (large, not needed)
+.claude
+
+# Test coverage artifacts
+.coverage
+coverage.xml
+htmlcov
+.pytest_cache
+.hypothesis
+
+# Documentation (keep only README if needed)
+*.md
+!README.md
+
+# Environment files (should be mounted, not copied)
+.env
+.env.*
+!.env.example
+!.env.prod.example

@@ -36,31 +36,24 @@ if [ -f "$ENV_FILE" ]; then
     echo "    To regenerate, delete it first: rm $ENV_FILE"
 else
     echo ""
-    echo "Generating secure passwords..."
-
-    MYSQL_ROOT_PASSWORD=$(openssl rand -base64 24)
-    MYSQL_PASSWORD=$(openssl rand -base64 24)
-    REDIS_PASSWORD=$(openssl rand -base64 24)
-    JWT_SECRET=$(openssl rand -base64 48)
-    AGENT_TOKEN=$(openssl rand -base64 32)
-    GRAFANA_PASSWORD=$(openssl rand -base64 16)
+    echo "Generating .env.prod with default passwords..."
 
     cat > "$ENV_FILE" <<EOF
 # AutoCode Production Environment Variables
 # Generated: $(date -Iseconds)
 
 # ─── MySQL ──────────────────────────────────────────────────────
-MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
-MYSQL_PASSWORD=${MYSQL_PASSWORD}
+MYSQL_ROOT_PASSWORD=000000
+MYSQL_PASSWORD=000000
 
 # ─── Redis ──────────────────────────────────────────────────────
-REDIS_PASSWORD=${REDIS_PASSWORD}
+REDIS_PASSWORD=000000
 
 # ─── JWT ────────────────────────────────────────────────────────
-JWT_SECRET=${JWT_SECRET}
+JWT_SECRET=autocode-dev-jwt-secret-which-is-at-least-32bytes-long
 
 # ─── Agent ──────────────────────────────────────────────────────
-AGENT_TOKEN=${AGENT_TOKEN}
+AGENT_TOKEN=agent-dev-token-000000
 
 # ─── LLM API ────────────────────────────────────────────────────
 ARK_API_KEY=
@@ -69,24 +62,16 @@ LLM_CONFIG_PATH=configs/doubao-seed-2.0-code-high-perf.json
 
 # ─── Grafana ────────────────────────────────────────────────────
 GRAFANA_ADMIN_USER=admin
-GRAFANA_ADMIN_PASSWORD=${GRAFANA_PASSWORD}
+GRAFANA_ADMIN_PASSWORD=000000
 EOF
 
     chmod 600 "$ENV_FILE"
-    echo "[OK] Generated .env.prod with secure passwords"
+    echo "[OK] Generated .env.prod"
     echo ""
     echo "========================================="
-    echo "IMPORTANT: Save these credentials!"
+    echo "Default passwords: 000000"
+    echo "Change them in production!"
     echo "========================================="
-    echo ""
-    echo "MySQL Root Password:  ${MYSQL_ROOT_PASSWORD}"
-    echo "MySQL App Password:   ${MYSQL_PASSWORD}"
-    echo "Redis Password:       ${REDIS_PASSWORD}"
-    echo "JWT Secret:           ${JWT_SECRET}"
-    echo "Agent Token:          ${AGENT_TOKEN}"
-    echo "Grafana Password:     ${GRAFANA_PASSWORD}"
-    echo ""
-    echo "These are also saved in: ${ENV_FILE}"
     echo ""
 fi
 

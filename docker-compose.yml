@@ -3,16 +3,16 @@ services:
     image: mysql:8.4
     container_name: mvp-mysql
     environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-changeme}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-000000}
       MYSQL_DATABASE: mvp_codeops
       MYSQL_USER: mvp
-      MYSQL_PASSWORD: ${MVP_DB_PASSWORD:-changeme}
+      MYSQL_PASSWORD: ${MVP_DB_PASSWORD:-000000}
     ports:
       - "3306:3306"
     volumes:
       - mysql-data:/var/lib/mysql
     healthcheck:
-      test: ["CMD-SHELL", "mysqladmin ping -h localhost -uroot -p${MYSQL_ROOT_PASSWORD:-changeme} --silent"]
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -uroot -p${MYSQL_ROOT_PASSWORD:-000000} --silent"]
       interval: 10s
       timeout: 5s
       retries: 20
@@ -20,13 +20,13 @@ services:
   redis:
     image: redis:7.4
     container_name: mvp-redis
-    command: ["redis-server", "--requirepass", "${MVP_REDIS_PASSWORD:-changeme}"]
+    command: ["redis-server", "--requirepass", "${MVP_REDIS_PASSWORD:-000000}"]
     ports:
       - "6379:6379"
     volumes:
       - redis-data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "${MVP_REDIS_PASSWORD:-changeme}", "ping"]
+      test: ["CMD", "redis-cli", "-a", "${MVP_REDIS_PASSWORD:-000000}", "ping"]
       interval: 10s
       timeout: 5s
       retries: 20
@@ -45,12 +45,12 @@ services:
     environment:
       MVP_DB_URL: jdbc:mysql://mysql:3306/mvp_codeops?useUnicode=true&characterEncoding=utf8&serverTimezone=UTC
       MVP_DB_USERNAME: root
-      MVP_DB_PASSWORD: ${MVP_DB_PASSWORD:-changeme}
+      MVP_DB_PASSWORD: ${MVP_DB_PASSWORD:-000000}
       MVP_REDIS_HOST: redis
       MVP_REDIS_PORT: "6379"
-      MVP_REDIS_PASSWORD: ${MVP_REDIS_PASSWORD:-changeme}
+      MVP_REDIS_PASSWORD: ${MVP_REDIS_PASSWORD:-000000}
       MVP_AUTH_MODE: jwt
-      MVP_JWT_SECRET: ${MVP_JWT_SECRET:-your-jwt-secret-at-least-32-bytes-long}
+      MVP_JWT_SECRET: ${MVP_JWT_SECRET:-autocode-dev-jwt-secret-which-is-at-least-32bytes-long}
       MVP_ELEVATED_AUTHORITIES: ROLE_ADMIN,ROLE_OPERATOR
       MVP_MTLS_REQUIRED_FOR_AGENT: "false"
       MVP_ARTIFACTS_BASE_DIR: /app/data/artifacts
@@ -78,7 +78,7 @@ services:
         condition: service_healthy
     environment:
       MVP_BASE_URL: http://control-plane:8058
-      MVP_AGENT_TOKEN: agent-dev-token
+      MVP_AGENT_TOKEN: ${MVP_AGENT_TOKEN:-agent-dev-token-000000}
       MVP_NODE_ID: java-sandbox-local
       MVP_AGENT_PROFILE: coder
       MVP_ALLOWED_WORKSPACE_PREFIXES: /workspace
@@ -101,13 +101,13 @@ services:
     network_mode: "service:pc-agent-java"
     environment:
       MVP_BASE_URL: http://control-plane:8058
-      MVP_AGENT_TOKEN: agent-dev-token
+      MVP_AGENT_TOKEN: ${MVP_AGENT_TOKEN:-agent-dev-token-000000}
       MVP_NODE_ID: py-ai-local
       MVP_AGENT_PROFILE: ai-agent
       MVP_ALLOWED_WORKSPACE_PREFIXES: /workspace
       MVP_SANDBOX_BASE_URL: http://127.0.0.1:18080
       MVP_MEMORY_BACKEND: redis
-      MVP_REDIS_URL: redis://:000000@redis:6379/0
+      MVP_REDIS_URL: redis://:${MVP_REDIS_PASSWORD:-000000}@redis:6379/0
       ARK_API_KEY: ${ARK_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       LLM_CONFIG_PATH: ${LLM_CONFIG_PATH:-configs/doubao-seed-2.0-code-high-perf.json}
@@ -174,7 +174,7 @@ services:
         condition: service_started
     environment:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
-      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-changeme}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-000000}
       GF_USERS_ALLOW_SIGN_UP: "false"
       GF_METRICS_ENABLED: "true"
     ports:

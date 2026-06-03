@@ -31,6 +31,7 @@ import androidx.lifecycle.viewModelScope
 import com.autocode.mobile.network.AgentNodeDto
 import com.autocode.mobile.network.ArtifactListItem
 import com.autocode.mobile.network.CLARIFICATION_REQUESTED
+import com.autocode.mobile.network.CLARIFICATION_ANSWERED
 import com.autocode.mobile.network.CODE_INDEX_BUILT
 import com.autocode.mobile.network.ControlPlaneClient
 import com.autocode.mobile.network.KNOWLEDGE_WRITEBACK
@@ -1467,7 +1468,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 val question = stringValue(payload, "question") ?: "需要澄清"
                 "需求澄清：$question"
             }
-            CLARIFICATION_ANSWERED -> {
+              CLARIFICATION_ANSWERED -> {
                 val answer = stringValue(payload, "answer") ?: "已回答"
                 "澄清回复：$answer"
             }

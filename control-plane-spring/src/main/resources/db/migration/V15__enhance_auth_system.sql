@@ -10,11 +10,11 @@ ALTER TABLE users ADD COLUMN refresh_token VARCHAR(512);
 ALTER TABLE users ADD COLUMN refresh_token_expires_at TIMESTAMP(6);
 ALTER TABLE users ADD COLUMN last_login_at TIMESTAMP(6);
 
-CREATE UNIQUE INDEX idx_users_oauth_provider
-    ON users (auth_provider, oauth_provider_id)
-    WHERE oauth_provider_id IS NOT NULL;
+-- MySQL不支持部分索引，使用普通索引代替
+CREATE INDEX idx_users_oauth_provider
+    ON users (auth_provider, oauth_provider_id);
 
-CREATE INDEX idx_users_email ON users (email) WHERE email IS NOT NULL;
+CREATE INDEX idx_users_email ON users (email);
 
 -- 2. 邮箱验证码表
 CREATE TABLE email_verifications (

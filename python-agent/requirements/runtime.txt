@@ -1,3 +1,4 @@
 # Runtime dependencies for the python-agent service.
 redis>=5.0.0,<6
 langgraph>=0.2.0,<1
+prometheus_client>=0.20.0,<1

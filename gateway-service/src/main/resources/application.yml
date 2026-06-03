@@ -7,6 +7,9 @@ spring:
     timeout-per-shutdown-phase: 30s
   application:
     name: gateway-service
+  cloud:
+    compatibility-verifier:
+      enabled: false
 
   # -------------------------------------------------------------------------
   # Spring Cloud Gateway

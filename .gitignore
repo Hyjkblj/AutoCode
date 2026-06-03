@@ -16,6 +16,8 @@
 **/application-local.yaml
 .env
 **/.env
+**/configs/*.json
+!.gitkeep
 
 # IDE and editor
 .gradle-local/

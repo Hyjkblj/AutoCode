@@ -1,7 +1,10 @@
 FROM maven:3.9.9-eclipse-temurin-17 AS build
 WORKDIR /build
 
-# Copy shared-protocol first (dependency)
+# Copy parent pom.xml (required by shared-protocol)
+COPY pom.xml .
+
+# Copy shared-protocol (dependency)
 COPY shared-protocol/pom.xml shared-protocol/pom.xml
 COPY shared-protocol/src shared-protocol/src
 

@@ -2,39 +2,20 @@ name: deploy
 
 on:
   workflow_dispatch:
-    inputs:
-      environment:
-        description: 'Target environment'
-        required: true
-        type: choice
-        options:
-          - staging
-          - production
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    environment: ${{ inputs.environment }}
+    environment: production
     steps:
       - uses: actions/checkout@v4
-
-      - name: Set deploy target
-        id: target
-        run: |
-          if [ "${{ inputs.environment }}" = "staging" ]; then
-            echo "host=${{ secrets.STAGING_HOST }}" >> $GITHUB_OUTPUT
-            echo "key=${{ secrets.STAGING_SSH_KEY }}" >> $GITHUB_OUTPUT
-          else
-            echo "host=${{ secrets.PROD_HOST }}" >> $GITHUB_OUTPUT
-            echo "key=${{ secrets.PROD_SSH_KEY }}" >> $GITHUB_OUTPUT
-          fi
 
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1
         with:
-          host: ${{ steps.target.outputs.host }}
+          host: ${{ secrets.STAGING_HOST }}
           username: deploy
-          key: ${{ steps.target.outputs.key }}
+          key: ${{ secrets.STAGING_SSH_KEY }}
           script: |
             cd /opt/autocode
             git pull origin master
@@ -46,5 +27,5 @@ jobs:
       - name: Smoke test
         run: |
           sleep 10
-          curl -fsS http://${{ steps.target.outputs.host }}:8080/actuator/health || exit 1
+          curl -fsS http://${{ secrets.STAGING_HOST }}:8080/actuator/health || exit 1
           echo "Smoke test passed"

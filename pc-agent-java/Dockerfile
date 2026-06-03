@@ -26,8 +26,8 @@ COPY event-service/pom.xml event-service/pom.xml
 COPY shared-protocol/src shared-protocol/src
 COPY pc-agent-java/src pc-agent-java/src
 
-# Build using Maven multi-module approach
-RUN mvn -q -DskipTests -pl pc-agent-java -am package
+# Build using Maven multi-module approach (skip test compilation entirely)
+RUN mvn -q -Dmaven.test.skip=true -pl pc-agent-java -am package
 
 FROM eclipse-temurin:17-jre
 WORKDIR /app

@@ -26,8 +26,8 @@ COPY event-service/pom.xml event-service/pom.xml
 COPY shared-protocol/src shared-protocol/src
 COPY control-plane-spring/src control-plane-spring/src
 
-# Build using Maven multi-module approach
-RUN mvn -q -DskipTests -pl control-plane-spring -am package
+# Build using Maven multi-module approach (skip test compilation entirely)
+RUN mvn -q -Dmaven.test.skip=true -pl control-plane-spring -am package
 
 FROM eclipse-temurin:17-jre
 WORKDIR /app

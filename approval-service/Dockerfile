@@ -1,16 +1,26 @@
-FROM eclipse-temurin:17-jdk-jammy
+FROM maven:3.9.9-eclipse-temurin-17 AS build
+WORKDIR /build
 
+COPY pom.xml .
+COPY shared-protocol/pom.xml shared-protocol/pom.xml
+COPY approval-service/pom.xml approval-service/pom.xml
+COPY shared-protocol/src shared-protocol/src
+COPY approval-service/src approval-service/src
+
+RUN mvn -q -DskipTests -pl approval-service -am package
+
+FROM eclipse-temurin:17-jdk-jammy
 WORKDIR /app
 
-# Copy the JAR file
-COPY target/approval-service-*.jar app.jar
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/*
 
-# Expose the port
+COPY --from=build /build/approval-service/target/approval-service-*.jar app.jar
+
 EXPOSE 8064
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=3s --start-period=60s --retries=3 \
   CMD curl -f http://localhost:8064/actuator/health || exit 1
 
-# Run the application
 ENTRYPOINT ["java", "-jar", "app.jar"]

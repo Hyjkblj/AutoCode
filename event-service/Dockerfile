@@ -1,16 +1,26 @@
-FROM eclipse-temurin:17-jdk-jammy
+FROM maven:3.9.9-eclipse-temurin-17 AS build
+WORKDIR /build
 
+COPY pom.xml .
+COPY shared-protocol/pom.xml shared-protocol/pom.xml
+COPY event-service/pom.xml event-service/pom.xml
+COPY shared-protocol/src shared-protocol/src
+COPY event-service/src event-service/src
+
+RUN mvn -q -DskipTests -pl event-service -am package
+
+FROM eclipse-temurin:17-jdk-jammy
 WORKDIR /app
 
-# Copy the JAR file
-COPY target/event-service-*.jar app.jar
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/*
 
-# Expose the port
+COPY --from=build /build/event-service/target/event-service-*.jar app.jar
+
 EXPOSE 8082
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=3s --start-period=60s --retries=3 \
   CMD curl -f http://localhost:8082/actuator/health || exit 1
 
-# Run the application
 ENTRYPOINT ["java", "-jar", "app.jar"]

@@ -1,15 +1,17 @@
 FROM maven:3.9.9-eclipse-temurin-17 AS build
 WORKDIR /build
 
-COPY pom.xml .
+# Copy shared-protocol first (dependency)
 COPY shared-protocol/pom.xml shared-protocol/pom.xml
-COPY control-plane-spring/pom.xml control-plane-spring/pom.xml
-COPY pc-agent-java/pom.xml pc-agent-java/pom.xml
-COPY gateway-service/pom.xml gateway-service/pom.xml
 COPY shared-protocol/src shared-protocol/src
+
+# Copy service
+COPY gateway-service/pom.xml gateway-service/pom.xml
 COPY gateway-service/src gateway-service/src
 
-RUN mvn -q -DskipTests -pl gateway-service -am package
+# Build shared-protocol first, then the service
+RUN cd shared-protocol && mvn -q -DskipTests install && \
+    cd ../gateway-service && mvn -q -DskipTests package
 
 FROM eclipse-temurin:17-jdk-jammy
 WORKDIR /app

@@ -104,6 +104,7 @@ services:
       SPRING_PROFILES_ACTIVE: prod
       CONTROL_PLANE_URL: http://control-plane:8058
       CONTROL_PLANE_WS_URL: ws://control-plane:8058
+      JAVA_SANDBOX_URL: http://pc-agent-java:18080
       GATEWAY_REDIS_HOST: redis
       GATEWAY_REDIS_PORT: "6379"
       GATEWAY_REDIS_PASSWORD: ${REDIS_PASSWORD:-000000}

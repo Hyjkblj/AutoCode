@@ -20,7 +20,7 @@ services:
       MYSQL_USER: autocode
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:-000000}
     ports:
-      - "3306:3306"
+      - "3307:3306"
     volumes:
       - mysql-data:/var/lib/mysql
     healthcheck:
@@ -246,6 +246,28 @@ services:
       LLM_CONFIG_PATH: ${LLM_CONFIG_PATH:-configs/mimo-v2.5.json}
     volumes:
       - workspace-data:/workspace
+
+  # ──────────────────────────────────────────────────────────────
+  # Nginx 反向代理
+  # ──────────────────────────────────────────────────────────────
+
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: autocode-nginx
+    restart: unless-stopped
+    depends_on:
+      gateway-service:
+        condition: service_started
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./ops/gateway/nginx.conf:/etc/nginx/nginx.conf:ro
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
 
   # ──────────────────────────────────────────────────────────────
   # 可观测性

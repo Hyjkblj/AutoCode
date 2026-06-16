@@ -88,6 +88,7 @@ services:
       - "8058:8058"
     volumes:
       - control-plane-data:/app/data
+      - ./control-plane-spring/src/main/resources/application.yml:/app/config/application.yml:ro
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:8058/actuator/health"]
       interval: 15s

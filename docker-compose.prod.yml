@@ -77,15 +77,15 @@ services:
       MVP_MTLS_REQUIRED_FOR_AGENT: "false"
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
-      GOOGLE_REDIRECT_URI: https://hyjkblj.online/api/v1/auth/oauth/google/callback
+      GOOGLE_REDIRECT_URI: https://hyjkblj.online/code/api/v1/auth/oauth/google/callback
       GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
       GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-}
-      GITHUB_REDIRECT_URI: https://hyjkblj.online/api/v1/auth/oauth/github/callback
+      GITHUB_REDIRECT_URI: https://hyjkblj.online/code/api/v1/auth/oauth/github/callback
       MVP_ARTIFACTS_BASE_DIR: /app/data/artifacts
       MVP_ARTIFACTS_HOSTING_BASE_DIR: /app/data/artifacts-hosted
       MVP_TASK_MAX_CONCURRENT: "50"
     ports:
-      - "8058:8058"
+      - "127.0.0.1:8058:8058"
     volumes:
       - control-plane-data:/app/data
       - ./control-plane-spring/src/main/resources/application.yml:/app/config/application.yml:ro
@@ -116,7 +116,7 @@ services:
       GATEWAY_REDIS_PORT: "6379"
       GATEWAY_REDIS_PASSWORD: ${REDIS_PASSWORD:-000000}
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:8080/actuator/health"]
       interval: 15s
@@ -142,7 +142,7 @@ services:
       APPROVAL_DB_PASSWORD: ${MYSQL_PASSWORD:-000000}
       CONTROL_PLANE_URL: http://control-plane:8058
     ports:
-      - "8064:8064"
+      - "127.0.0.1:8064:8064"
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:8064/actuator/health"]
       interval: 15s
@@ -169,7 +169,7 @@ services:
       CONTROL_PLANE_URL: http://control-plane:8058
       ARTIFACT_STORAGE_DIR: /data/artifacts
     ports:
-      - "8081:8081"
+      - "127.0.0.1:8081:8081"
     volumes:
       - artifact-data:/data/artifacts
     healthcheck:
@@ -196,7 +196,7 @@ services:
       EVENT_DB_USER: autocode
       EVENT_DB_PASSWORD: ${MYSQL_PASSWORD:-000000}
     ports:
-      - "8082:8082"
+      - "127.0.0.1:8082:8082"
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:8082/actuator/health"]
       interval: 15s
@@ -259,25 +259,6 @@ services:
   # Nginx 反向代理
   # ──────────────────────────────────────────────────────────────
 
-  nginx:
-    image: nginx:1.27-alpine
-    container_name: autocode-nginx
-    restart: unless-stopped
-    depends_on:
-      gateway-service:
-        condition: service_started
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./ops/gateway/nginx.conf:/etc/nginx/nginx.conf:ro
-      - /etc/letsencrypt:/etc/letsencrypt:ro
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost/healthz"]
-      interval: 15s
-      timeout: 5s
-      retries: 3
-
   # ──────────────────────────────────────────────────────────────
   # 可观测性
   # ──────────────────────────────────────────────────────────────
@@ -295,7 +276,7 @@ services:
       - "--storage.tsdb.retention.time=15d"
       - "--web.enable-lifecycle"
     ports:
-      - "9090:9090"
+      - "127.0.0.1:9090:9090"
     volumes:
       - ./ops/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./ops/observability/alert_rules.yml:/etc/prometheus/alert_rules.yml:ro
@@ -309,7 +290,7 @@ services:
       - "--config.file=/etc/alertmanager/alertmanager.yml"
       - "--storage.path=/alertmanager"
     ports:
-      - "9093:9093"
+      - "127.0.0.1:9093:9093"
     volumes:
       - ./ops/observability/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
 
@@ -326,7 +307,7 @@ services:
       GF_USERS_ALLOW_SIGN_UP: "false"
       GF_METRICS_ENABLED: "true"
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     volumes:
       - ./ops/observability/grafana/provisioning:/etc/grafana/provisioning:ro
       - ./ops/observability/grafana/dashboards:/var/lib/grafana/dashboards:ro

@@ -76,11 +76,11 @@ mvp:
       google:
         client-id: ${GOOGLE_CLIENT_ID:}
         client-secret: ${GOOGLE_CLIENT_SECRET:}
-        redirect-uri: ${GOOGLE_REDIRECT_URI:http://localhost:8058/api/v1/auth/oauth/google/callback}
+        redirect-uri: ${GOOGLE_REDIRECT_URI:https://hyjkblj.online/code/api/v1/auth/oauth/google/callback}
       github:
         client-id: ${GITHUB_CLIENT_ID:}
         client-secret: ${GITHUB_CLIENT_SECRET:}
-        redirect-uri: ${GITHUB_REDIRECT_URI:http://localhost:8058/api/v1/auth/oauth/github/callback}
+        redirect-uri: ${GITHUB_REDIRECT_URI:https://hyjkblj.online/code/api/v1/auth/oauth/github/callback}
     email:
       smtp-host: ${SMTP_HOST:}
       from-address: ${SMTP_FROM:noreply@autocode.dev}
@@ -90,6 +90,8 @@ mvp:
     redis-key: mvp:task:queue
     lease-seconds: 60
     backend: redis
+  task:
+    max-concurrent: ${MVP_TASK_MAX_CONCURRENT:50}
 
 artifacts:
   storage:
@@ -107,10 +109,6 @@ artifacts:
   cleanup:
     enabled: ${MVP_ARTIFACTS_CLEANUP_ENABLED:true}
     retention-days: ${MVP_ARTIFACTS_CLEANUP_RETENTION_DAYS:30}
-
-mvp:
-  task:
-    max-concurrent: ${MVP_TASK_MAX_CONCURRENT:50}
 
 resilience4j:
   circuitbreaker:
